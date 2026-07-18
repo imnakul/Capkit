@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+dist/
+target/
+.turbo/
+.vite/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+apps/desktop/src-tauri/gen/

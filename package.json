@@ -1,0 +1,15 @@
+{
+  "name": "shothub",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.14.0",
+  "scripts": {
+    "dev": "pnpm --filter @shothub/desktop dev",
+    "build": "pnpm --filter @shothub/desktop build",
+    "typecheck": "pnpm --filter @shothub/desktop typecheck",
+    "lint": "pnpm --filter @shothub/desktop lint",
+    "lint:fix": "pnpm --filter @shothub/desktop lint:fix",
+    "test": "pnpm --filter @shothub/desktop test",
+    "tauri": "pnpm --filter @shothub/desktop tauri"
+  }
+}

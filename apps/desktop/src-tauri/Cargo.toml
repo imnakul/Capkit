@@ -1,0 +1,30 @@
+[package]
+name = "shothub-desktop"
+version = "0.1.0"
+description = "ShotHub lightweight screenshot utility"
+authors = ["ShotHub"]
+edition = "2024"
+
+[lib]
+name = "shothub_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+ab_glyph = "0.2.32"
+arboard = "3.6.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+dirs = "6.0.0"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "png"] }
+imageproc = "0.27.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tauri = { version = "2.11.5", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2.3.2"
+thiserror = "2.0.18"
+uuid = { version = "1.24.0", features = ["v4", "serde"] }
+xcap = { version = "0.9.6", features = ["image", "wgc"] }
