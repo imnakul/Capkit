@@ -39,7 +39,7 @@ export function CaptureBackdrop({ snapshotUrl }: CaptureBackdropProps): React.JS
         <div className="border-b border-white/10 px-5 py-4 text-xs font-semibold text-stone-300">release-notes.md</div>
         <div className="space-y-3 p-6 font-mono text-[10px] text-stone-500">
           <p className="text-lime-300"># Capture, explain, continue.</p>
-          <p>ShotHub keeps the tools around the work.</p>
+          <p>Snaphub keeps the tools around the work.</p>
           <p className="text-sky-300">const flow = ["select", "edit", "copy"];</p>
         </div>
       </div>

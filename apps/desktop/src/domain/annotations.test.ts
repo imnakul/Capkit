@@ -23,5 +23,25 @@ describe("sceneHistoryReducer", () => {
     expect(undone.present.elements).toHaveLength(0);
     expect(redone.present.elements).toEqual([annotation]);
   });
-});
 
+  it("updates and deletes one annotation while keeping both actions undoable", () => {
+    const annotation = {
+      id: "text-1",
+      kind: "text" as const,
+      position: { x: 12, y: 20 },
+      text: "Type something",
+      color: "#d9ff43",
+      fontFamily: "Caveat Variable",
+      fontSize: 24,
+      opacity: 1,
+    };
+    const added = sceneHistoryReducer(initialSceneHistory, { type: "add", annotation });
+    const updatedAnnotation = { ...annotation, text: "A clear note" };
+    const updated = sceneHistoryReducer(added, { type: "update", annotation: updatedAnnotation });
+    const deleted = sceneHistoryReducer(updated, { type: "delete", annotationId: annotation.id });
+
+    expect(updated.present.elements).toEqual([updatedAnnotation]);
+    expect(deleted.present.elements).toHaveLength(0);
+    expect(sceneHistoryReducer(deleted, { type: "undo" }).present.elements).toEqual([updatedAnnotation]);
+  });
+});

@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum ShotHubError {
+pub enum SnaphubError {
     #[error("SH-CAPTURE-001: {0}")]
     Capture(String),
     #[error("SH-CLIPBOARD-001: {0}")]
@@ -16,7 +16,7 @@ pub enum ShotHubError {
     Window(String),
 }
 
-impl ShotHubError {
+impl SnaphubError {
     pub fn capture(error: impl std::fmt::Display) -> Self {
         Self::Capture(error.to_string())
     }
@@ -30,7 +30,7 @@ impl ShotHubError {
     }
 }
 
-impl serde::Serialize for ShotHubError {
+impl serde::Serialize for SnaphubError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

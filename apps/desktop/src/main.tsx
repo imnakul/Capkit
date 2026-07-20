@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import "@fontsource-variable/caveat/wght.css";
 import "@fontsource-variable/jetbrains-mono/index.css";
 import "@fontsource-variable/plus-jakarta-sans/index.css";
 import "./styles.css";
@@ -29,10 +30,12 @@ const DashboardPanel = lazy(async () => {
 const rootElement = document.getElementById("root");
 
 if (rootElement === null) {
-  throw new Error("ShotHub root element was not found.");
+  throw new Error("Snaphub root element was not found.");
 }
 
-const pinPath = new URLSearchParams(window.location.search).get("pin");
+const searchParams = new URLSearchParams(window.location.search);
+const pinPath = searchParams.get("pin");
+const pinWindowLabel = searchParams.get("pinWindow");
 const currentWindowLabel = isTauri()
   ? getCurrentWindow().label
   : new URLSearchParams(window.location.search).has("dashboard")
@@ -41,9 +44,11 @@ const currentWindowLabel = isTauri()
 
 createRoot(rootElement).render(
   <StrictMode>
-    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing ShotHub" />}>
+    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing Snaphub" />}>
       {pinPath !== null ? (
         <PinnedCapture path={pinPath} />
+      ) : pinWindowLabel !== null ? (
+        <PinnedCaptureEntry windowLabel={pinWindowLabel} />
       ) : currentWindowLabel.startsWith("pin-") ? (
         <PinnedCaptureEntry windowLabel={currentWindowLabel} />
       ) : currentWindowLabel === "dashboard" ? (

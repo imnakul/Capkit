@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "capture-window",
-  "description": "Least-privilege capability for the ShotHub capture surface.",
+  "description": "Least-privilege capability for the Snaphub capture surface.",
   "windows": ["dashboard", "capture", "pin-*"],
   "permissions": [
     "core:default",
     "core:event:default",
     "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-resizable",
     "dialog:default",
     "autostart:allow-enable",
     "autostart:allow-disable",

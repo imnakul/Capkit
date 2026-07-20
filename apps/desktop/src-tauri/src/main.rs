@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 fn main() {
-    shothub_desktop_lib::run();
+    snaphub_desktop_lib::run();
 }

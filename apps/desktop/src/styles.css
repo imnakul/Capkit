@@ -2,9 +2,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --shothub-accent: #d9ff43;
+  --snaphub-accent: #d9ff43;
   --capture-overlay: rgb(7 8 7 / 64%);
-  --color-lime-300: var(--shothub-accent);
+  --color-lime-300: var(--snaphub-accent);
   --font-mono: "JetBrains Mono Variable", "Cascadia Mono", monospace;
   --font-sans: "Plus Jakarta Sans Variable", "Segoe UI Variable", system-ui, sans-serif;
   color: #f3f4ef;
@@ -58,7 +58,7 @@ button {
   padding: 0;
   border: 2px solid #171815;
   border-radius: 9999px;
-  background: var(--shothub-accent);
+  background: var(--snaphub-accent);
   outline: none;
 }
 

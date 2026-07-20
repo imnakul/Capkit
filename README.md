@@ -1,6 +1,6 @@
-# ShotHub
+# Snaphub
 
-ShotHub is a lightweight, cross-platform screenshot utility built around one uninterrupted workflow:
+Snaphub is a lightweight Windows-first screenshot utility designed for cross-platform rollout and built around one uninterrupted workflow:
 
 `Shortcut -> select on a frozen screen -> edit in place -> copy, save, or pin -> return to work`
 
@@ -48,6 +48,32 @@ pnpm.cmd test
 pnpm.cmd tauri dev
 ```
 
+## Installable builds
+
+The current supported build is Windows 11. From a Windows development machine with the prerequisites above installed, create a normal per-user NSIS setup executable with:
+
+```powershell
+pnpm.cmd install
+pnpm.cmd bundle:windows
+pnpm.cmd bundle:store
+```
+
+The installer is written to:
+
+```text
+apps/desktop/src-tauri/target/release/bundle/nsis/Snaphub_0.1.1_x64-setup.exe
+```
+
+`pnpm.cmd bundle:store` creates the Store-ready x64 MSIX package and the recommended `.msixupload` submission artifact under `apps/desktop/src-tauri/target/store`. Its manifest uses the immutable Partner Center identity `JagatBandhu.SnapHub`; package versions use four parts and must end in `.0`. See [Microsoft Store release](docs/microsoft-store-release.md).
+
+Tauri uses the system WebView2 runtime on current Windows 10/11 installations, keeping the installer smaller. Production distribution should add code signing before public release. `pnpm.cmd bundle` builds the native bundle formats configured for the host operating system.
+
+### Platform status
+
+- **Confirmed:** Windows 11 is the only currently supported and physically tested target.
+- **Provisional:** macOS, Ubuntu, and Fedora are architectural targets. Shared capture/domain code exists, but native permissions, target detection, scrolling input, packaging, signing, and hardware acceptance are not complete.
+- Native installers should be built and tested on their target OS: Windows for NSIS/MSI, macOS with Xcode for `.app`/`.dmg`, and Linux with WebKitGTK/system packaging dependencies for AppImage, Debian, or RPM packages.
+
 Rust checks:
 
 ```powershell
@@ -61,5 +87,17 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```text
 apps/desktop/          React capture surface and Tauri host
 apps/desktop/src-tauri Rust resident core and platform adapters
+apps/landing-page/     Next.js marketing site (docs/brand-marketing-handoff.md)
 docs/                  Product and engineering source of truth
+```
+
+## Landing page
+
+The marketing site lives in `apps/landing-page` and is a standalone Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 project, styled per [Brand and marketing handoff](docs/brand-marketing-handoff.md). It ships no product code and is not part of the desktop build.
+
+```powershell
+pnpm.cmd --filter @snaphub/landing-page dev
+pnpm.cmd --filter @snaphub/landing-page typecheck
+pnpm.cmd --filter @snaphub/landing-page lint
+pnpm.cmd --filter @snaphub/landing-page build
 ```

@@ -9,12 +9,16 @@ import {
   detectedTargetSchema,
   pointSchema,
   rectSchema,
+  scrollingCaptureResultSchema,
+  savedCaptureSchema,
   type CaptureSession,
   type CompletionAction,
   type DetectedTarget,
   type Display,
   type Point,
   type Rect,
+  type ScrollingCaptureResult,
+  type SavedCapture,
 } from "../domain/capture";
 
 const backendSessionSchema = captureSessionSchema.omit({ snapshotUrl: true }).extend({
@@ -61,7 +65,7 @@ export async function completeCapture(
   selection: Rect,
   scene: AnnotationScene,
 ): Promise<CompletionResult> {
-  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/ShotHub.png" : null };
+  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/Snaphub.png" : null };
 
   const raw: unknown = await invoke("complete_capture", {
     request: { action, sessionId, selection, scene },
@@ -74,7 +78,58 @@ export async function cancelCapture(sessionId: string): Promise<void> {
   await invoke("cancel_capture", { sessionId });
 }
 
-export async function detectTargets(point: Point): Promise<readonly DetectedTarget[]> {
+type ScrollingMode = "automatic" | "manual-start" | "manual-add";
+
+export async function captureScrolling(
+  mode: ScrollingMode,
+  sessionId: string,
+  selection: Rect,
+): Promise<ScrollingCaptureResult> {
+  if (!isTauri()) throw new Error("Scrolling capture requires the Windows desktop app");
+  const command =
+    mode === "automatic"
+      ? "capture_scrolling_automatic"
+      : mode === "manual-start"
+        ? "begin_manual_scrolling_capture"
+        : "add_manual_scrolling_frame";
+  const raw: unknown = await invoke(command, {
+    request: { sessionId, selection, maxFrames: 18, wheelSteps: 6 },
+  });
+  const parsed = scrollingCaptureResultSchema.parse(raw);
+  const previewUrl = convertFileSrc(parsed.outputPath);
+  await preloadImage(previewUrl);
+  return { ...parsed, previewUrl };
+}
+
+export async function cancelManualScrolling(sessionId: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("cancel_manual_scrolling_capture", { sessionId });
+}
+
+export async function discardScrollingOutput(outputPath: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("discard_scrolling_output", { outputPath });
+}
+
+export async function completeScrollingCapture(
+  action: CompletionAction,
+  sessionId: string,
+  outputPath: string,
+): Promise<CompletionResult> {
+  if (!isTauri()) return { action, outputPath: null };
+  const raw: unknown = await invoke("complete_scrolling_capture", {
+    action,
+    sessionId,
+    outputPath,
+  });
+  return completionResultSchema.parse(raw);
+}
+
+export async function detectTargets(
+  point: Point,
+  display: Display,
+  includeUiRegions: boolean,
+): Promise<readonly DetectedTarget[]> {
   const safePoint = pointSchema.parse(point);
   if (!isTauri()) {
     const demo = { x: window.innerWidth * 0.07, y: window.innerHeight * 0.1, width: window.innerWidth * 0.62, height: window.innerHeight * 0.68 };
@@ -87,8 +142,73 @@ export async function detectTargets(point: Point): Promise<readonly DetectedTarg
       ? [{ id: "demo-window", title: "Product workspace", kind: "window", bounds: demo }]
       : [];
   }
-  const raw: unknown = await invoke("detect_targets", { point: safePoint });
-  return z.array(detectedTargetSchema).parse(raw);
+  const scale = display.scaleFactor;
+  const physicalPoint = {
+    x: (display.bounds.x + safePoint.x) * scale,
+    y: (display.bounds.y + safePoint.y) * scale,
+  };
+  const raw: unknown = await invoke("detect_targets", {
+    point: physicalPoint,
+    includeUiRegions,
+  });
+  return toDisplayLocalTargets(z.array(detectedTargetSchema).parse(raw), display);
+}
+
+export async function getSaveDirectory(): Promise<string> {
+  if (!isTauri()) return "Pictures\\Snaphub";
+  const raw: unknown = await invoke("get_save_directory");
+  return z.string().min(1).parse(raw);
+}
+
+export async function setSaveDirectory(directory: string): Promise<string> {
+  if (!isTauri()) return directory;
+  const raw: unknown = await invoke("set_save_directory", { directory });
+  return z.string().min(1).parse(raw);
+}
+
+export async function resetSaveDirectory(): Promise<string> {
+  if (!isTauri()) return "Pictures\\Snaphub";
+  const raw: unknown = await invoke("reset_save_directory");
+  return z.string().min(1).parse(raw);
+}
+
+export async function listSavedCaptures(): Promise<readonly SavedCapture[]> {
+  if (!isTauri()) return [];
+  const raw: unknown = await invoke("list_saved_captures");
+  return z.array(savedCaptureSchema).parse(raw).map((capture) => ({
+    ...capture,
+    thumbnailUrl: convertFileSrc(capture.thumbnailPath),
+  }));
+}
+
+export async function listenForSavedCapture(callback: () => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen("snaphub://capture-saved", callback);
+}
+
+export async function openSaveDirectory(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_save_directory");
+}
+
+export async function openSavedCapture(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_saved_capture", { path });
+}
+
+export async function deleteSavedCapture(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("delete_saved_capture", { path });
+}
+
+export function describeInvokeError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim() !== "") return error.message;
+  if (typeof error === "string" && error.trim() !== "") return error;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = Reflect.get(error, "message");
+    if (typeof message === "string" && message.trim() !== "") return message;
+  }
+  return fallback;
 }
 
 export async function listTargets(display: Display): Promise<readonly DetectedTarget[]> {
@@ -109,8 +229,15 @@ export async function listTargets(display: Display): Promise<readonly DetectedTa
   }
 
   const raw: unknown = await invoke("list_targets");
+  return toDisplayLocalTargets(z.array(detectedTargetSchema).parse(raw), display);
+}
+
+function toDisplayLocalTargets(
+  targets: readonly DetectedTarget[],
+  display: Display,
+): readonly DetectedTarget[] {
   const scale = display.scaleFactor;
-  return z.array(detectedTargetSchema).parse(raw).map((target) => ({
+  return targets.map((target) => ({
     ...target,
     bounds: {
       x: target.bounds.x / scale - display.bounds.x,
@@ -123,7 +250,7 @@ export async function listTargets(display: Display): Promise<readonly DetectedTa
 
 export async function listenForCaptureRequest(callback: () => void): Promise<UnlistenFn> {
   if (!isTauri()) return () => undefined;
-  return listen("shothub://capture-requested", callback);
+  return listen("snaphub://capture-requested", callback);
 }
 
 function preloadImage(source: string): Promise<void> {

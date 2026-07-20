@@ -1,15 +1,19 @@
 {
-  "name": "shothub",
-  "version": "0.1.0",
+  "name": "snaphub",
+  "version": "0.1.1",
   "private": true,
   "packageManager": "pnpm@11.14.0",
   "scripts": {
-    "dev": "pnpm --filter @shothub/desktop dev",
-    "build": "pnpm --filter @shothub/desktop build",
-    "typecheck": "pnpm --filter @shothub/desktop typecheck",
-    "lint": "pnpm --filter @shothub/desktop lint",
-    "lint:fix": "pnpm --filter @shothub/desktop lint:fix",
-    "test": "pnpm --filter @shothub/desktop test",
-    "tauri": "pnpm --filter @shothub/desktop tauri"
+    "dev": "pnpm --filter @snaphub/desktop dev",
+    "build": "pnpm --filter @snaphub/desktop build",
+    "typecheck": "pnpm --filter @snaphub/desktop typecheck",
+    "lint": "pnpm --filter @snaphub/desktop lint",
+    "lint:fix": "pnpm --filter @snaphub/desktop lint:fix",
+    "test": "pnpm --filter @snaphub/desktop test",
+    "tauri": "pnpm --filter @snaphub/desktop tauri",
+    "bundle": "pnpm --filter @snaphub/desktop bundle",
+    "bundle:windows": "pnpm --filter @snaphub/desktop bundle:windows",
+    "bundle:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-msix.ps1",
+    "test:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-msix.ps1"
   }
 }

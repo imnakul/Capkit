@@ -6,6 +6,10 @@ import { CaptureBackdrop } from "./components/CaptureBackdrop";
 import { CompletionToolbar } from "./components/CompletionToolbar";
 import { SelectionFrame, type ResizeHandle } from "./components/SelectionFrame";
 import {
+  ScrollingCapturePanel,
+  type ScrollingCaptureState,
+} from "./components/ScrollingCapturePanel";
+import {
   defaultAnnotationStyle,
   initialSceneHistory,
   sceneHistoryReducer,
@@ -20,12 +24,19 @@ import type {
   Point,
   Rect,
 } from "./domain/capture";
-import { type ShotHubSettings, useShotHubSettings } from "./domain/settings";
+import { useSnaphubSettings } from "./domain/settings";
 import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
+import { captureCursor } from "./lib/cursor";
 import {
   cancelCapture,
+  cancelManualScrolling,
+  captureScrolling,
   completeCapture,
+  completeScrollingCapture,
+  detectTargets,
   dismissCapture,
+  discardScrollingOutput,
+  describeInvokeError,
   listTargets,
   listenForCaptureRequest,
   requestCapture,
@@ -45,7 +56,7 @@ const viewportBounds = (): Rect => ({
 });
 
 export function App(): React.JSX.Element {
-  const { settings } = useShotHubSettings();
+  const { settings } = useSnaphubSettings();
   const [session, setSession] = useState<CaptureSession | null>(null);
   const [selection, setSelection] = useState<Rect | null>(null);
   const [activeTool, setActiveTool] = useState<ToolId>("select");
@@ -56,6 +67,10 @@ export function App(): React.JSX.Element {
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
   const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle");
+  const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
+  const uiLookupSequence = useRef(0);
+  const uiLookupInFlight = useRef(false);
+  const pendingUiLookup = useRef<Point | null>(null);
   const interaction = useRef<Interaction | null>(null);
   const pendingSelection = useRef<Rect | null>(null);
   const selectionFrameRequest = useRef<number | null>(null);
@@ -80,6 +95,7 @@ export function App(): React.JSX.Element {
         setTargets([]);
         setIsDraftingSelection(false);
         setActiveTool("select");
+        setScrollingCapture(null);
         setStyle({
           ...defaultAnnotationStyle,
           color: settingsRef.current.annotation.defaultColor,
@@ -147,6 +163,35 @@ export function App(): React.JSX.Element {
     });
   }
 
+  function scheduleUiTarget(point: Point): void {
+    if (!settingsRef.current.detection.uiRegions || session === null) return;
+    pendingUiLookup.current = point;
+    if (uiLookupInFlight.current) return;
+    const lookupPoint = pendingUiLookup.current;
+    pendingUiLookup.current = null;
+    uiLookupInFlight.current = true;
+    const sequence = uiLookupSequence.current + 1;
+    uiLookupSequence.current = sequence;
+    void detectTargets(lookupPoint, session.display, true)
+      .then((detectedTargets) => {
+        if (sequence !== uiLookupSequence.current || interaction.current !== null) return;
+        const allowedTargets = settingsRef.current.detection.windows
+          ? detectedTargets
+          : detectedTargets.filter((target) => target.kind !== "window");
+        const nextTarget = targetAtPoint(allowedTargets, lookupPoint);
+        setHoverTarget((previous) => previous?.id === nextTarget?.id ? previous : nextTarget);
+      })
+      .catch((error: unknown) => {
+        console.error("SH-TARGET-UIA-001", error);
+        setMessage(`Control detection unavailable · ${describeInvokeError(error, "Windows UI Automation did not return a target")}`);
+      })
+      .finally(() => {
+        uiLookupInFlight.current = false;
+        const pending = pendingUiLookup.current;
+        if (pending !== null) scheduleUiTarget(pending);
+      });
+  }
+
   function clearScheduledSelection(): Rect | null {
     if (selectionFrameRequest.current !== null) {
       window.cancelAnimationFrame(selectionFrameRequest.current);
@@ -201,10 +246,15 @@ export function App(): React.JSX.Element {
     const current = interaction.current;
     if (current === null) {
       if (selection === null) {
-        const nextTarget = targetAtPoint(targets, pointer(event));
-        setHoverTarget((previous) =>
-          previous?.id === nextTarget?.id ? previous : nextTarget,
-        );
+        const nextPoint = pointer(event);
+        if (settingsRef.current.detection.uiRegions) {
+          scheduleUiTarget(nextPoint);
+        } else {
+          const nextTarget = targetAtPoint(targets, nextPoint);
+          setHoverTarget((previous) =>
+            previous?.id === nextTarget?.id ? previous : nextTarget,
+          );
+        }
       }
       return;
     }
@@ -261,9 +311,82 @@ export function App(): React.JSX.Element {
     dispatchScene({ type: "add", annotation });
   }
 
+  async function runScrollingCapture(
+    mode: "automatic" | "manual-start" | "manual-add",
+  ): Promise<void> {
+    if (session === null || selection === null) return;
+    if (scrollingCapture?.phase === "preview") {
+      await discardScrollingOutput(scrollingCapture.result.outputPath).catch(() => undefined);
+    }
+    setScrollingCapture({ phase: "running", mode });
+    try {
+      const result = await captureScrolling(mode, session.id, selection);
+      setScrollingCapture({
+        phase: "preview",
+        mode: mode === "automatic" ? "automatic" : "manual",
+        result,
+      });
+    } catch (error: unknown) {
+      setScrollingCapture({
+        phase: "error",
+        message: describeInvokeError(error, "Scrolling capture could not continue"),
+      });
+    }
+  }
+
+  function startScrollingCapture(): void {
+    setActiveTool("select");
+    const mode = settingsRef.current.scrolling.defaultMode;
+    if (mode === "choose") {
+      setScrollingCapture({ phase: "setup" });
+      return;
+    }
+    void runScrollingCapture(mode === "automatic" ? "automatic" : "manual-start");
+  }
+
+  async function closeScrollingCapture(): Promise<void> {
+    if (scrollingCapture?.phase === "preview") {
+      await discardScrollingOutput(scrollingCapture.result.outputPath).catch(() => undefined);
+    }
+    if (session !== null) {
+      await cancelManualScrolling(session.id).catch(() => undefined);
+    }
+    setScrollingCapture(null);
+  }
+
+  async function finishScrollingCapture(action: CompletionAction): Promise<void> {
+    if (
+      session === null ||
+      scrollingCapture?.phase !== "preview" ||
+      busy
+    ) return;
+    setBusy(true);
+    try {
+      await completeScrollingCapture(
+        action,
+        session.id,
+        scrollingCapture.result.outputPath,
+      );
+      activationState.current = "idle";
+      setSession(null);
+      setSelection(null);
+      setScrollingCapture(null);
+    } catch (error: unknown) {
+      setScrollingCapture({
+        phase: "preview",
+        mode: scrollingCapture.mode,
+        result: scrollingCapture.result,
+        completionError: describeInvokeError(error, "Scrolling capture could not be completed"),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const handleCancel = useCallback(async (): Promise<void> => {
     try {
       if (session !== null) {
+        await cancelManualScrolling(session.id).catch(() => undefined);
         await cancelCapture(session.id).catch(async () => dismissCapture());
       } else {
         await dismissCapture();
@@ -278,6 +401,7 @@ export function App(): React.JSX.Element {
       setTargets([]);
       setHoverTarget(null);
       setIsDraftingSelection(false);
+      setScrollingCapture(null);
       dispatchScene({ type: "reset" });
     }
   }, [session]);
@@ -313,6 +437,10 @@ export function App(): React.JSX.Element {
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
+        if (scrollingCapture !== null) {
+          void closeScrollingCapture();
+          return;
+        }
         void handleCancel();
       } else if (event.key === "Enter" && selection !== null) {
         event.preventDefault();
@@ -327,7 +455,7 @@ export function App(): React.JSX.Element {
       window.removeEventListener("keydown", handleKeyDown);
     }
     return cleanupKeyboardListener;
-  }, [handleCancel, handleComplete, selection]);
+  }, [handleCancel, handleComplete, scrollingCapture, selection]);
 
   if (session === null) {
     return <div aria-hidden="true" className="h-screen w-screen bg-transparent" />;
@@ -352,11 +480,12 @@ export function App(): React.JSX.Element {
     selection === null
       ? 10
       : Math.max(10, Math.min(selection.y, window.innerHeight - 150));
+  const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
 
   return (
     <main
       className="relative h-screen w-screen overflow-hidden bg-[#111310] text-stone-100 select-none"
-      style={{ cursor: captureCursor(settings.cursor, settings.accentColor) }}
+      style={{ cursor: activeCaptureCursor }}
       onPointerDown={handleBackdropDown}
       onPointerMove={handlePointerMove}
       onPointerCancel={handlePointerUp}
@@ -411,9 +540,13 @@ export function App(): React.JSX.Element {
           <AnnotationCanvas
             activeTool={activeTool}
             bounds={selection}
+            cursor={activeCaptureCursor}
             scene={history.present}
+            snapshotUrl={session.snapshotUrl}
             style={style}
             onCommit={handleAnnotation}
+            onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
+            onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
           />
         </SelectionFrame>
       )}
@@ -421,7 +554,7 @@ export function App(): React.JSX.Element {
       {selection === null || isDraftingSelection ? null : (
         <>
           <div
-            className="absolute z-30"
+            className="absolute z-30 [&_button]:!cursor-[inherit]"
             data-capture-interactive="true"
             style={{ left: toolBarX, top: toolBarY }}
           >
@@ -433,13 +566,14 @@ export function App(): React.JSX.Element {
               palette={settings.palette}
               toolbar={settings.toolbar}
               onRedo={() => dispatchScene({ type: "redo" })}
+              onScrollCapture={startScrollingCapture}
               onStyleChange={setStyle}
               onToolChange={setActiveTool}
               onUndo={() => dispatchScene({ type: "undo" })}
             />
           </div>
           <div
-            className="absolute z-30"
+            className="absolute z-30 [&_button]:!cursor-[inherit]"
             data-capture-interactive="true"
             style={{ left: actionRailX, top: actionRailY }}
           >
@@ -451,37 +585,23 @@ export function App(): React.JSX.Element {
         </>
       )}
 
+      {scrollingCapture === null || selection === null ? null : (
+        <ScrollingCapturePanel
+          anchor={selection}
+          state={scrollingCapture}
+          onAutomatic={() => void runScrollingCapture("automatic")}
+          onClose={() => void closeScrollingCapture()}
+          onComplete={(action) => void finishScrollingCapture(action)}
+          onManualAdd={() => void runScrollingCapture("manual-add")}
+          onManualStart={() => void runScrollingCapture("manual-start")}
+        />
+      )}
+
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md">
-        ShotHub / {message}
+        Snaphub / {message}
       </div>
     </main>
   );
-}
-
-function captureCursor(cursor: ShotHubSettings["cursor"], accentColor: string): string {
-  if (!cursor.enabled) return "crosshair";
-  const sizeByName: Record<ShotHubSettings["cursor"]["size"], number> = {
-    small: 24,
-    medium: 32,
-    large: 40,
-  };
-  const size = sizeByName[cursor.size];
-  const center = size / 2;
-  const outerStroke = Math.max(4, Math.round(size / 7));
-  const innerStroke = Math.max(2, Math.round(size / 16));
-  const armStart = Math.round(size * 0.08);
-  const armEnd = Math.round(size * 0.35);
-  const farStart = size - armEnd;
-  const farEnd = size - armStart;
-  const cross = `<path d="M${String(center)} ${String(armStart)}v${String(armEnd - armStart)}M${String(center)} ${String(farStart)}v${String(farEnd - farStart)}M${String(armStart)} ${String(center)}h${String(armEnd - armStart)}M${String(farStart)} ${String(center)}h${String(farEnd - farStart)}"/>`;
-  const shape =
-    cursor.style === "target"
-      ? `${cross}<circle cx="${String(center)}" cy="${String(center)}" r="${String(Math.round(size * 0.22))}"/>`
-      : cursor.style === "precision"
-        ? `<path d="M${String(center)} ${String(armStart)}L${String(farEnd)} ${String(center)} ${String(center)} ${String(farEnd)} ${String(armStart)} ${String(center)}Z"/><circle cx="${String(center)}" cy="${String(center)}" r="${String(Math.max(2, Math.round(size * 0.07)))}" fill="${accentColor}"/>`
-        : cross;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(size)}" height="${String(size)}" viewBox="0 0 ${String(size)} ${String(size)}"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#090b09" stroke-width="${String(outerStroke)}">${shape}</g><g stroke="${accentColor}" stroke-width="${String(innerStroke)}">${shape}</g></g></svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${String(center)} ${String(center)}, crosshair`;
 }
 
 function resizeRect(initial: Rect, start: Point, current: Point, handle: ResizeHandle): Rect {

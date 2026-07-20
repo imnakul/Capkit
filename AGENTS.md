@@ -1,4 +1,4 @@
-# ShotHub Agent Rules
+# Snaphub Agent Rules
 
 These instructions apply to every change in this repository.
 

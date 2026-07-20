@@ -91,6 +91,14 @@ pub enum Annotation {
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
     },
+    Pencil {
+        id: String,
+        opacity: f32,
+        points: Vec<Point>,
+        color: String,
+        #[serde(rename = "strokeWidth")]
+        stroke_width: f32,
+    },
     Rectangle {
         id: String,
         opacity: f32,
@@ -178,4 +186,34 @@ pub enum CompletionAction {
 pub struct CompletionResult {
     pub action: CompletionAction,
     pub output_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollingCaptureRequest {
+    pub session_id: String,
+    pub selection: Rect,
+    pub max_frames: u8,
+    pub wheel_steps: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollingCaptureResult {
+    pub output_path: String,
+    pub frame_count: usize,
+    pub sticky_header_height: u32,
+    pub stopped_reason: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedCaptureDto {
+    pub path: String,
+    pub file_name: String,
+    pub thumbnail_path: String,
+    pub width: u32,
+    pub height: u32,
+    pub size_bytes: u64,
+    pub modified_at: String,
 }

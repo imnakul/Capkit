@@ -40,13 +40,15 @@ Transitions are explicit and validated. Terminal states release capture windows,
 
 - `CaptureBackend`: displays, snapshots, windows, and capture capabilities
 - `GlobalShortcutBackend`: register, unregister, update, and conflict details
-- `TargetDetectionBackend`: windows and optional UI regions at a point
+- `TargetDetectionBackend`: cached windows and optional semantic UI Automation regions at a point; pixel-color inference is excluded from the interactive hover path
 - `ClipboardBackend`: image output and compatibility reporting
 - `PinnedWindowBackend`: create and control pinned image windows
 - `PermissionBackend`: inspect, request, and open platform permission settings
 - `ScrollingCaptureBackend`: automatic/manual input and frame acquisition
 
 Windows uses Windows Graphics Capture or DXGI as appropriate, Win32 shortcut/window APIs, and optional UI Automation. macOS will use ScreenCaptureKit. Linux will use XDG portals/PipeWire on Wayland and an X11 fallback.
+
+The Windows scrolling worker is on-demand: it hides the capture WebView, sends bounded wheel input at the selected region, samples only that region, detects unchanged frames, removes a repeated sticky prefix from later frames, and performs overlap stitching off the UI thread. Manual fallback uses the same immutable frame/stitch pipeline but gives the user a short overlay-hidden interval to move the underlying scroll container. Temporary stitched previews remain within the scoped Snaphub session directory and are runtime-validated before completion.
 
 ## Shared models
 
@@ -60,8 +62,18 @@ Do not send large captures as JSON or base64. A session registers an in-memory r
 
 ## Storage
 
-- Pinned windows resolve their image through an in-memory native registry keyed by the Tauri window label; filesystem paths are never transported as application-URL query strings.
-Phase 1 stores settings and user-requested exports only. Temporary session resources are memory-backed where possible and deleted on terminal state. Later local-library metadata will use SQLite while originals remain normal files.
+- Pinned windows load plain `index.html`, route by their native `pin-*` window label, and resolve their image through an in-memory native registry; filesystem paths are never transported as application-URL query strings.
+Phase 1 stores settings and user-requested exports only. A small native storage preference persists the default save directory so resident shortcut workflows do not depend on a running WebView. Toolbar Save, scrolling Save, pinned-image Save, and Capture & save all resolve unique PNG filenames through this same service. The dashboard enumerates the configured directory only when opened or when a native save event arrives, and generates bounded thumbnails under the temporary Snaphub directory; it does not poll or create a database. Temporary session resources are memory-backed where possible and deleted on terminal state. The later full local library will use SQLite metadata while originals remain normal files.
+
+The WebView bundles Caveat Variable for inline annotation editing, while Rust embeds the matching OFL-licensed TTF at compile time so native Copy, Save, and Pin exports do not depend on a user-installed font. Dashboard windows remain hidden through lazy frontend bootstrap and invoke a native ready command after their first styled frame.
+
+Windows UI Automation scans run on a blocking worker rather than Tauri's UI/IPC thread, following Microsoft's threading guidance. Results are cached as plain rectangles for one capture session and ranked smallest-first within the actual topmost underlying window.
+
+When accessibility metadata is absent or too coarse, a dependency-free visual fallback flood-fills bounded, near-uniform regions around several cursor-adjacent seeds in the immutable raster. It rejects tiny, sparse, screen-sized, and over-budget regions, caches successful rectangles and quantized misses for the session, and never runs while idle. This improves browsers and custom canvases without adding OpenCV-sized resident or package overhead.
+
+Dashboard shell actions canonicalize every requested image against the configured save directory before opening or deleting it. Windows `ShellExecuteW` launches the default viewer and retries with the Open With verb when no association exists. Delete remains an explicit, confirmed, permanent local operation.
+
+Scrolling overlap detection uses a bounded coarse search followed by single-pixel refinement around the best candidate. Each score samples at most a fixed row/column grid, avoiding the previous quadratic work as selection height increases.
 
 ## Security and privacy
 
@@ -74,4 +86,4 @@ Phase 1 stores settings and user-requested exports only. Temporary session resou
 
 ## Packaging and rollout
 
-Build a complete Windows reference behind shared traits, then implement macOS and Linux adapters without changing domain contracts. CI eventually builds and tests each platform; hardware and compositor matrices remain required before claiming support.
+Build a complete Windows reference behind shared traits, then implement macOS and Linux adapters without changing domain contracts. The root `bundle:windows` script produces the Windows NSIS installer; `bundle:store` assembles the Tauri executable as a full-trust Desktop Bridge MSIX and `.msixupload` using the reserved Partner Center identity; generic `bundle` builds the formats configured for the host OS. Native bundles must be built, signed where the distribution channel requires it, and acceptance-tested on their target platform. CI eventually builds and tests each platform; hardware and compositor matrices remain required before claiming support.

@@ -14,8 +14,8 @@ Implementation progress is tracked separately in [Current implementation status]
 - Toggleable crosshair, dimensions, magnifier, snapping, guides, coordinates, aspect ratio, and pixel grid
 - Frozen-screen selection with resize, move, and pixel adjustment
 - Adaptive edge toolbars with Minimal, Annotation, Tutorial, and Custom layouts
-- Resize-selection cropping, rotate, grouped arrows, curved arrows, lines, rectangles, and ellipses
-- Highlighter, spotlight, counter, blur, secure pixelation, blackout, and text
+- Resize-selection cropping, grouped arrows, smooth curved arrows, lines, rectangles, and ellipses
+- Writing group with highlighter, smoothed freehand pencil, and in-place Caveat text; spotlight, counter, blur, secure pixelation, and blackout
 - Contextual color, stroke, opacity, fill, radius, arrow, font, alignment, and redaction controls
 - Undo and redo
 - Copy, Save, Save As, Pin, Cancel, and optional watermark completion actions
@@ -36,9 +36,11 @@ Implementation progress is tracked separately in [Current implementation status]
 - Templates and reusable watermark presets
 - PNG, JPEG, WebP, PDF, and later PPTX-compatible export
 
-ShotHub is not intended to become a general PowerPoint replacement.
+Snaphub is not intended to become a general PowerPoint replacement.
 
 ## Phase 3: local library
+
+The Phase 1 dashboard's on-demand view of the configured save folder is a convenience surface, not the library. It may open, delete, or route an image toward Showcase, while Cloud upload remains disabled until an account/storage connection exists. Phase 3 begins when Snaphub adds durable metadata and organization.
 
 - Local-first capture history
 - Tags, folders, favorites, filters, and search

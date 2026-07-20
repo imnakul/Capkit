@@ -1,6 +1,6 @@
 {
-  "name": "@shothub/desktop",
-  "version": "0.1.0",
+  "name": "@snaphub/desktop",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,9 +11,12 @@
     "lint:fix": "eslint . --fix --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bundle": "tauri build",
+    "bundle:windows": "tauri build --bundles nsis"
   },
   "dependencies": {
+    "@fontsource-variable/caveat": "5.2.8",
     "@fontsource-variable/jetbrains-mono": "5.2.8",
     "@fontsource-variable/plus-jakarta-sans": "5.2.8",
     "@tauri-apps/api": "^2.11.1",

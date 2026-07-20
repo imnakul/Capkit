@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #000000;
+  --paper: #ffffff;
+  --panel: #f2f0ec;
+  --muted: #8f8f8f;
+  --muted-on-dark: #7a7a7a;
+  --line-on-dark: #262626;
+  --line-on-light: #d9d6cf;
+  --focus: #ff5a1f;
+  --focus-dim: #7a2c10;
+
+  --radius-pill: 999px;
+  --radius-panel: 20px;
+  --radius-panel-sm: 12px;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-muted: var(--muted);
+  --color-muted-on-dark: var(--muted-on-dark);
+  --color-line-on-dark: var(--line-on-dark);
+  --color-line-on-light: var(--line-on-light);
+  --color-focus: var(--focus);
+  --color-focus-dim: var(--focus-dim);
+  --font-sans: var(--font-jakarta);
+  --font-mono: var(--font-jetbrains);
+  --font-hand: var(--font-caveat);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--focus);
+  color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.marching-ants {
+  background-image: repeating-linear-gradient(
+      90deg,
+      var(--focus) 0 6px,
+      transparent 6px 12px
+    ),
+    repeating-linear-gradient(90deg, var(--focus) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(0deg, var(--focus) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(0deg, var(--focus) 0 6px, transparent 6px 12px);
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  background-size: 12px 1.5px, 12px 1.5px, 1.5px 12px, 1.5px 12px;
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  animation: ants 0.7s linear infinite;
+}
+
+@keyframes ants {
+  to {
+    background-position: 12px 0, -12px 100%, 0 -12px, 100% 12px;
+  }
+}
+
+.bg-grid {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}

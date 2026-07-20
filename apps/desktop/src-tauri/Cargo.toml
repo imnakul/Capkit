@@ -1,12 +1,12 @@
 [package]
-name = "shothub-desktop"
-version = "0.1.0"
-description = "ShotHub lightweight screenshot utility"
-authors = ["ShotHub"]
+name = "snaphub-desktop"
+version = "0.1.1"
+description = "Snaphub lightweight screenshot utility"
+authors = ["Snaphub"]
 edition = "2024"
 
 [lib]
-name = "shothub_desktop_lib"
+name = "snaphub_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -28,3 +28,6 @@ tauri-plugin-global-shortcut = "2.3.2"
 thiserror = "2.0.18"
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
 xcap = { version = "0.9.6", features = ["image", "wgc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

@@ -2,13 +2,13 @@
 
 ## Naming status
 
-**Confirmed working name:** ShotHub.
+**Confirmed product name:** Snaphub.
 
 **Provisional:** public clearance. Trademark, domain, social handle, store-name, and confusion checks must happen before identity lockup.
 
 ## Brand idea
 
-ShotHub should feel like a quiet industrial utility: precise, calm, quick, and trustworthy. The product does not ask for attention; it removes friction and disappears.
+Snaphub should feel like a quiet industrial utility: precise, calm, quick, and trustworthy. The product does not ask for attention; it removes friction and disappears.
 
 The memorable visual behavior is the selected region becoming the workspace, framed by adaptive tools. Brand systems should build from focus, framing, cropping, coordinates, and precise marks rather than generic cloud or camera symbolism.
 
@@ -41,6 +41,7 @@ Supporting messages:
 - Motion: one decisive capture/focus transition and short state confirmations; avoid ambient motion.
 - Typography: distinctive but highly legible grotesk or technical humanist family; avoid default startup typography.
 - Product UI typography: Plus Jakarta Sans Variable for interface copy and JetBrains Mono Variable for technical values. Both fonts are bundled locally with the desktop application.
+- Capture-writing typography: Caveat Variable provides the approachable handwritten annotation preset and is bundled under the SIL Open Font License; it is not the dashboard/interface font.
 - Color: largely neutral interface with one high-visibility focus accent validated over arbitrary desktop imagery.
 - Iconography: crisp optical shapes at tray and toolbar sizes; consistent stroke and filled active states.
 

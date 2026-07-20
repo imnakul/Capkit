@@ -1,0 +1,64 @@
+name: Store MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: Four-part Store version; the final segment must be zero
+        required: true
+        default: 1.0.2.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build x64 MSIX upload
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify frontend
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+
+      - name: Verify native application
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Create Store upload package
+        shell: powershell
+        run: ./scripts/build-msix.ps1 -PackageVersion '${{ inputs.package_version }}'
+
+      - name: Upload Partner Center artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Snaphub-${{ inputs.package_version }}-Store
+          path: apps/desktop/src-tauri/target/store/*.msixupload
+          if-no-files-found: error
+          compression-level: 0

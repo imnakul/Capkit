@@ -1,5 +1,12 @@
 # Performance and Quality
 
+## Development checkpoint measurements (2026-07-18)
+
+- **Observed:** Hidden Windows development tray process working set: 33.18 MB.
+- **Observed:** CPU delta over a five-second idle sample: 0 seconds, effectively 0% of one core.
+- **Observed:** Debug executable: 30.36 MB; built frontend assets: 0.86 MB.
+- **Not a release benchmark:** Debug binaries, warm filesystem caches, and one machine are insufficient for installed-size or latency acceptance. Release packaging and repeated cold/warm samples remain required.
+
 ## Performance budgets
 
 **Initial targets, measured on named reference hardware:**
@@ -13,6 +20,8 @@
 - Shortcut to visible capture surface: approximately 100 ms median.
 - Show a preparation state only after 250 ms.
 - Release capture/editor buffers and workers after terminal state.
+- Scrolling overlap matching samples a bounded grid and refines one neighborhood; post-capture matching must not grow quadratically with frame height.
+- Visual-region inference is on-demand, bounded by pixel count, and caches successful regions plus quantized misses for the active session.
 - No background network activity except user-enabled update/license checks in future paid builds.
 
 Budgets are gates for dependency and architecture decisions. Measurements record cold/warm state, OS, display count, resolution, scaling, GPU, and build type.

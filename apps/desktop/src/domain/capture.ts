@@ -57,3 +57,28 @@ export type DetectedTarget = z.infer<typeof detectedTargetSchema>;
 
 export const completionActionSchema = z.enum(["copy", "save", "save-as", "pin"]);
 export type CompletionAction = z.infer<typeof completionActionSchema>;
+
+export const scrollingCaptureResultSchema = z.object({
+  outputPath: z.string(),
+  frameCount: z.number().int().positive(),
+  stickyHeaderHeight: z.number().int().nonnegative(),
+  stoppedReason: z.enum(["frame-limit", "end-reached", "no-progress", "manual-ready", "no-change"]),
+});
+
+export type ScrollingCaptureResult = z.infer<typeof scrollingCaptureResultSchema> & {
+  previewUrl: string;
+};
+
+export const savedCaptureSchema = z.object({
+  path: z.string().min(1),
+  fileName: z.string().min(1),
+  thumbnailPath: z.string().min(1),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  sizeBytes: z.number().int().nonnegative(),
+  modifiedAt: z.iso.datetime({ offset: true }),
+});
+
+export type SavedCapture = z.infer<typeof savedCaptureSchema> & {
+  thumbnailUrl: string;
+};

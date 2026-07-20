@@ -2,13 +2,13 @@ import type { Point, Rect } from "./capture";
 
 export type ToolId =
   | "select"
-  | "rotate"
   | "arrow"
   | "curved-arrow"
   | "line"
   | "rectangle"
   | "ellipse"
   | "highlighter"
+  | "pencil"
   | "spotlight"
   | "counter"
   | "blur"
@@ -32,7 +32,7 @@ type AnnotationBase = {
 };
 
 export type LineAnnotation = AnnotationBase & {
-  kind: "line" | "arrow" | "curved-arrow" | "highlighter";
+  kind: "line" | "arrow" | "curved-arrow" | "highlighter" | "pencil";
   points: readonly Point[];
   color: string;
   strokeWidth: number;
@@ -87,7 +87,7 @@ export const defaultAnnotationStyle: AnnotationStyle = {
   fill: "transparent",
   strokeWidth: 4,
   opacity: 1,
-  fontFamily: "Segoe UI Variable",
+  fontFamily: "Caveat Variable",
   fontSize: 24,
   textContent: "Type your note",
 };
@@ -102,6 +102,8 @@ export type SceneHistory = {
 
 export type SceneAction =
   | { type: "add"; annotation: Annotation }
+  | { type: "update"; annotation: Annotation }
+  | { type: "delete"; annotationId: string }
   | { type: "replace"; scene: AnnotationScene }
   | { type: "undo" }
   | { type: "redo" }
@@ -122,6 +124,30 @@ export function sceneHistoryReducer(state: SceneHistory, action: SceneAction): S
         elements: [...state.present.elements, action.annotation],
       };
       return { past: [...state.past, state.present], present: next, future: [] };
+    }
+    case "update": {
+      const nextElements = state.present.elements.map((element) =>
+        element.id === action.annotation.id ? action.annotation : element,
+      );
+      if (nextElements.every((element, index) => element === state.present.elements[index])) {
+        return state;
+      }
+      return {
+        past: [...state.past, state.present],
+        present: { version: 1, elements: nextElements },
+        future: [],
+      };
+    }
+    case "delete": {
+      const nextElements = state.present.elements.filter(
+        (element) => element.id !== action.annotationId,
+      );
+      if (nextElements.length === state.present.elements.length) return state;
+      return {
+        past: [...state.past, state.present],
+        present: { version: 1, elements: nextElements },
+        future: [],
+      };
     }
     case "replace":
       return {

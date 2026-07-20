@@ -2,7 +2,9 @@
 
 ## Product definition
 
-**Confirmed:** ShotHub is a lightweight, always-available screenshot and visual communication utility for Windows 11, macOS, Ubuntu, and Fedora. Windows is the first reference implementation.
+**Confirmed:** Snaphub is a lightweight, always-available screenshot and visual communication utility currently supported on Windows 11.
+
+**Provisional:** macOS, Ubuntu, and Fedora are rollout targets after their native adapters, packaging, and acceptance matrices are complete.
 
 Its defining experience is not a main application window. The selected area of the frozen desktop becomes the workspace, and completion returns the user directly to the task they were doing.
 
@@ -10,7 +12,7 @@ Its defining experience is not a main application window. The selected area of t
 
 Built-in screen snipping is immediate but omits common professional actions such as blur, secure pixelation, pinning, rich arrows, counters, and flexible completion behavior. Feature-dense tools solve those needs but create setup, menu, storage, and cognitive overhead that interrupts flow.
 
-ShotHub serves the gap between those extremes: a calm system utility with enough depth at the moment it is needed.
+Snaphub serves the gap between those extremes: a calm system utility with enough depth at the moment it is needed.
 
 ## Primary audience
 
@@ -47,4 +49,3 @@ ShotHub serves the gap between those extremes: a calm system utility with enough
 - Most successful capture sessions finish without opening overflow controls.
 - Idle CPU is effectively zero and idle memory stays within the documented budget.
 - Cancellation always restores the prior working state without files, clipboard changes, or lingering windows.
-

@@ -1,111 +1,116 @@
-import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
-
-export type ContextToolOption = {
-  id: ToolId;
-  label: string;
-  icon: LucideIcon;
-};
+import type { CaptureToolbarToolId } from "../domain/settings";
+import type { ToolbarToolDefinition } from "./toolbarCatalog";
 
 type ContextControlsProps = {
   activeTool: ToolId;
   style: AnnotationStyle;
-  tools: readonly ContextToolOption[];
+  tools: readonly ToolbarToolDefinition[];
   palette: readonly string[];
+  visible: boolean;
+  showStyleControls: boolean;
   onStyleChange: (style: AnnotationStyle) => void;
-  onToolChange: (tool: ToolId) => void;
+  onToolSelect: (tool: CaptureToolbarToolId) => void;
 };
 
+/** A compact property rail whose variants lead and styling controls follow. */
 export function ContextControls({
   activeTool,
   style,
   tools,
   palette,
+  visible,
+  showStyleControls,
   onStyleChange,
-  onToolChange,
+  onToolSelect,
 }: ContextControlsProps): React.JSX.Element {
+  const activeIndex = tools.findIndex((tool) => tool.annotationTool === activeTool);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const indicatorIndex = hoveredIndex ?? activeIndex;
+
   return (
     <div
-      aria-label={`${activeTool} properties`}
-      className="absolute left-0 top-[calc(100%+7px)] z-50 flex min-w-max items-center gap-2 rounded-xl border border-white/12 bg-[#1b1d19]/98 px-2.5 py-2 shadow-[0_16px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      aria-hidden={!visible}
+      aria-label="Tool properties"
+      className={`flex min-w-max origin-top-left items-center gap-3 rounded-xl border border-white/12 bg-[#1b1d19]/98 px-3 py-2 shadow-[0_16px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-[opacity,transform] duration-150 ease-out ${visible ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}
       role="group"
     >
-      {activeTool === "text" ? (
-        <>
-          <label className="sr-only" htmlFor="annotation-text">
-            Annotation text
-          </label>
-          <input
-            className="w-36 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-stone-100 outline-none placeholder:text-stone-500 focus:border-lime-300/60"
-            id="annotation-text"
-            placeholder="Type your note"
-            type="text"
-            value={style.textContent}
-            onChange={(event) =>
-              onStyleChange({ ...style, textContent: event.currentTarget.value })
-            }
-          />
-          <select
-            aria-label="Text font"
-            className="rounded-md border border-white/10 bg-[#22241f] px-2 py-1 text-xs text-stone-200 outline-none focus:border-lime-300/60"
-            value={style.fontFamily}
-            onChange={(event) =>
-              onStyleChange({ ...style, fontFamily: event.currentTarget.value })
-            }
-          >
-            <option value="Segoe UI Variable">Segoe UI</option>
-            <option value="Ink Free">Ink Free</option>
-            <option value="Comic Sans MS">Comic Sans</option>
-          </select>
-        </>
+      {tools.length > 0 ? (
+        <div className="relative flex gap-1" onPointerLeave={() => setHoveredIndex(null)}>
+          {indicatorIndex >= 0 ? (
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute left-0 top-0 size-8 rounded-lg transition-transform duration-150 ease-out ${activeIndex === indicatorIndex ? "bg-lime-300" : "bg-white/9"}`}
+              style={{ transform: `translateX(${String(indicatorIndex * 36)}px)` }}
+            />
+          ) : null}
+          {tools.map((tool, index) => {
+            const Icon = tool.icon;
+            const active = tool.annotationTool === activeTool;
+            return (
+              <button
+                aria-label={tool.label}
+                aria-pressed={active}
+                className="relative z-10 grid size-8 place-items-center rounded-lg text-white outline-none transition-colors focus-visible:ring-2 focus-visible:ring-lime-300"
+                key={tool.id}
+                type="button"
+                onClick={() => onToolSelect(tool.id)}
+                onFocus={() => setHoveredIndex(index)}
+                onPointerEnter={() => setHoveredIndex(index)}
+              >
+                <Icon aria-hidden="true" size={16} strokeWidth={active ? 2.4 : 1.9} />
+              </button>
+            );
+          })}
+        </div>
       ) : null}
 
-      <div className="flex gap-1" role="radiogroup" aria-label="Annotation color">
-        {palette.map((color) => (
-          <button
-            aria-label={`Use ${color}`}
-            aria-checked={style.color === color}
-            className="size-5 rounded-full border border-white/20 outline-none ring-offset-2 ring-offset-stone-950 transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-white data-[checked=true]:ring-2 data-[checked=true]:ring-white"
-            data-checked={style.color === color}
-            key={color}
-            role="radio"
-            style={{ backgroundColor: color }}
-            type="button"
-            onClick={() => onStyleChange({ ...style, color })}
-          />
-        ))}
-      </div>
-      <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">
-        Size
-        <input
-          aria-label="Tool size"
-          className="h-1 w-20 cursor-pointer accent-lime-300"
-          max="24"
-          min="1"
-          type="range"
-          value={style.strokeWidth}
-          onChange={(event) =>
-            onStyleChange({ ...style, strokeWidth: Number(event.currentTarget.value) })
-          }
-        />
-      </label>
+      {tools.length > 0 && showStyleControls ? <div aria-hidden="true" className="h-6 w-px bg-white/10" /> : null}
+      {showStyleControls ? (
+        <>
+          <div className="flex gap-2" role="radiogroup" aria-label="Annotation color">
+            {palette.map((color) => (
+              <button
+                aria-label={`Use ${color}`}
+                aria-checked={style.color === color}
+                className="size-5 rounded-full border border-white/15 outline-none ring-offset-[3px] ring-offset-[#1b1d19] transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-white aria-checked:ring-2 aria-checked:ring-white"
+                key={color}
+                role="radio"
+                style={{ backgroundColor: color }}
+                type="button"
+                onClick={() => onStyleChange({ ...style, color })}
+              />
+            ))}
+          </div>
 
-      {tools.length > 0 ? <div aria-hidden="true" className="h-6 w-px bg-white/10" /> : null}
-      {tools.map((tool) => {
-        const Icon = tool.icon;
-        return (
-          <button
-            aria-label={tool.label}
-            aria-pressed={activeTool === tool.id}
-            className="grid size-8 place-items-center rounded-lg text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300 aria-pressed:bg-lime-300 aria-pressed:text-stone-950"
-            key={tool.id}
-            type="button"
-            onClick={() => onToolChange(tool.id)}
-          >
-            <Icon aria-hidden="true" size={16} strokeWidth={activeTool === tool.id ? 2.4 : 1.9} />
-          </button>
-        );
-      })}
+          <label className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Size
+            <input
+              aria-label="Tool size"
+              className="h-1 w-20 cursor-pointer accent-lime-300"
+              max="24"
+              min="1"
+              type="range"
+              value={style.strokeWidth}
+              onChange={(event) => onStyleChange({ ...style, strokeWidth: Number(event.currentTarget.value) })}
+            />
+          </label>
+
+          {activeTool === "text" ? (
+            <select
+              aria-label="Text font"
+              className="h-8 rounded-md border border-white/10 bg-[#242622] px-2 text-[11px] text-stone-200 outline-none focus-visible:ring-2 focus-visible:ring-lime-300"
+              value={style.fontFamily}
+              onChange={(event) => onStyleChange({ ...style, fontFamily: event.currentTarget.value })}
+            >
+              <option value="Caveat Variable">Caveat</option>
+              <option value="Segoe UI Variable">Segoe UI</option>
+              <option value="Ink Free">Ink Free</option>
+            </select>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

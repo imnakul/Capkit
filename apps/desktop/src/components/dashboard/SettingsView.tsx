@@ -1,8 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   Check,
   ChevronDown,
-  Crosshair,
+  FolderCog,
+  FolderOpen,
+  GalleryVerticalEnd,
   Keyboard,
   MousePointer2,
   Paintbrush,
@@ -14,23 +17,39 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  defaultShotHubSettings,
-  type ShotHubSettings,
-  parseEffectDefault,
-  parseShapeDefault,
-  useShotHubSettings,
+  defaultSnaphubSettings,
+  type SnaphubSettings,
+  snaphubSettingsSchema,
+  useSnaphubSettings,
 } from "../../domain/settings";
+import {
+  describeInvokeError,
+  getSaveDirectory,
+  resetSaveDirectory,
+  setSaveDirectory,
+} from "../../lib/tauri";
+import { captureCursor } from "../../lib/cursor";
+import { ToolbarConfiguration } from "./ToolbarConfiguration";
 
 const neonColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ff5b4d", "#ffb547", "#ffffff", "#171717"] as const;
 const accentColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ffb547"] as const;
 
-type ShortcutField = keyof ShotHubSettings["shortcuts"];
+type ShortcutField = keyof SnaphubSettings["shortcuts"];
 
 export function SettingsView(): React.JSX.Element {
-  const { settings, updateSettings } = useShotHubSettings();
+  const { settings, updateSettings } = useSnaphubSettings();
   const [customColor, setCustomColor] = useState("#8b5cf6");
   const [recordingShortcut, setRecordingShortcut] = useState<ShortcutField | null>(null);
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
+  const [saveDirectory, setSaveDirectoryState] = useState("Pictures\\Snaphub");
+  const [storageMessage, setStorageMessage] = useState<string | null>(null);
+  const [choosingDirectory, setChoosingDirectory] = useState(false);
+
+  useEffect(() => {
+    void getSaveDirectory()
+      .then(setSaveDirectoryState)
+      .catch((error: unknown) => setStorageMessage(describeInvokeError(error, "Save location could not be loaded")));
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -41,6 +60,13 @@ export function SettingsView(): React.JSX.Element {
       })
       .catch((error: unknown) => console.error("SH-AUTOSTART-READ-001", error));
   }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void registerShortcuts(settings.shortcuts).catch((error: unknown) => {
+      setShortcutMessage(String(error));
+    });
+  }, [settings.shortcuts.capture, settings.shortcuts.captureAndCopy, settings.shortcuts.captureAndSave]);
 
   useEffect(() => {
     if (recordingShortcut === null) return;
@@ -56,23 +82,24 @@ export function SettingsView(): React.JSX.Element {
       const value = formatShortcut(event);
       setRecordingShortcut(null);
       setShortcutMessage(null);
-      if (activeShortcut === "capture" && isTauri()) {
-        void invoke<string>("update_global_shortcut", { shortcut: value })
+      const nextShortcuts = { ...settings.shortcuts, [activeShortcut]: value };
+      if (isTauri()) {
+        void registerShortcuts(nextShortcuts)
           .then((registered) => {
-            updateSettings({ ...settings, shortcuts: { ...settings.shortcuts, capture: registered } });
-            setShortcutMessage("Capture shortcut updated");
+            updateSettings({ ...settings, shortcuts: registered });
+            setShortcutMessage("Shortcuts updated");
           })
           .catch((error: unknown) => setShortcutMessage(String(error)));
         return;
       }
-      updateSettings({ ...settings, shortcuts: { ...settings.shortcuts, [activeShortcut]: value } });
+      updateSettings({ ...settings, shortcuts: nextShortcuts });
       setShortcutMessage("Shortcut saved");
     }
     window.addEventListener("keydown", record, true);
     return (): void => window.removeEventListener("keydown", record, true);
   }, [recordingShortcut, settings, updateSettings]);
 
-  function update(next: ShotHubSettings): void {
+  function update(next: SnaphubSettings): void {
     updateSettings(next);
   }
 
@@ -81,7 +108,7 @@ export function SettingsView(): React.JSX.Element {
     if (selected && settings.palette.length === 1) return;
     if (!selected && settings.palette.length === 5) return;
     const palette = selected ? settings.palette.filter((item) => item !== color) : [...settings.palette, color];
-    const defaultColor = palette.includes(settings.annotation.defaultColor) ? settings.annotation.defaultColor : (palette[0] ?? defaultShotHubSettings.annotation.defaultColor);
+    const defaultColor = palette.includes(settings.annotation.defaultColor) ? settings.annotation.defaultColor : (palette[0] ?? defaultSnaphubSettings.annotation.defaultColor);
     update({ ...settings, palette, annotation: { ...settings.annotation, defaultColor } });
   }
 
@@ -106,18 +133,17 @@ export function SettingsView(): React.JSX.Element {
   }
 
   async function resetShortcuts(): Promise<void> {
+    setRecordingShortcut(null);
     if (!isTauri()) {
-      update({ ...settings, shortcuts: defaultShotHubSettings.shortcuts });
+      update({ ...settings, shortcuts: defaultSnaphubSettings.shortcuts });
       setShortcutMessage("Shortcuts reset");
       return;
     }
     try {
-      const registered = await invoke<string>("update_global_shortcut", {
-        shortcut: defaultShotHubSettings.shortcuts.capture,
-      });
+      const registered = await registerShortcuts(defaultSnaphubSettings.shortcuts);
       update({
         ...settings,
-        shortcuts: { ...defaultShotHubSettings.shortcuts, capture: registered },
+        shortcuts: registered,
       });
       setShortcutMessage("Shortcuts reset");
     } catch (error: unknown) {
@@ -126,17 +152,19 @@ export function SettingsView(): React.JSX.Element {
   }
 
   async function resetShortcut(field: ShortcutField): Promise<void> {
-    const defaultValue = defaultShotHubSettings.shortcuts[field];
-    if (field === "capture" && isTauri()) {
+    setRecordingShortcut(null);
+    const defaultValue = defaultSnaphubSettings.shortcuts[field];
+    if (isTauri()) {
       try {
-        const registered = await invoke<string>("update_global_shortcut", {
-          shortcut: defaultValue,
+        const registered = await registerShortcuts({
+          ...settings.shortcuts,
+          [field]: defaultValue,
         });
         update({
           ...settings,
-          shortcuts: { ...settings.shortcuts, capture: registered },
+          shortcuts: registered,
         });
-        setShortcutMessage("Start capture shortcut reset");
+        setShortcutMessage("Shortcut reset");
       } catch (error: unknown) {
         setShortcutMessage(String(error));
       }
@@ -152,9 +180,9 @@ export function SettingsView(): React.JSX.Element {
   async function resetBehavior(): Promise<void> {
     update({
       ...settings,
-      detection: defaultShotHubSettings.detection,
+      detection: defaultSnaphubSettings.detection,
       openAtStartup: false,
-      overlay: defaultShotHubSettings.overlay,
+      overlay: defaultSnaphubSettings.overlay,
     });
     if (!isTauri()) return;
     try {
@@ -162,6 +190,41 @@ export function SettingsView(): React.JSX.Element {
       await plugin.disable();
     } catch (error: unknown) {
       console.error("SH-AUTOSTART-RESET-001", error);
+    }
+  }
+
+  async function chooseSaveDirectory(): Promise<void> {
+    if (!isTauri()) {
+      setStorageMessage("Folder selection is available in the Windows desktop app");
+      return;
+    }
+    setChoosingDirectory(true);
+    setStorageMessage(null);
+    try {
+      const selected = await open({
+        defaultPath: saveDirectory,
+        directory: true,
+        multiple: false,
+        title: "Choose where Snaphub saves captures",
+      });
+      if (typeof selected !== "string") return;
+      const directory = await setSaveDirectory(selected);
+      setSaveDirectoryState(directory);
+      setStorageMessage("New captures will save here automatically");
+    } catch (error: unknown) {
+      setStorageMessage(describeInvokeError(error, "Save location could not be changed"));
+    } finally {
+      setChoosingDirectory(false);
+    }
+  }
+
+  async function resetStorage(): Promise<void> {
+    try {
+      const directory = await resetSaveDirectory();
+      setSaveDirectoryState(directory);
+      setStorageMessage("Save location reset");
+    } catch (error: unknown) {
+      setStorageMessage(describeInvokeError(error, "Save location could not be reset"));
     }
   }
 
@@ -190,60 +253,79 @@ export function SettingsView(): React.JSX.Element {
                   <Plus aria-hidden="true" size={15} />
                   <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={customColor} onChange={(event) => setCustomColor(event.currentTarget.value)} />
                 </label>
-                <button aria-label="Add custom color" className="rounded-md border border-stone-300 bg-white px-2.5 text-[11px] font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-[var(--shothub-accent)] dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={addCustomColor}>Add custom</button>
+                <button aria-label="Add custom color" className="rounded-md border border-stone-300 bg-white px-2.5 text-[11px] font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={addCustomColor}>Add custom</button>
               </div>
               {settings.palette.length === 5 ? <p className="mt-2 text-[10px] text-stone-400 dark:text-stone-500">Remove one color before adding another.</p> : null}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div><FieldLabel>Default color</FieldLabel><ColorSelect colors={settings.palette} value={settings.annotation.defaultColor} onChange={(defaultColor) => update({ ...settings, annotation: { ...settings.annotation, defaultColor } })} /></div>
-              <label className="block"><FieldLabel>Default size</FieldLabel><div className="mt-1.5 flex h-9 items-center gap-2.5 rounded-md border border-stone-300 bg-white px-2.5 dark:border-white/10 dark:bg-[#30312e]"><input aria-label="Default annotation size" className="min-w-0 flex-1 accent-[var(--shothub-accent)]" max="24" min="1" type="range" value={settings.annotation.defaultSize} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, defaultSize: Number(event.currentTarget.value) } })} /><span className="w-8 text-right font-mono text-[10px] font-semibold text-stone-600 dark:text-stone-300">{settings.annotation.defaultSize}px</span></div></label>
+              <label className="block"><FieldLabel>Default size</FieldLabel><div className="mt-1.5 flex h-9 items-center gap-2.5 rounded-md border border-stone-300 bg-white px-2.5 dark:border-white/10 dark:bg-[#30312e]"><input aria-label="Default annotation size" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="24" min="1" type="range" value={settings.annotation.defaultSize} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, defaultSize: Number(event.currentTarget.value) } })} /><span className="w-8 text-right font-mono text-[10px] font-semibold text-stone-600 dark:text-stone-300">{settings.annotation.defaultSize}px</span></div></label>
             </div>
           </div>
-          <SectionReset onClick={() => update({ ...settings, palette: defaultShotHubSettings.palette, customColors: [], annotation: defaultShotHubSettings.annotation })} />
+          <SectionReset onClick={() => update({ ...settings, palette: defaultSnaphubSettings.palette, customColors: [], annotation: defaultSnaphubSettings.annotation })} />
         </SettingsSection>
 
         <SettingsSection icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
           <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
-          <SectionReset onClick={() => update({ ...settings, accentColor: defaultShotHubSettings.accentColor })} />
+          <SectionReset onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor })} />
         </SettingsSection>
 
-        <SettingsSection icon={SlidersHorizontal} eyebrow="Capture toolbar" title="Choose what stays within reach" description="Each enabled family occupies one slot. Choose the tool that opens first in grouped slots.">
-          <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
-            <SlotRow number={1} title="Shapes & markup" description="Rectangle, ellipse, lines, arrows and highlight" enabled={settings.toolbar.shapes} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, shapes: enabled } })}><CompactSelect label="Default shape" value={settings.toolbar.shapeDefault} options={["rectangle", "ellipse", "line", "arrow", "curved-arrow", "highlighter"]} onChange={(value) => update({ ...settings, toolbar: { ...settings.toolbar, shapeDefault: parseShapeDefault(value) } })} /></SlotRow>
-            <SlotRow number={2} title="Focus & privacy" description="Blur, spotlight, pixelate and permanent blackout" enabled={settings.toolbar.effects} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, effects: enabled } })}><CompactSelect label="Default effect" value={settings.toolbar.effectDefault} options={["blur", "spotlight", "pixelate", "blackout"]} onChange={(value) => update({ ...settings, toolbar: { ...settings.toolbar, effectDefault: parseEffectDefault(value) } })} /></SlotRow>
-            <SlotRow number={3} title="Rotate" description="Rotate the selected image in place" enabled={settings.toolbar.rotate} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, rotate: enabled } })} />
-            <SlotRow number={4} title="Counter" description="Number steps and callouts quickly" enabled={settings.toolbar.counter} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, counter: enabled } })} />
-            <SlotRow number={5} title="Text" description="Add short labels and notes" enabled={settings.toolbar.text} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, text: enabled } })} />
-            <SlotRow number={6} title="Undo & redo" description="Keep history controls visible" enabled={settings.toolbar.history} onToggle={(enabled) => update({ ...settings, toolbar: { ...settings.toolbar, history: enabled } })} />
-          </div>
-          <SectionReset onClick={() => update({ ...settings, toolbar: defaultShotHubSettings.toolbar })} />
+        <SettingsSection icon={SlidersHorizontal} eyebrow="Capture toolbar" title="Choose what stays within reach" description="Use direct tools for speed, or build ordered groups around your workflow.">
+          <ToolbarConfiguration toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
+          <SectionReset onClick={() => update({ ...settings, toolbar: defaultSnaphubSettings.toolbar })} />
         </SettingsSection>
 
         <SettingsSection icon={Keyboard} eyebrow="Keyboard" title="Shortcuts" description="Click a shortcut, then press the key combination you want. Escape cancels recording.">
           <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
-            <ShortcutRow label="Start capture" description="Open the selection overlay" value={settings.shortcuts.capture} defaultValue={defaultShotHubSettings.shortcuts.capture} recording={recordingShortcut === "capture"} onRecord={() => setRecordingShortcut("capture")} onReset={() => void resetShortcut("capture")} />
-            <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultShotHubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
-            <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultShotHubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
+            <ShortcutRow label="Start capture" description="Open the selection overlay" value={settings.shortcuts.capture} defaultValue={defaultSnaphubSettings.shortcuts.capture} recording={recordingShortcut === "capture"} onRecord={() => setRecordingShortcut("capture")} onReset={() => void resetShortcut("capture")} />
+            <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
+            <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
           </div>
           {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[10px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
           <SectionReset onClick={() => void resetShortcuts()} />
         </SettingsSection>
 
-        <SettingsSection icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what ShotHub recognizes and how the frozen screen is shaded.">
+        <SettingsSection icon={FolderCog} eyebrow="Storage" title="Saved captures" description="Choose one predictable location for toolbar saves, scrolling captures, pinned-image saves, and Capture & save.">
+          <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-3 dark:border-white/10 dark:bg-[#2b2c29]">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={15} /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold text-stone-800 dark:text-stone-200">Default save location</p>
+              <p className="mt-0.5 truncate font-mono text-[9px] text-stone-500 dark:text-stone-400" title={saveDirectory}>{saveDirectory}</p>
+            </div>
+            <button aria-label="Choose default save location" className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[10px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={choosingDirectory} type="button" onClick={() => void chooseSaveDirectory()}>{choosingDirectory ? "Opening…" : "Choose folder"}</button>
+          </div>
+          {storageMessage === null ? null : <p aria-live="polite" className="mt-2 text-[10px] text-stone-500 dark:text-stone-400">{storageMessage}</p>}
+          <SectionReset onClick={() => void resetStorage()} />
+        </SettingsSection>
+
+        <SettingsSection icon={GalleryVerticalEnd} eyebrow="Scrolling" title="Default capture method" description="Skip the chooser for your usual workflow, or ask every time.">
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Default scrolling capture method">
+            {([
+              ["automatic", "Automatic", "Scroll and stitch immediately"],
+              ["manual", "Manual", "You advance every frame"],
+              ["choose", "Always ask", "Show the method chooser"],
+            ] as const).map(([value, label, description]) => (
+              <button aria-label={`Use ${label} scrolling capture`} aria-checked={settings.scrolling.defaultMode === value} className="rounded-lg border border-stone-200 bg-white p-3 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:border-stone-700 aria-checked:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-checked:border-[var(--snaphub-accent)]/55 dark:aria-checked:bg-white/5" key={value} role="radio" type="button" onClick={() => update({ ...settings, scrolling: { defaultMode: value } })}><span className="block text-[11px] font-semibold text-stone-800 dark:text-stone-200">{label}</span><span className="mt-1 block text-[9px] leading-4 text-stone-500 dark:text-stone-400">{description}</span></button>
+            ))}
+          </div>
+          <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
+        </SettingsSection>
+
+        <SettingsSection icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what Snaphub recognizes and how the frozen screen is shaded.">
           <div className="grid gap-x-7 gap-y-4 lg:grid-cols-2">
             <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
-            <ToggleField label="Detect inner UI regions" description="Recognize panels and rectangular controls when supported" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
-            <ToggleField label="Open at startup" description="Keep ShotHub ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
-            <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--shothub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[10px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultShotHubSettings.overlay.color && settings.overlay.opacity === defaultShotHubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultShotHubSettings.overlay })} /></div></div>
+            <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
+            <ToggleField label="Open at startup" description="Keep Snaphub ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
+            <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[10px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
           </div>
           <SectionReset onClick={() => void resetBehavior()} />
         </SettingsSection>
 
         <SettingsSection icon={MousePointer2} eyebrow="Pointer" title="Capture cursor" description="Only changes the precision cursor used over the frozen screen.">
-          <ToggleField label="Use ShotHub drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
-          <div className="mt-4 grid grid-cols-3 gap-2">{(["crosshair", "target", "precision"] as const).map((cursorStyle) => <button aria-label={`Use ${cursorStyle} cursor`} aria-pressed={settings.cursor.style === cursorStyle} className="flex items-center gap-2.5 rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--shothub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={cursorStyle} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, style: cursorStyle } })}><span className="grid size-8 place-items-center rounded-md bg-stone-100 dark:bg-white/7"><Crosshair aria-hidden="true" className={cursorStyle === "target" ? "rounded-full border border-current p-1" : cursorStyle === "precision" ? "rotate-45" : ""} size={17} /></span><span className="text-xs font-semibold capitalize">{cursorStyle}</span></button>)}</div>
-          <div className="mt-4 max-w-xs"><FieldLabel>Cursor size</FieldLabel><div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">{(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} cursor`} aria-pressed={settings.cursor.size === size} className="rounded px-2.5 py-1.5 text-[10px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--shothub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, size } })}>{size}</button>)}</div></div>
-          <SectionReset onClick={() => update({ ...settings, cursor: defaultShotHubSettings.cursor })} />
+          <ToggleField label="Use Snaphub drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
+          <div className="mt-4 grid grid-cols-3 gap-2">{(["crosshair", "target", "precision"] as const).map((cursorStyle) => { const previewCursor = captureCursor({ enabled: true, style: cursorStyle, size: settings.cursor.size }, settings.accentColor); return <button aria-label={`Use ${cursorStyle} cursor`} aria-pressed={settings.cursor.style === cursorStyle} className="group rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={cursorStyle} style={{ cursor: previewCursor }} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, style: cursorStyle } })}><span className="block text-xs font-semibold capitalize">{cursorStyle}</span><span className="mt-1 block text-[9px] text-stone-400 transition-colors group-hover:text-stone-600 dark:text-stone-500 dark:group-hover:text-stone-300">Hover to preview</span></button>; })}</div>
+          <div className="mt-4 max-w-xs"><FieldLabel>Cursor size</FieldLabel><div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">{(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} cursor`} aria-pressed={settings.cursor.size === size} className="rounded px-2.5 py-1.5 text-[10px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, size } })}>{size}</button>)}</div></div>
+          <SectionReset onClick={() => update({ ...settings, cursor: defaultSnaphubSettings.cursor })} />
         </SettingsSection>
       </div>
     </div>
@@ -291,7 +373,7 @@ function ColorSelect({ colors, value, onChange }: ColorSelectProps): React.JSX.E
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label="Default annotation color"
-        className="flex h-9 w-full items-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-left font-mono text-[10px] text-stone-700 outline-none transition focus:border-stone-500 focus:ring-2 focus:ring-[var(--shothub-accent)]/35 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-200"
+        className="flex h-9 w-full items-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-left font-mono text-[10px] text-stone-700 outline-none transition focus:border-stone-500 focus:ring-2 focus:ring-[var(--snaphub-accent)]/35 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-200"
         type="button"
         onClick={() => setOpen((current) => !current)}
       >
@@ -338,18 +420,19 @@ function ColorButton({ color, label, selected, disabled = false, onClick }: Colo
 function SectionReset({ onClick }: { onClick: () => void }): React.JSX.Element { return <div className="mt-4 border-t border-stone-200 pt-3 dark:border-white/8"><button aria-label="Reset this section" className="flex items-center gap-1.5 text-[10px] font-medium text-stone-500 outline-none transition hover:text-stone-900 focus-visible:text-stone-900 dark:text-stone-500 dark:hover:text-stone-200 dark:focus-visible:text-white" type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset this section</button></div>; }
 
 type ToggleFieldProps = { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void };
-function ToggleField({ label, description, checked, onChange }: ToggleFieldProps): React.JSX.Element { return <label className="flex cursor-pointer items-start justify-between gap-3"><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[10px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--shothub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
-
-type SlotRowProps = { number: number; title: string; description: string; enabled: boolean; onToggle: (enabled: boolean) => void; children?: React.ReactNode };
-function SlotRow({ number, title, description, enabled, onToggle, children }: SlotRowProps): React.JSX.Element { return <div className="flex min-h-14 items-center gap-3 px-3 py-2.5"><span className="grid size-6 shrink-0 place-items-center rounded bg-stone-100 font-mono text-[9px] font-bold text-stone-500 dark:bg-white/6 dark:text-stone-500">{number.toString().padStart(2, "0")}</span><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-stone-800 dark:text-stone-200">{title}</p><p className="mt-0.5 truncate text-[10px] text-stone-500 dark:text-stone-400">{description}</p></div>{enabled ? children : null}<ToggleField label={`Enable ${title}`} description="" checked={enabled} onChange={onToggle} /></div>; }
-
-type CompactSelectProps = { label: string; value: string; options: readonly string[]; onChange: (value: string) => void };
-function CompactSelect({ label, value, options, onChange }: CompactSelectProps): React.JSX.Element { return <label className="relative"><span className="sr-only">{label}</span><select aria-label={label} className="h-8 appearance-none rounded-md border border-stone-300 bg-white py-1 pl-2.5 pr-7 text-[10px] font-medium capitalize text-stone-700 outline-none focus:ring-2 focus:ring-[var(--shothub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300" value={value} onChange={(event) => onChange(event.currentTarget.value)}>{options.map((option) => <option key={option} value={option}>{option.replace("-", " ")}</option>)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-stone-400" size={11} /></label>; }
+function ToggleField({ label, description, checked, onChange }: ToggleFieldProps): React.JSX.Element { return <label className="flex cursor-pointer items-start justify-between gap-3"><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[10px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
 
 type ShortcutRowProps = { label: string; description: string; value: string; defaultValue: string; recording: boolean; onRecord: () => void; onReset: () => void };
-function ShortcutRow({ label, description, value, defaultValue, recording, onRecord, onReset }: ShortcutRowProps): React.JSX.Element { return <div className="flex items-center gap-2 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</p><p className="mt-0.5 text-[10px] text-stone-500 dark:text-stone-400">{description}</p></div><button aria-label={`Configure ${label}`} aria-pressed={recording} className="min-w-32 rounded-md border border-stone-300 bg-stone-50 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--shothub-accent)] aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:aria-pressed:bg-white/10" type="button" onClick={onRecord}>{recording ? "Press shortcut…" : value}</button><InlineResetButton label={`Reset ${label} shortcut`} disabled={value === defaultValue} onClick={onReset} /></div>; }
+function ShortcutRow({ label, description, value, defaultValue, recording, onRecord, onReset }: ShortcutRowProps): React.JSX.Element { return <div className="flex items-center gap-2 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</p><p className="mt-0.5 text-[10px] text-stone-500 dark:text-stone-400">{description}</p></div><button aria-label={`Configure ${label}`} aria-pressed={recording} className="min-w-32 rounded-md border border-stone-300 bg-stone-50 px-2.5 py-1.5 font-mono text-[10px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:aria-pressed:bg-white/10" type="button" onClick={onRecord}>{recording ? "Press shortcut…" : value}</button><InlineResetButton label={`Reset ${label} shortcut`} disabled={value === defaultValue && !recording} onClick={onReset} /></div>; }
 
 type InlineResetButtonProps = { label: string; disabled: boolean; onClick: () => void };
-function InlineResetButton({ label, disabled, onClick }: InlineResetButtonProps): React.JSX.Element { return <button aria-label={label} className="flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[9px] font-medium text-stone-400 outline-none transition hover:bg-stone-100 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--shothub-accent)] dark:text-stone-500 dark:hover:bg-white/7 dark:hover:text-stone-200 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent" disabled={disabled} title={label} type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset</button>; }
+function InlineResetButton({ label, disabled, onClick }: InlineResetButtonProps): React.JSX.Element { return <button aria-label={label} className="flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[9px] font-medium text-stone-400 outline-none transition hover:bg-stone-100 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-500 dark:hover:bg-white/7 dark:hover:text-stone-200 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent" disabled={disabled} title={label} type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset</button>; }
 
 function formatShortcut(event: KeyboardEvent): string { const parts: string[] = []; if (event.ctrlKey) parts.push("Ctrl"); if (event.altKey) parts.push("Alt"); if (event.shiftKey) parts.push("Shift"); if (event.metaKey) parts.push("Meta"); const key = event.key.length === 1 ? event.key.toUpperCase() : event.key; parts.push(key); return parts.join("+"); }
+
+async function registerShortcuts(
+  shortcuts: SnaphubSettings["shortcuts"],
+): Promise<SnaphubSettings["shortcuts"]> {
+  const raw: unknown = await invoke("update_global_shortcuts", { shortcuts });
+  return snaphubSettingsSchema.shape.shortcuts.parse(raw);
+}

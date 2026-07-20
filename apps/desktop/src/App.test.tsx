@@ -23,9 +23,12 @@ describe("App", () => {
 
     expect(screen.getByRole("toolbar", { name: "Quick editing tools" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy" }).parentElement?.parentElement).toHaveClass(
+      "[&_button]:!cursor-[inherit]",
+    );
     expect(screen.getByText("440 × 300 px")).toBeInTheDocument();
 
-    const shapeFamily = screen.getByRole("button", { name: "Shapes and arrows" });
+    const shapeFamily = screen.getByRole("button", { name: "Rectangle group" });
     fireEvent.pointerDown(shapeFamily, { button: 0, pointerId: 2 });
     fireEvent.click(shapeFamily);
     expect(shapeFamily).toHaveAttribute("aria-pressed", "true");
