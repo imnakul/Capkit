@@ -14,6 +14,9 @@
   --radius-pill: 999px;
   --radius-panel: 20px;
   --radius-panel-sm: 12px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 @theme inline {
@@ -91,4 +94,57 @@ body {
   background-image: linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
+}
+
+/* Subtle grain for depth on flat dark panels — texture, not gradient/shadow. */
+.bg-noise {
+  position: relative;
+  isolation: isolate;
+}
+
+.bg-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.bg-noise > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Oversized poster-style numeral watermark behind a section heading. */
+.ghost-numeral {
+  position: absolute;
+  top: 0.5rem;
+  right: 1.5rem;
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-weight: 600;
+  font-size: clamp(5rem, 11vw, 9rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.scroll-cue {
+  animation: scroll-cue-bounce 2.2s var(--ease-in-out) infinite;
+}
+
+@keyframes scroll-cue-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(6px);
+    opacity: 0.9;
+  }
 }

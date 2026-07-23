@@ -3,12 +3,12 @@ import { jakarta, jetbrainsMono, caveat } from "@/lib/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Snaphub — Capture, explain, and continue.",
+  title: "CapKit — Capture, record, and showcase.",
   description:
     "A lightweight, always-available screenshot and visual communication utility for Windows. Frozen-screen capture, real annotation, and secure redaction — without opening another app.",
   metadataBase: new URL("https://snaphub.app"),
   openGraph: {
-    title: "Snaphub — Capture, explain, and continue.",
+    title: "CapKit — Capture, record, and showcase.",
     description:
       "The useful tools missing from system snipping, exactly where you need them. Fast while active, nearly invisible while idle.",
     type: "website",

@@ -92,7 +92,7 @@ impl TargetDetectionBackend for XcapPlatformBackend {
                 continue;
             }
             let title = window.title().unwrap_or_else(|_| "Window".into());
-            if title.starts_with("Snaphub Capture") || title.starts_with("Snaphub Pin") {
+            if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
                 continue;
             }
             let x = f64::from(window.x().map_err(SnaphubError::capture)?);
@@ -157,7 +157,7 @@ fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
             continue;
         }
         let title = window.title().unwrap_or_default();
-        if title.starts_with("Snaphub Capture") || title.starts_with("Snaphub Pin") {
+        if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
             continue;
         }
         let bounds = Rect {

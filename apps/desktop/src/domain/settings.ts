@@ -106,6 +106,8 @@ export const snaphubSettingsSchema = z.object({
     capture: z.string().min(1).max(64),
     captureAndCopy: z.string().min(1).max(64),
     captureAndSave: z.string().min(1).max(64),
+    captureModeCopy: z.string().min(1).max(16).default("C"),
+    captureModeSave: z.string().min(1).max(16).default("S"),
   }),
   detection: z.object({
     windows: z.boolean(),
@@ -161,6 +163,8 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     capture: "Alt+Shift+S",
     captureAndCopy: "Alt+Shift+C",
     captureAndSave: "Alt+Shift+D",
+    captureModeCopy: "C",
+    captureModeSave: "S",
   },
   detection: { windows: true, uiRegions: false },
   scrolling: { defaultMode: "automatic" },

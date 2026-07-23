@@ -82,7 +82,7 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
     if (windowLabel === undefined) return;
     await invoke("set_pinned_click_through", { label: windowLabel, enabled: true });
     setClickThrough(true);
-    setMessage("Click-through on · restore from the Snaphub tray");
+    setMessage("Click-through on · restore from the CapKit tray");
   }
 
   useEffect(() => {
@@ -108,7 +108,7 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
       ) : null}
       {imageFailed ? <span className="text-xs text-red-300">Capture image is unavailable.</span> : null}
       <img
-        alt="Pinned Snaphub capture"
+        alt="Pinned CapKit capture"
         className="absolute inset-0 max-h-full max-w-full place-self-center object-contain transition-transform duration-200 data-[ready=false]:opacity-0"
         data-ready={imageReady}
         draggable={false}

@@ -12,11 +12,11 @@ These values are assigned by Partner Center and must match every Store package e
 - Public Store URL: `https://apps.microsoft.com/detail/9PJ3XBSNXK2X`
 - MSA app ID: `2900ea2a-edf4-463f-96cb-79f4c532f07c`
 
-The visible product name remains `Snaphub`. The Store identity preserves Partner Center's assigned `SnapHub` casing and is not a user-facing naming decision.
+The visible product name is `CapKit`. The Store identity preserves Partner Center's assigned `SnapHub` casing because that identity is immutable and is not a user-facing naming decision.
 
 ## Build
 
-**Confirmed:** Snaphub uses a manually assembled Desktop Bridge MSIX because Tauri 2 currently generates EXE and MSI installers, not MSIX packages.
+**Confirmed:** CapKit uses a manually assembled Desktop Bridge MSIX because Tauri 2 currently generates EXE and MSI installers, not MSIX packages.
 
 From Windows with Node.js, pnpm, Rust, and the Windows 10/11 SDK installed:
 
@@ -33,9 +33,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-msix.ps1 -
 
 Outputs are written under `apps/desktop/src-tauri/target/store`:
 
-- `Snaphub_<version>_x64.msix`: raw x64 package
-- `Snaphub_<version>_x64.appxsym`: compressed public symbols when a release PDB exists
-- `Snaphub_<version>_x64.msixupload`: Partner Center submission artifact containing the package and symbols
+- `CapKit_<version>_x64.msix`: raw x64 package
+- `CapKit_<version>_x64.appxsym`: compressed public symbols when a release PDB exists
+- `CapKit_<version>_x64.msixupload`: Partner Center submission artifact containing the package and symbols
 
 Upload the `.msixupload` file under the product created as **MSIX or PWA app**. Microsoft signs the certified Store package; a CA certificate is not required for Store-only distribution. Direct sideloading still requires a trusted signature or an explicit development-only unsigned installation path.
 
@@ -49,7 +49,7 @@ pnpm.cmd test:store
 
 ## Runtime model
 
-**Confirmed:** The manifest declares Snaphub as a `packagedClassicApp` at `mediumIL` with the restricted `runFullTrust` capability. This is intentional: capture, global shortcuts, tray lifecycle, clipboard integration, window enumeration, scrolling input, and pinned windows are Win32 desktop behaviors and must not be moved into an AppContainer.
+**Confirmed:** The manifest declares CapKit as a `packagedClassicApp` at `mediumIL` with the restricted `runFullTrust` capability. This is intentional: capture, global shortcuts, tray lifecycle, clipboard integration, window enumeration, scrolling input, and pinned windows are Win32 desktop behaviors and must not be moved into an AppContainer.
 
 The package targets x64 Windows Desktop with Windows 11 build `22000` as its minimum. ARM64 remains a separate future package and acceptance matrix.
 
@@ -64,11 +64,11 @@ Automated build acceptance:
 - `.msixupload` contains the x64 `.msix` plus symbols when available.
 - The initial `1.0.0.0` package passed WACK overall on Windows 11 using SDK `10.0.26100.7705`. Store package `1.0.2.0` contains both the no-console fix and the corrected Partner Center publisher identity and must receive its own WACK report before submission.
 
-WACK currently reports one optional static **Blocked executables** failure while retaining an overall result of **PASS**. The compiled binary imports `CreateProcessW` and `ShellExecuteW` and contains command-name strings. Tauri/WebView infrastructure can launch child processes, and Snaphub intentionally uses the Windows shell to open the configured capture folder and saved images. Snaphub does not install drivers or services, run a command shell as part of its capture workflow, or request elevation. Preserve this explanation for certification notes and investigate any future required failure rather than suppressing validation.
+WACK currently reports one optional static **Blocked executables** failure while retaining an overall result of **PASS**. The compiled binary imports `CreateProcessW` and `ShellExecuteW` and contains command-name strings. Tauri/WebView infrastructure can launch child processes, and CapKit intentionally uses the Windows shell to open the configured capture folder and saved images. CapKit does not install drivers or services, run a command shell as part of its capture workflow, or request elevation. Preserve this explanation for certification notes and investigate any future required failure rather than suppressing validation.
 
 Suggested `runFullTrust` justification for Partner Center:
 
-> Snaphub is a user-invoked screenshot utility. It requires full-trust Win32 access for system-wide capture shortcuts, monitor and window capture, UI Automation target detection, clipboard image transfer, always-on-top pinned image windows, tray operation, local file export, and synthesized scrolling input. It does not install drivers or services and does not require administrator privileges.
+> CapKit is a user-invoked screenshot utility. It requires full-trust Win32 access for system-wide capture shortcuts, monitor and window capture, UI Automation target detection, clipboard image transfer, always-on-top pinned image windows, tray operation, local file export, and synthesized scrolling input. It does not install drivers or services and does not require administrator privileges.
 
 Physical packaged-app acceptance remains required before submission:
 

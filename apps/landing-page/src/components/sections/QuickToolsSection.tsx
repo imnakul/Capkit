@@ -1,11 +1,22 @@
 import { quickTools } from "@/lib/content";
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
+import { GhostNumeral } from "@/components/ui/GhostNumeral";
+import { ToolIcon, type IconName } from "@/components/sections/hero/ToolIcon";
+
+const toolIcons: Record<string, IconName> = {
+  redact: "blur",
+  annotate: "arrow",
+  counter: "counter",
+  pin: "pin",
+  scroll: "text",
+};
 
 export function QuickToolsSection(): React.JSX.Element {
   return (
-    <section id="tools" className="bg-ink py-24 text-paper sm:py-32">
-      <div className="mx-auto max-w-[1600px] px-6 sm:px-10">
+    <section id="tools" className="bg-noise relative overflow-hidden bg-ink py-24 text-paper sm:py-32">
+      <GhostNumeral index="03" tone="dark" />
+      <div className="relative z-[1] mx-auto max-w-[1600px] px-6 sm:px-10">
         <Reveal>
           <Kicker index="03" label="Quick tools" tone="dark" />
         </Reveal>
@@ -28,9 +39,12 @@ export function QuickToolsSection(): React.JSX.Element {
             <Reveal
               key={tool.id}
               delay={0.05 * i}
-              className={`bg-ink p-8 ${i === 0 ? "lg:col-span-2" : ""}`}
+              className={`group bg-ink p-8 transition-colors duration-150 ease hover:bg-[#0d0d0d] ${i === 0 ? "lg:col-span-2" : ""}`}
             >
-              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-focus">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line-on-dark text-paper/70 transition-colors duration-150 ease group-hover:border-focus/50 group-hover:text-focus">
+                <ToolIcon name={toolIcons[tool.id]} />
+              </span>
+              <span className="mt-5 block font-mono text-[11px] uppercase tracking-[0.14em] text-focus">
                 {tool.mono}
               </span>
               <h3 className="mt-4 font-sans text-[21px] font-medium tracking-tight">

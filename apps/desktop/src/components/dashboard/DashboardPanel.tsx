@@ -36,12 +36,12 @@ export function DashboardPanel(): React.JSX.Element {
             <ScanLine aria-hidden="true" size={16} strokeWidth={2.1} />
           </div>
           <div>
-            <p className="text-[13px] font-semibold tracking-tight text-stone-900 dark:text-white">Snaphub</p>
+            <p className="text-[13px] font-semibold tracking-tight text-stone-900 dark:text-white">CapKit</p>
             <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-stone-500 dark:text-stone-500">Desktop utility</p>
           </div>
         </div>
 
-        <nav aria-label="Snaphub sections" className="space-y-1">
+        <nav aria-label="CapKit sections" className="space-y-1">
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activeTab;
@@ -94,7 +94,7 @@ export function DashboardPanel(): React.JSX.Element {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {activeTab === "dashboard" ? <SavedCapturesView cloudConfigured={false} onShowcase={() => setActiveTab("showcase")} /> : activeTab === "settings" ? <SettingsView /> : <EmptySection title={navigation.find((item) => item.id === activeTab)?.label ?? "Snaphub"} />}
+        {activeTab === "dashboard" ? <SavedCapturesView cloudConfigured={false} onShowcase={() => setActiveTab("showcase")} /> : activeTab === "settings" ? <SettingsView /> : <EmptySection title={navigation.find((item) => item.id === activeTab)?.label ?? "CapKit"} />}
       </main>
     </div>
   );

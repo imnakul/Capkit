@@ -2,13 +2,15 @@
 
 ## Naming status
 
-**Confirmed product name:** Snaphub.
+**Confirmed product name:** CapKit.
+
+**Confirmed tagline:** The lightweight desktop toolkit to capture, record, and showcase.
 
 **Provisional:** public clearance. Trademark, domain, social handle, store-name, and confusion checks must happen before identity lockup.
 
 ## Brand idea
 
-Snaphub should feel like a quiet industrial utility: precise, calm, quick, and trustworthy. The product does not ask for attention; it removes friction and disappears.
+CapKit should feel like a quiet industrial utility: precise, calm, quick, and trustworthy. The product does not ask for attention; it removes friction and disappears.
 
 The memorable visual behavior is the selected region becoming the workspace, framed by adaptive tools. Brand systems should build from focus, framing, cropping, coordinates, and precise marks rather than generic cloud or camera symbolism.
 
@@ -16,7 +18,7 @@ The memorable visual behavior is the selected region becoming the workspace, fra
 
 Primary audience: developers, designers, QA, support, educators, and small product teams.
 
-Core promise: **Capture, explain, and continue.**
+Core promise: **The lightweight desktop toolkit to capture, record, and showcase.**
 
 Supporting messages:
 

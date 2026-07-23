@@ -381,7 +381,7 @@ async fn add_manual_scrolling_frame(
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         // The short hidden interval is the manual fallback: the user scrolls the underlying
-        // application once, then Snaphub samples the same region and restores its preview.
+        // application once, then CapKit samples the same region and restores its preview.
         std::thread::sleep(std::time::Duration::from_millis(1_800));
         worker_app
             .state::<CaptureService>()
@@ -432,7 +432,7 @@ async fn complete_scrolling_capture(
             let image = image::open(&source)
                 .map_err(SnaphubError::export)?
                 .into_rgba8();
-            let pin_directory = std::env::temp_dir().join("Snaphub").join("pins");
+            let pin_directory = std::env::temp_dir().join("CapKit").join("pins");
             std::fs::create_dir_all(&pin_directory).map_err(SnaphubError::export)?;
             let path = pin_directory.join(format!("scroll-{}.png", uuid::Uuid::new_v4()));
             image.save(&path).map_err(SnaphubError::export)?;
@@ -600,13 +600,13 @@ fn validated_scrolling_output(path: &str) -> Result<PathBuf, SnaphubError> {
         .canonicalize()
         .map_err(SnaphubError::export)?;
     let allowed = std::env::temp_dir()
-        .join("Snaphub")
+        .join("CapKit")
         .join("scroll")
         .canonicalize()
         .map_err(SnaphubError::export)?;
     if !candidate.starts_with(allowed) {
         return Err(SnaphubError::Export(
-            "Scrolling output is outside the Snaphub session directory".into(),
+            "Scrolling output is outside the CapKit session directory".into(),
         ));
     }
     Ok(candidate)
@@ -624,7 +624,7 @@ fn create_pin_window(app: &AppHandle, path: &str) -> Result<(), SnaphubError> {
         label.clone(),
         WebviewUrl::App(PathBuf::from("index.html")),
     )
-    .title("Snaphub Pin")
+    .title("CapKit Pin")
     .closable(true)
     .decorations(false)
     .always_on_top(true)
@@ -662,7 +662,7 @@ fn show_dashboard(app: &AppHandle) -> Result<(), SnaphubError> {
         "dashboard",
         WebviewUrl::App(PathBuf::from("index.html")),
     )
-    .title("Snaphub")
+    .title("CapKit")
     .inner_size(1120.0, 780.0)
     .min_inner_size(900.0, 640.0)
     .center()
@@ -677,7 +677,7 @@ fn show_dashboard(app: &AppHandle) -> Result<(), SnaphubError> {
 pub fn run() {
     let backend = Arc::new(XcapPlatformBackend::default());
     let shortcuts = RegisteredShortcuts::parse(default_shortcuts())
-        .expect("Snaphub default shortcuts must be valid");
+        .expect("CapKit default shortcuts must be valid");
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -761,7 +761,7 @@ pub fn run() {
             }
 
             let dashboard_item =
-                MenuItem::with_id(app, "dashboard", "Open Snaphub", true, None::<&str>)?;
+                MenuItem::with_id(app, "dashboard", "Open CapKit", true, None::<&str>)?;
             let capture_item =
                 MenuItem::with_id(app, "capture", "Capture  Alt+Shift+S", true, None::<&str>)?;
             let restore_pins_item = MenuItem::with_id(
@@ -771,7 +771,7 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit Snaphub", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit CapKit", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[
@@ -783,7 +783,7 @@ pub fn run() {
             )?;
 
             let mut tray = TrayIconBuilder::new()
-                .tooltip("Snaphub - Capture, explain, continue")
+                .tooltip("CapKit - Capture, record, and showcase")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -845,7 +845,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("Snaphub failed to initialize");
+        .expect("CapKit failed to initialize");
 
     app.run(|_app, event| {
         if let tauri::RunEvent::ExitRequested { api, code, .. } = event

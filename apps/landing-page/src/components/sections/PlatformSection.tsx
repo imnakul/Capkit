@@ -2,11 +2,13 @@ import { platforms } from "@/lib/content";
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { GhostNumeral } from "@/components/ui/GhostNumeral";
 
 export function PlatformSection(): React.JSX.Element {
   return (
-    <section id="platforms" className="bg-ink py-24 text-paper sm:py-32">
-      <div className="mx-auto max-w-[1600px] px-6 sm:px-10">
+    <section id="platforms" className="bg-noise relative overflow-hidden bg-ink py-24 text-paper sm:py-32">
+      <GhostNumeral index="05" tone="dark" />
+      <div className="relative z-[1] mx-auto max-w-[1600px] px-6 sm:px-10">
         <Reveal>
           <Kicker index="05" label="Platform status" tone="dark" />
         </Reveal>

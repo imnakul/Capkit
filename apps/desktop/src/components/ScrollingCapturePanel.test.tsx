@@ -63,7 +63,7 @@ describe("ScrollingCapturePanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("The selected folder is unavailable");
     expect(screen.getByText("The stitched preview is still available. Retry Copy, Save, or Pin below.")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Hide Snaphub and capture the next manually scrolled frame" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide CapKit and capture the next manually scrolled frame" }));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 

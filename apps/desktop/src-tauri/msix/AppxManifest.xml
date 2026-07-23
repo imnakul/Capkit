@@ -12,7 +12,7 @@
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Snaphub</DisplayName>
+    <DisplayName>CapKit</DisplayName>
     <PublisherDisplayName>JagatBandhu</PublisherDisplayName>
     <Description>Capture, explain, and continue.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -34,7 +34,7 @@
       uap10:TrustLevel="mediumIL">
       <uap:VisualElements
         AppListEntry="default"
-        DisplayName="Snaphub"
+        DisplayName="CapKit"
         Description="Capture, explain, and continue."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"

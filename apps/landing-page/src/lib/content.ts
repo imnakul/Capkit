@@ -1,5 +1,5 @@
 export const site = {
-  name: "Snaphub",
+  name: "CapKit",
   tagline: "Capture, explain, and continue.",
   description:
     "A lightweight, always-available screenshot and visual communication utility for Windows. Frozen-screen capture, real annotation, and secure redaction — without opening another app.",

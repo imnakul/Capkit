@@ -152,4 +152,40 @@ describe("AnnotationCanvas effect previews", () => {
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: "text-1", text: "Keep this edit" }));
     expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "text", text: "Type something" }));
   });
+
+  it("selects, moves, and deletes an existing annotation", () => {
+    const rectangle = {
+      id: "rectangle-1",
+      kind: "rectangle" as const,
+      bounds: { x: 20, y: 30, width: 80, height: 50 },
+      color: "#d9ff43",
+      fill: "transparent",
+      strokeWidth: 4,
+      opacity: 1,
+    };
+    const onDelete = vi.fn();
+    const onUpdate = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [rectangle] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={onDelete}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 30, clientY: 40, pointerId: 5 });
+    fireEvent.pointerMove(canvas, { buttons: 1, clientX: 50, clientY: 60, pointerId: 5 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 50, clientY: 60, pointerId: 5 });
+
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: "rectangle-1", bounds: { x: 40, y: 50, width: 80, height: 50 } }));
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(onDelete).toHaveBeenCalledWith("rectangle-1");
+  });
 });

@@ -71,6 +71,8 @@ impl CaptureService {
             + PinnedWindowBackend
             + 'static,
     {
+        let save_directory = load_save_directory();
+        let _ = fs::create_dir_all(&save_directory);
         Self {
             capture: backend.clone(),
             clipboard: backend.clone(),
@@ -80,7 +82,7 @@ impl CaptureService {
             pinning: backend,
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
-            save_directory: Mutex::new(load_save_directory()),
+            save_directory: Mutex::new(save_directory),
         }
     }
 
@@ -472,7 +474,7 @@ impl CaptureService {
         let directory = self.save_directory()?;
         fs::create_dir_all(&directory).map_err(SnaphubError::export)?;
         Ok(directory.join(format!(
-            "Snaphub_{}.png",
+            "CapKit_{}.png",
             Local::now().format("%Y-%m-%d_%H-%M-%S-%3f")
         )))
     }
@@ -866,7 +868,7 @@ fn parse_color(value: &str, opacity: f32) -> Rgba<u8> {
 fn default_save_directory() -> PathBuf {
     dirs::picture_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("Snaphub")
+        .join("CapKit")
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -875,6 +877,13 @@ struct StoragePreferences {
 }
 
 fn storage_preferences_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join("CapKit"))
+        .join("CapKit")
+        .join("storage.json")
+}
+
+fn previous_snaphub_storage_preferences_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| std::env::temp_dir().join("Snaphub"))
         .join("Snaphub")
@@ -891,8 +900,9 @@ fn legacy_storage_preferences_path() -> PathBuf {
 
 fn load_save_directory() -> PathBuf {
     let current_path = storage_preferences_path();
+    let previous_path = previous_snaphub_storage_preferences_path();
     let legacy_path = legacy_storage_preferences_path();
-    for path in [&current_path, &legacy_path] {
+    for path in [&current_path, &previous_path, &legacy_path] {
         let Some(directory) = fs::read_to_string(path)
             .ok()
             .and_then(|raw| serde_json::from_str::<StoragePreferences>(&raw).ok())
@@ -901,7 +911,12 @@ fn load_save_directory() -> PathBuf {
         else {
             continue;
         };
-        if path == &legacy_path {
+        if path != &current_path {
+            if directory == previous_default_save_directory() {
+                let migrated = default_save_directory();
+                let _ = persist_save_directory(&migrated);
+                return migrated;
+            }
             let _ = persist_save_directory(&directory);
         }
         return directory;
@@ -922,6 +937,12 @@ fn persist_save_directory(directory: &Path) -> Result<(), SnaphubError> {
     fs::write(path, bytes).map_err(SnaphubError::export)
 }
 
+fn previous_default_save_directory() -> PathBuf {
+    dirs::picture_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        .join("Snaphub")
+}
+
 fn save_atomic(image: &RgbaImage, destination: &Path) -> Result<(), SnaphubError> {
     let temporary = destination.with_extension("png.partial");
     image
@@ -931,7 +952,7 @@ fn save_atomic(image: &RgbaImage, destination: &Path) -> Result<(), SnaphubError
 }
 
 fn session_directory() -> PathBuf {
-    std::env::temp_dir().join("Snaphub")
+    std::env::temp_dir().join("CapKit")
 }
 
 fn system_font(family: &str) -> Option<FontArc> {
@@ -991,6 +1012,14 @@ fn non_negative_i32(value: f64) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_save_directory_uses_capkit_folder() {
+        assert_eq!(
+            default_save_directory().file_name(),
+            Some(std::ffi::OsStr::new("CapKit"))
+        );
+    }
 
     #[test]
     fn secure_blackout_replaces_source_pixels() {

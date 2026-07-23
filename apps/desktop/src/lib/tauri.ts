@@ -65,7 +65,7 @@ export async function completeCapture(
   selection: Rect,
   scene: AnnotationScene,
 ): Promise<CompletionResult> {
-  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/Snaphub.png" : null };
+  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/CapKit.png" : null };
 
   const raw: unknown = await invoke("complete_capture", {
     request: { action, sessionId, selection, scene },
@@ -155,7 +155,7 @@ export async function detectTargets(
 }
 
 export async function getSaveDirectory(): Promise<string> {
-  if (!isTauri()) return "Pictures\\Snaphub";
+  if (!isTauri()) return "Pictures\\CapKit";
   const raw: unknown = await invoke("get_save_directory");
   return z.string().min(1).parse(raw);
 }
@@ -167,7 +167,7 @@ export async function setSaveDirectory(directory: string): Promise<string> {
 }
 
 export async function resetSaveDirectory(): Promise<string> {
-  if (!isTauri()) return "Pictures\\Snaphub";
+  if (!isTauri()) return "Pictures\\CapKit";
   const raw: unknown = await invoke("reset_save_directory");
   return z.string().min(1).parse(raw);
 }

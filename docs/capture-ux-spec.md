@@ -19,7 +19,7 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 - Clicking confirms the currently highlighted rectangular target. Clicking and dragging always draws a free-positioned rectangle, never a freeform shape.
 - A completed selection moves only while the primary button is held over its interior; hovering alone never moves it.
 - Pointer events from the selected region, annotation tools, contextual properties, and completion actions never start a new background selection.
-- Initial target and rectangle selection uses Snaphub's high-contrast accent cursor rather than the operating system's generic crosshair. The same cursor remains visible inside a completed selection and over capture/annotation controls; only resize handles keep contextual resize cursors.
+- Initial target and rectangle selection uses CapKit's high-contrast accent cursor rather than the operating system's generic crosshair. The same cursor remains visible inside a completed selection and over capture/annotation controls; only resize handles keep contextual resize cursors.
 - A modifier temporarily disables detection and snapping.
 - Selection is movable and resizable from handles; arrow keys nudge by one physical pixel and modified arrows nudge faster.
 - Dimensions are expressed in physical export pixels. Optional coordinates can use logical desktop coordinates.
@@ -46,7 +46,7 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 - Capture colors are limited to five quick-access slots. Users can choose from high-visibility presets or add custom colors, then choose a default color and stroke size.
 - Accent, overlay tint, detection, cursor, toolbar composition, and shortcut controls use clear groups with section-level reset actions where defaults matter.
 - Color selectors pair every hexadecimal value with its visible swatch, and every settings section exposes a consistent reset action.
-- Enabling startup launches Snaphub quietly into the tray rather than opening a dashboard during login.
+- Enabling startup launches CapKit quietly into the tray rather than opening a dashboard during login.
 - Dashboard panels provide persistent light and dark appearances with compact typography and controls; the choice does not alter frozen-screen capture fidelity.
 
 ## Quick tools
@@ -60,6 +60,7 @@ Annotations are non-destructive scene objects until export. Tool defaults rememb
 - Counter increments automatically and allows an explicit starting value.
 - Blur and pixelation render live against the frozen source while drawing; blackout remains visibly opaque. Final export still performs permanent Rust-side rasterization, and the UI must clearly distinguish secure pixelation/blackout from visual blur.
 - Undo/redo covers annotations, transforms, selection changes, and properties.
+- While a region is selected, configurable single-key actions (default `C` to copy and `S` to save) complete the capture and return to the tray. Text fields consume those keys normally.
 
 ## Completion
 
@@ -70,15 +71,15 @@ Annotations are non-destructive scene objects until export. Tool defaults rememb
 - `Cancel` changes neither clipboard nor filesystem.
 - Success feedback is subtle and must not steal focus.
 
-The configured folder is native state shared by toolbar Save, scrolling Save, pinned-image Save, and the direct Capture & save shortcut. Settings owns the folder picker. The Dashboard shows its path and compatible saved images through on-demand thumbnails; Copy never creates a dashboard entry.
+The configured folder defaults to `Pictures/CapKit`, is created when the resident service starts, and is shared by toolbar Save, scrolling Save, pinned-image Save, and the direct Capture & save shortcut. Settings owns the folder picker. The Dashboard shows its path and compatible saved images through on-demand thumbnails; Copy never creates a dashboard entry.
 
 ## Scrolling capture
 
 - A completed rectangular selection exposes one Scrolling Capture action; entering it never discards the original capture session until the stitched result is completed or cancelled.
 - Settings offers Automatic, Manual, and Always ask. Automatic and Manual begin immediately from the toolbar action. Always ask places a clearly titled two-card chooser beside the selected region; selecting a card starts without a second confirmation button.
-- Automatic mode temporarily hides Snaphub, places scroll input inside the selected area, captures bounded frames, stops on unchanged content or the frame limit, and restores Snaphub directly into a stitched preview.
+- Automatic mode temporarily hides CapKit, places scroll input inside the selected area, captures bounded frames, stops on unchanged content or the frame limit, and restores CapKit directly into a stitched preview.
 - Repeated sticky headers are retained in the first frame and removed from later frames before overlap matching.
-- Manual fallback captures an initial frame, then offers an explicit “scroll once, then add frame” action. Snaphub hides for a short announced interval so the user can scroll the underlying application, samples the same region, and restores the updated preview.
+- Manual fallback captures an initial frame, then offers an explicit “scroll once, then add frame” action. CapKit hides for a short announced interval so the user can scroll the underlying application, samples the same region, and restores the updated preview.
 - Preview reports frame count, end/no-progress state, and sticky-header handling, with Retry, Copy, Save, and Pin actions.
 - A Copy, Save, or Pin failure preserves the stitched preview, displays the native diagnostic, and leaves all completion actions retryable.
 - Applications that ignore synthetic wheel input return a recoverable no-progress state and keep Manual fallback available.
@@ -108,7 +109,7 @@ Target hover uses cached windows and optional Windows UI Automation rectangles. 
 - The temporary frozen source uses a fast, lossless representation; compression and target enumeration are excluded from the reveal-critical path.
 - The window may only become visible after the frozen snapshot has been validated, preloaded, and committed to the overlay.
 - No fullscreen idle, loading, preview, or error screen is permitted.
-- `Esc` from any screenshot state must discard the temporary capture, force-hide the entire surface, and immediately return Snaphub to its normal tray-only mode, even when session creation is incomplete or failed.
+- `Esc` from any screenshot state must discard the temporary capture, force-hide the entire surface, and immediately return CapKit to its normal tray-only mode, even when session creation is incomplete or failed.
 - Export, scrolling stitch, and permission failures retain recoverable session state.
 - Retrying does not duplicate saves or clipboard writes.
 - Errors contain a human action and a diagnostic code suitable for logs.

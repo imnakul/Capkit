@@ -38,7 +38,7 @@ $executablePath = Join-Path $releaseRoot 'snaphub-desktop.exe'
 $pdbPath = Join-Path $releaseRoot 'snaphub_desktop.pdb'
 $manifestTemplate = Join-Path $tauriRoot 'msix\AppxManifest.xml'
 $iconRoot = Join-Path $tauriRoot 'icons'
-$packageName = "Snaphub_${PackageVersion}_x64"
+$packageName = "CapKit_${PackageVersion}_x64"
 $msixPath = Join-Path $storeRoot "$packageName.msix"
 $symbolPath = Join-Path $storeRoot "$packageName.appxsym"
 $uploadPath = Join-Path $storeRoot "$packageName.msixupload"
@@ -180,7 +180,7 @@ if ($actualFamilyName -ne $expectedFamilyName) {
 }
 
 Write-Host ''
-Write-Host 'Snaphub Store artifacts created:' -ForegroundColor Green
+Write-Host 'CapKit Store artifacts created:' -ForegroundColor Green
 Write-Host "  MSIX:       $msixPath"
 Write-Host "  MSIXUPLOAD: $uploadPath"
 Write-Host "  Family:     $actualFamilyName"

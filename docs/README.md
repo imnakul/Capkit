@@ -1,4 +1,4 @@
-# Snaphub Knowledge Base
+# CapKit Knowledge Base
 
 This directory is the canonical handoff for product, design, engineering, brand, marketing, and commercial agents.
 

@@ -35,7 +35,7 @@ describe("PinnedCaptureEntry", () => {
   it("loads the registered bitmap and exposes working pin actions", async () => {
     render(<PinnedCaptureEntry windowLabel="pin-test" />);
 
-    const image = await screen.findByRole("img", { name: "Pinned Snaphub capture" });
+    const image = await screen.findByRole("img", { name: "Pinned CapKit capture" });
     fireEvent.load(image);
     expect(image).toHaveAttribute("src", "asset://C:/Temp/Snaphub/pins/pin.png");
 
@@ -56,7 +56,7 @@ describe("PinnedCaptureEntry", () => {
   it("closes with Escape even while the bitmap is loading", async () => {
     render(<PinnedCaptureEntry windowLabel="pin-test" />);
 
-    await screen.findByRole("img", { name: "Pinned Snaphub capture" });
+    await screen.findByRole("img", { name: "Pinned CapKit capture" });
     fireEvent.keyDown(window, { key: "Escape" });
 
     await waitFor(() => expect(tauri.close).toHaveBeenCalledOnce());

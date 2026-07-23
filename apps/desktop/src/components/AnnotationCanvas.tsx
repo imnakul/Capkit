@@ -39,12 +39,20 @@ export function AnnotationCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [movingAnnotation, setMovingAnnotation] = useState<{ initial: Annotation; current: Annotation } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const editingTextIdRef = useRef<string | null>(null);
   const editingValueRef = useRef("");
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
+  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point } | null>(null);
+
+  const displayedElements = useMemo<readonly Annotation[]>(() => {
+    if (movingAnnotation === null) return scene.elements;
+    return scene.elements.map((element) => element.id === movingAnnotation.current.id ? movingAnnotation.current : element);
+  }, [movingAnnotation, scene.elements]);
 
   const preview = useMemo<Annotation | null>(() => {
     if (draft === null) return null;
@@ -74,12 +82,25 @@ export function AnnotationCanvas({
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>): void {
-    if (activeTool === "select") return;
+    const point = relativePoint(event);
+    if (activeTool === "select") {
+      const hit = findAnnotationAtPoint(scene.elements, point);
+      setSelectedAnnotationId(hit?.id ?? null);
+      // Leave empty-space presses available to SelectionFrame so the capture
+      // region itself can still be moved while Select is active.
+      if (hit === undefined) return;
+      event.stopPropagation();
+      setSelectedTextId(hit.kind === "text" ? hit.id : null);
+      finishActiveTextEdit();
+      if ("setPointerCapture" in event.currentTarget) event.currentTarget.setPointerCapture(event.pointerId);
+      movingAnnotationRef.current = { initial: hit, current: hit, start: point };
+      setMovingAnnotation({ initial: hit, current: hit });
+      return;
+    }
     event.stopPropagation();
     if ("setPointerCapture" in event.currentTarget) {
       event.currentTarget.setPointerCapture(event.pointerId);
     }
-    const point = relativePoint(event);
     if (activeTool === "counter" || activeTool === "text") {
       if (activeTool === "text") finishActiveTextEdit();
       const annotation = createAnnotation(activeTool, point, point, style, scene);
@@ -87,6 +108,7 @@ export function AnnotationCanvas({
         onCommit(annotation);
         if (annotation.kind === "text") {
           setSelectedTextId(annotation.id);
+          setSelectedAnnotationId(annotation.id);
           setEditingTextId(null);
           editingTextIdRef.current = null;
         }
@@ -94,6 +116,7 @@ export function AnnotationCanvas({
       return;
     }
     setSelectedTextId(null);
+    setSelectedAnnotationId(null);
     setEditingTextId(null);
     editingTextIdRef.current = null;
     const nextDraft = { id: crypto.randomUUID(), start: point, end: point, points: [point] };
@@ -102,6 +125,19 @@ export function AnnotationCanvas({
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    const moving = movingAnnotationRef.current;
+    if (moving !== null) {
+      if ((event.buttons & 1) === 0) {
+        handlePointerUp(event);
+        return;
+      }
+      event.stopPropagation();
+      const point = relativePoint(event);
+      const current = translateAnnotation(moving.initial, point.x - moving.start.x, point.y - moving.start.y);
+      moving.current = current;
+      setMovingAnnotation({ initial: moving.initial, current });
+      return;
+    }
     const current = draftRef.current;
     if (current === null) return;
     if ((event.buttons & 1) === 0) {
@@ -119,6 +155,14 @@ export function AnnotationCanvas({
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLDivElement>): void {
+    const moving = movingAnnotationRef.current;
+    if (moving !== null) {
+      event.stopPropagation();
+      onUpdate(moving.current);
+      movingAnnotationRef.current = null;
+      setMovingAnnotation(null);
+      return;
+    }
     event.stopPropagation();
     const current = draftRef.current;
     if (current === null) return;
@@ -147,7 +191,21 @@ export function AnnotationCanvas({
     }
   }, [activeTool]);
 
+  useEffect(() => {
+    function handleDeleteKey(event: KeyboardEvent): void {
+      if (selectedAnnotationId === null || (event.key !== "Delete" && event.key !== "Backspace")) return;
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+      event.preventDefault();
+      onDelete(selectedAnnotationId);
+      setSelectedAnnotationId(null);
+      setSelectedTextId(null);
+    }
+    window.addEventListener("keydown", handleDeleteKey);
+    return (): void => window.removeEventListener("keydown", handleDeleteKey);
+  }, [onDelete, selectedAnnotationId]);
+
   function selectText(annotation: Extract<Annotation, { kind: "text" }>): void {
+    setSelectedAnnotationId(annotation.id);
     if (selectedTextId === annotation.id) {
       setEditingTextId(annotation.id);
       editingTextIdRef.current = annotation.id;
@@ -193,16 +251,16 @@ export function AnnotationCanvas({
     >
       <EffectPreviewLayer
         bounds={bounds}
-        elements={preview === null ? scene.elements : [...scene.elements, preview]}
+        elements={preview === null ? displayedElements : [...displayedElements, preview]}
         snapshotUrl={snapshotUrl}
       />
       <Stage height={bounds.height} listening={false} width={bounds.width}>
         <Layer>
-          <SceneElements elements={scene.elements.filter((element) => element.id !== editingTextId)} />
+          <SceneElements elements={displayedElements.filter((element) => element.id !== editingTextId)} />
           {preview === null ? null : renderAnnotation(preview)}
         </Layer>
       </Stage>
-      {scene.elements.filter(isTextAnnotation).map((annotation) => {
+      {displayedElements.filter(isTextAnnotation).map((annotation) => {
         const selected = selectedTextId === annotation.id;
         const editing = editingTextId === annotation.id;
         const estimatedWidth = Math.max(92, annotation.text.length * annotation.fontSize * 0.54);
@@ -254,7 +312,9 @@ export function AnnotationCanvas({
                 className={`h-full w-full border bg-transparent outline-none ${selected ? "border-dashed border-lime-300/80" : "border border-transparent"}`}
                 type="button"
                 onClick={() => selectText(annotation)}
-                onPointerDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => {
+                  if (activeTool !== "select") event.stopPropagation();
+                }}
               />
             )}
             {selected ? (
@@ -276,6 +336,18 @@ export function AnnotationCanvas({
           </div>
         );
       })}
+      {selectedAnnotationId === null || draft !== null ? null : ((): React.JSX.Element | null => {
+        const selected = displayedElements.find((element) => element.id === selectedAnnotationId);
+        if (selected === undefined || selected.kind === "text") return null;
+        const selectedBounds = annotationBounds(selected);
+        return (
+          <div aria-label={`Selected ${selected.kind} annotation`} className="pointer-events-none absolute z-30 border border-dashed border-lime-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]" style={{ left: selectedBounds.x, top: selectedBounds.y, width: selectedBounds.width, height: selectedBounds.height }}>
+            <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-2.5 -top-2.5 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
+              <X aria-hidden="true" size={11} strokeWidth={2.4} />
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -461,7 +533,7 @@ function RasterEffectPreview({
     const radius = Math.max(2, Math.min(40, effect.intensity));
     return (
       <div
-        className="absolute overflow-hidden bg-white/[0.01]"
+        className="absolute overflow-hidden border-2 border-dashed border-sky-300/90 bg-white/[0.01] shadow-[0_0_0_1px_rgba(0,0,0,0.65),0_0_0_5px_rgba(56,189,248,0.12)]"
         data-effect-preview="blur"
         style={{
           ...sharedStyle,
@@ -473,20 +545,20 @@ function RasterEffectPreview({
   }
 
   if (snapshotUrl === "") {
-    return <div className="absolute bg-stone-500/70" data-effect-preview="pixelate" style={sharedStyle} />;
+    return <div className="absolute border-2 border-dashed border-fuchsia-300/90 bg-stone-500/70 shadow-[0_0_0_1px_rgba(0,0,0,0.65),0_0_0_5px_rgba(232,121,249,0.12)]" data-effect-preview="pixelate" style={sharedStyle} />;
   }
 
   const sourceX = selectionBounds.x + effect.bounds.x;
   const sourceY = selectionBounds.y + effect.bounds.y;
   return (
     <div
-      className="absolute overflow-hidden"
+      className="absolute overflow-hidden border-2 border-dashed border-fuchsia-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.65),0_0_0_5px_rgba(232,121,249,0.12)]"
       data-effect-preview="pixelate"
       style={sharedStyle}
     >
       <img
         alt=""
-        className="absolute max-w-none select-none"
+        className="absolute block max-w-none select-none"
         draggable={false}
         src={snapshotUrl}
         style={{
@@ -511,6 +583,35 @@ function isTextAnnotation(
   annotation: Annotation,
 ): annotation is Extract<Annotation, { kind: "text" }> {
   return annotation.kind === "text";
+}
+
+function annotationBounds(annotation: Annotation): CaptureRect {
+  if ("bounds" in annotation) return annotation.bounds;
+  if (annotation.kind === "text") {
+    return { x: annotation.position.x, y: annotation.position.y, width: Math.max(92, annotation.text.length * annotation.fontSize * 0.54), height: annotation.fontSize * 1.35 };
+  }
+  if (annotation.kind === "counter") {
+    return { x: annotation.position.x - annotation.radius, y: annotation.position.y - annotation.radius, width: annotation.radius * 2, height: annotation.radius * 2 };
+  }
+  const xs = annotation.points.map((point) => point.x);
+  const ys = annotation.points.map((point) => point.y);
+  const minX = Math.min(...xs) - annotation.strokeWidth;
+  const minY = Math.min(...ys) - annotation.strokeWidth;
+  return { x: minX, y: minY, width: Math.max(1, Math.max(...xs) - minX + annotation.strokeWidth), height: Math.max(1, Math.max(...ys) - minY + annotation.strokeWidth) };
+}
+
+function findAnnotationAtPoint(elements: readonly Annotation[], point: Point): Annotation | undefined {
+  const tolerance = 10;
+  return [...elements].reverse().find((element) => {
+    const bounds = annotationBounds(element);
+    return point.x >= bounds.x - tolerance && point.x <= bounds.x + bounds.width + tolerance && point.y >= bounds.y - tolerance && point.y <= bounds.y + bounds.height + tolerance;
+  });
+}
+
+function translateAnnotation(annotation: Annotation, dx: number, dy: number): Annotation {
+  if ("bounds" in annotation) return { ...annotation, bounds: { ...annotation.bounds, x: annotation.bounds.x + dx, y: annotation.bounds.y + dy } };
+  if (annotation.kind === "text" || annotation.kind === "counter") return { ...annotation, position: { x: annotation.position.x + dx, y: annotation.position.y + dy } };
+  return { ...annotation, points: annotation.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
 }
 
 function createAnnotation(

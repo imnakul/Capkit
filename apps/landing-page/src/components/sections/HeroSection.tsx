@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/Button";
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
 import { CaptureVisual } from "@/components/sections/hero/CaptureVisual";
+import { ScrollCue } from "@/components/sections/hero/ScrollCue";
 
 export function HeroSection(): React.JSX.Element {
   return (
-    <section id="top" className="relative overflow-hidden bg-ink text-paper">
+    <section id="top" className="bg-noise relative overflow-hidden bg-ink text-paper">
       <div className="absolute inset-0 bg-grid opacity-40" aria-hidden="true" />
       <div className="relative mx-auto grid max-w-[1600px] gap-14 px-6 pb-20 pt-16 sm:px-10 sm:pb-28 sm:pt-24 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-10">
         <div>
@@ -60,6 +61,8 @@ export function HeroSection(): React.JSX.Element {
           <CaptureVisual />
         </Reveal>
       </div>
+
+      <ScrollCue />
     </section>
   );
 }

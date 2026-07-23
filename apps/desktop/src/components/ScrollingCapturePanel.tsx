@@ -72,7 +72,7 @@ export function ScrollingCapturePanel({
             onClick={onAutomatic}
           >
             <GalleryVerticalEnd aria-hidden="true" className="mt-0.5 text-lime-300" size={16} />
-            <span><span className="block text-xs font-semibold">Automatic</span><span className="mt-1 block text-[10px] leading-4 text-stone-400">Snaphub scrolls, detects the end, removes repeated headers, and stitches.</span></span>
+            <span><span className="block text-xs font-semibold">Automatic</span><span className="mt-1 block text-[10px] leading-4 text-stone-400">CapKit scrolls, detects the end, removes repeated headers, and stitches.</span></span>
           </button>
           <button
             aria-label="Start manual scrolling capture"
@@ -95,7 +95,7 @@ export function ScrollingCapturePanel({
               {state.mode === "automatic" ? "Scrolling and matching frames" : state.mode === "manual-add" ? "Scroll the page now" : "Capturing the first frame"}
             </p>
             <p className="mt-1 text-[10px] leading-4 text-stone-400">
-              {state.mode === "manual-add" ? "The overlay is hidden for two seconds." : "Snaphub will restore this preview automatically."}
+              {state.mode === "manual-add" ? "The overlay is hidden for two seconds." : "CapKit will restore this preview automatically."}
             </p>
           </div>
         </div>
@@ -125,14 +125,14 @@ export function ScrollingCapturePanel({
             {state.mode === "manual" ? (
               <div className="mb-2">
                 <button
-                  aria-label="Hide Snaphub and capture the next manually scrolled frame"
+                  aria-label="Hide CapKit and capture the next manually scrolled frame"
                   className="flex w-full items-center justify-center gap-2 rounded-md border border-white/12 bg-white/5 px-3 py-2 text-[10px] font-semibold outline-none hover:bg-white/8 focus-visible:ring-2 focus-visible:ring-lime-300"
                   type="button"
                   onClick={onManualAdd}
                 >
                   <Hand aria-hidden="true" size={13} />Scroll once, then add frame
                 </button>
-                <p className="mt-1.5 text-center text-[9px] text-stone-500">Snaphub hides for two seconds; scroll the selected area once.</p>
+                <p className="mt-1.5 text-center text-[9px] text-stone-500">CapKit hides for two seconds; scroll the selected area once.</p>
               </div>
             ) : null}
             <div className="grid grid-cols-4 gap-1.5">

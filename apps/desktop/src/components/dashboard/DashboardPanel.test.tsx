@@ -14,8 +14,8 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     expect(await screen.findByRole("heading", { name: "Saved captures" })).toBeVisible();
-    expect(screen.getByText("Only images explicitly saved by Snaphub appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
-    expect(screen.getByRole("navigation", { name: "Snaphub sections" })).toBeVisible();
+    expect(screen.getByText("Only images explicitly saved by CapKit appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "CapKit sections" })).toBeVisible();
   });
 
   it("shows centered coming-soon states for unfinished product areas", () => {

@@ -1,12 +1,15 @@
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
 import { Button } from "@/components/ui/Button";
+import { GhostNumeral } from "@/components/ui/GhostNumeral";
+import { HandDrawnUnderline } from "@/components/ui/HandDrawnUnderline";
 import { EmailCaptureForm } from "@/components/sections/cta/EmailCaptureForm";
 
 export function CTASection(): React.JSX.Element {
   return (
-    <section id="cta" className="bg-paper py-24 sm:py-32">
-      <div className="mx-auto max-w-[1600px] px-6 sm:px-10">
+    <section id="cta" className="relative overflow-hidden bg-paper py-24 sm:py-32">
+      <GhostNumeral index="06" />
+      <div className="relative z-[1] mx-auto max-w-[1600px] px-6 sm:px-10">
         <Reveal>
           <Kicker index="06" label="Join the beta" />
         </Reveal>
@@ -15,7 +18,12 @@ export function CTASection(): React.JSX.Element {
           <h2 className="mt-6 max-w-2xl font-sans text-[38px] font-light leading-[1.08] tracking-tight sm:text-[54px]">
             Capture, explain,
             <br />
-            and <span className="font-hand text-focus">continue</span>.
+            and{" "}
+            <span className="relative inline-block">
+              <span className="font-hand text-focus">continue</span>
+              <HandDrawnUnderline delay={0.5} />
+            </span>
+            .
           </h2>
         </Reveal>
 

@@ -1,11 +1,13 @@
 import { performanceStats, principles } from "@/lib/content";
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
+import { GhostNumeral } from "@/components/ui/GhostNumeral";
 
 export function PerformanceSection(): React.JSX.Element {
   return (
-    <section id="performance" className="bg-panel py-24 sm:py-32">
-      <div className="mx-auto max-w-[1600px] px-6 sm:px-10">
+    <section id="performance" className="relative overflow-hidden bg-panel py-24 sm:py-32">
+      <GhostNumeral index="04" />
+      <div className="relative z-[1] mx-auto max-w-[1600px] px-6 sm:px-10">
         <Reveal>
           <Kicker index="04" label="Light while idle" />
         </Reveal>
@@ -18,9 +20,13 @@ export function PerformanceSection(): React.JSX.Element {
 
         <div className="mt-16 grid gap-px overflow-hidden rounded-[20px] border border-line-on-light bg-line-on-light sm:grid-cols-2 lg:grid-cols-4">
           {performanceStats.map((stat, i) => (
-            <Reveal key={stat.label} delay={0.05 * i} className="bg-panel p-8">
+            <Reveal
+              key={stat.label}
+              delay={0.05 * i}
+              className="group bg-panel p-8 transition-colors duration-150 ease hover:bg-paper"
+            >
               <div className="flex items-baseline gap-1.5">
-                <span className="font-mono text-[38px] font-medium leading-none tracking-tight sm:text-[44px]">
+                <span className="font-mono text-[38px] font-medium leading-none tracking-tight transition-colors duration-150 ease group-hover:text-focus sm:text-[44px]">
                   {stat.value}
                 </span>
               </div>

@@ -1,6 +1,6 @@
-# Snaphub
+# CapKit
 
-Snaphub is a lightweight Windows-first screenshot utility designed for cross-platform rollout and built around one uninterrupted workflow:
+CapKit is the lightweight desktop toolkit to capture, record, and showcase. It is Windows-first, designed for cross-platform rollout, and built around one uninterrupted workflow:
 
 `Shortcut -> select on a frozen screen -> edit in place -> copy, save, or pin -> return to work`
 
@@ -61,7 +61,7 @@ pnpm.cmd bundle:store
 The installer is written to:
 
 ```text
-apps/desktop/src-tauri/target/release/bundle/nsis/Snaphub_0.1.1_x64-setup.exe
+apps/desktop/src-tauri/target/release/bundle/nsis/CapKit_0.1.1_x64-setup.exe
 ```
 
 `pnpm.cmd bundle:store` creates the Store-ready x64 MSIX package and the recommended `.msixupload` submission artifact under `apps/desktop/src-tauri/target/store`. Its manifest uses the immutable Partner Center identity `JagatBandhu.SnapHub`; package versions use four parts and must end in `.0`. See [Microsoft Store release](docs/microsoft-store-release.md).

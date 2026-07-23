@@ -2,16 +2,23 @@
 
 ## 2026-07-19 - Microsoft Store packaging
 
-- **Confirmed:** The Microsoft Store product uses the immutable Partner Center identity `JagatBandhu.SnapHub`, publisher `CN=8A6295E4-CFC2-4019-B7E3-C5FE35587B52`, package family `JagatBandhu.SnapHub_s98vdgsmvcg9t`, and publisher display name `JagatBandhu`; the visible product name remains `Snaphub`.
+- **Confirmed:** The Microsoft Store product uses the immutable Partner Center identity `JagatBandhu.SnapHub`, publisher `CN=8A6295E4-CFC2-4019-B7E3-C5FE35587B52`, package family `JagatBandhu.SnapHub_s98vdgsmvcg9t`, and publisher display name `JagatBandhu`; the visible product name is now `CapKit`.
 - **Confirmed:** The Store build is a manually assembled x64 Desktop Bridge MSIX with `packagedClassicApp`, `mediumIL`, and `runFullTrust`, preserving Win32 access required by capture, tray, global shortcuts, clipboard, scrolling input, and pin windows.
 - **Confirmed:** Store artifacts are generated as `.msix` and `.msixupload`; the Store submission uses `.msixupload` and Microsoft supplies the certified production signature.
 - **Provisional:** ARM64 packaging follows after the x64 packaged-runtime acceptance matrix passes.
 - **Unresolved:** The existing Tauri autostart plugin must be physically validated across a Store update because MSIX installation paths are versioned. Use a manifest-declared startup task if registry-based startup does not survive updates.
 - **Confirmed:** Windows release binaries use PE GUI subsystem `2`; debug binaries keep console output. Store packaging validates this header so an installed release cannot regress to opening a terminal window.
 
-## 2026-07-19 - Product renamed to Snaphub
+## 2026-07-23 - Product renamed to CapKit
 
-- **Confirmed:** The canonical product name and casing is `Snaphub`.
+- **Confirmed:** The visible product name and casing is now `CapKit`; the tagline is “The lightweight desktop toolkit to capture, record, and showcase.”
+- **Confirmed:** User-facing titles, save folders, generated filenames, installer labels, and documentation use CapKit.
+- **Confirmed:** The immutable Microsoft Store identity and internal migration/protocol identifiers remain unchanged to preserve installed-app continuity.
+- **Rationale:** CapKit communicates the broader capture, recording, and showcase toolkit while avoiding a split identity between the product UI and its launch messaging.
+
+## 2026-07-19 - Product renamed during early development
+
+- **Superseded:** The temporary development name was `Snaphub`; CapKit is now the visible product name.
 - **Confirmed:** Application titles, package/crate names, bundle identifier, save/session directories, generated filenames, settings symbols, tests, and documentation use the new name.
 - **Confirmed:** Existing local frontend preferences and the persisted native save-directory preference migrate from the previous development name on first use.
 - **Confirmed:** Windows 11 remains the only currently supported distribution target. macOS, Ubuntu, and Fedora remain provisional architectural targets until their native adapters and acceptance matrices are complete.
@@ -77,7 +84,7 @@
 ### Confirmed
 
 - Capture activation is fail-safe: preparation stays hidden, reveal is a separate final operation, and errors, `Esc`, or close requests force-hide the capture surface.
-- Product name: Snaphub, subject to public brand clearance.
+- Product name: CapKit, subject to public brand clearance.
 - Primary audience: builders and small teams.
 - Primary workflow: shortcut, select, edit in place, complete, return.
 - Phase 1 uses contextual editing around the selected frozen-screen region rather than opening an editor.
@@ -94,10 +101,10 @@
 - Canonical project documentation is Markdown optimized for agent handoff.
 - The app dashboard is a separate, normal desktop window and is never loaded into the capture fast path. Its initial navigation is Dashboard, Cloud, Showcase, and Settings; Dashboard and Settings are populated in Phase 1, while Cloud and Showcase show explicit `Coming Soon...` placeholders.
 - Phase 1 settings are local-only and cover capture palette, annotation defaults, accent color, toolbar slots, shortcuts, target detection, overlay tint, startup behavior, and capture cursor preferences.
-- Startup launch is quiet: when enabled, Snaphub starts into the resident tray state rather than interrupting login with the dashboard.
+- Startup launch is quiet: when enabled, CapKit starts into the resident tray state rather than interrupting login with the dashboard.
 - Dashboard appearance supports persistent light and dark modes. Both use the same compact, flat industrial hierarchy with small typography and restrained corner radii.
 - The sidebar follows the selected appearance rather than remaining permanently dark. Dark mode uses layered neutral charcoal surfaces inspired by Codex, avoiding near-black page and panel backgrounds.
-- Snaphub uses self-hosted Plus Jakarta Sans for interface typography and JetBrains Mono only for technical values such as shortcuts, dimensions, counters, and color codes.
+- CapKit uses self-hosted Plus Jakarta Sans for interface typography and JetBrains Mono only for technical values such as shortcuts, dimensions, counters, and color codes.
 
 ### Provisional
 

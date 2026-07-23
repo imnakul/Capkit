@@ -1,13 +1,15 @@
 import { positioning } from "@/lib/content";
 import { Kicker } from "@/components/ui/Kicker";
 import { Reveal } from "@/components/ui/Reveal";
+import { GhostNumeral } from "@/components/ui/GhostNumeral";
 
 export function PositioningSection(): React.JSX.Element {
   return (
-    <section id="product" className="bg-paper py-24 sm:py-32">
-      <div className="mx-auto max-w-[1600px] px-6 sm:px-10">
+    <section id="product" className="relative overflow-hidden bg-paper py-24 sm:py-32">
+      <GhostNumeral index="02" />
+      <div className="relative z-[1] mx-auto max-w-[1600px] px-6 sm:px-10">
         <Reveal>
-          <Kicker index="02" label="Where Snaphub fits" />
+          <Kicker index="02" label="Where CapKit fits" />
         </Reveal>
 
         <Reveal delay={0.06}>
@@ -20,8 +22,8 @@ export function PositioningSection(): React.JSX.Element {
         <div className="mt-16 divide-y divide-line-on-light border-t border-line-on-light">
           {positioning.map((row, i) => (
             <Reveal key={row.tool} delay={0.04 * i}>
-              <div className="grid gap-3 py-8 sm:grid-cols-[240px_1fr] sm:items-baseline sm:gap-8">
-                <span className="font-mono text-[13px] uppercase tracking-[0.1em] text-ink/45">
+              <div className="group grid gap-3 py-8 sm:grid-cols-[240px_1fr] sm:items-baseline sm:gap-8">
+                <span className="font-mono text-[13px] uppercase tracking-[0.1em] text-ink/45 transition-colors duration-150 ease group-hover:text-focus">
                   {row.tool}
                 </span>
                 <p className="max-w-2xl font-sans text-[19px] font-light leading-relaxed sm:text-[22px]">

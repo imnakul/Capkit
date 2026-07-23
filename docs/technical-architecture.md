@@ -48,7 +48,7 @@ Transitions are explicit and validated. Terminal states release capture windows,
 
 Windows uses Windows Graphics Capture or DXGI as appropriate, Win32 shortcut/window APIs, and optional UI Automation. macOS will use ScreenCaptureKit. Linux will use XDG portals/PipeWire on Wayland and an X11 fallback.
 
-The Windows scrolling worker is on-demand: it hides the capture WebView, sends bounded wheel input at the selected region, samples only that region, detects unchanged frames, removes a repeated sticky prefix from later frames, and performs overlap stitching off the UI thread. Manual fallback uses the same immutable frame/stitch pipeline but gives the user a short overlay-hidden interval to move the underlying scroll container. Temporary stitched previews remain within the scoped Snaphub session directory and are runtime-validated before completion.
+The Windows scrolling worker is on-demand: it hides the capture WebView, sends bounded wheel input at the selected region, samples only that region, detects unchanged frames, removes a repeated sticky prefix from later frames, and performs overlap stitching off the UI thread. Manual fallback uses the same immutable frame/stitch pipeline but gives the user a short overlay-hidden interval to move the underlying scroll container. Temporary stitched previews remain within the scoped CapKit session directory and are runtime-validated before completion.
 
 ## Shared models
 
@@ -63,7 +63,7 @@ Do not send large captures as JSON or base64. A session registers an in-memory r
 ## Storage
 
 - Pinned windows load plain `index.html`, route by their native `pin-*` window label, and resolve their image through an in-memory native registry; filesystem paths are never transported as application-URL query strings.
-Phase 1 stores settings and user-requested exports only. A small native storage preference persists the default save directory so resident shortcut workflows do not depend on a running WebView. Toolbar Save, scrolling Save, pinned-image Save, and Capture & save all resolve unique PNG filenames through this same service. The dashboard enumerates the configured directory only when opened or when a native save event arrives, and generates bounded thumbnails under the temporary Snaphub directory; it does not poll or create a database. Temporary session resources are memory-backed where possible and deleted on terminal state. The later full local library will use SQLite metadata while originals remain normal files.
+Phase 1 stores settings and user-requested exports only. A small native storage preference persists the default save directory so resident shortcut workflows do not depend on a running WebView. Toolbar Save, scrolling Save, pinned-image Save, and Capture & save all resolve unique PNG filenames through this same service. The dashboard enumerates the configured directory only when opened or when a native save event arrives, and generates bounded thumbnails under the temporary CapKit directory; it does not poll or create a database. Temporary session resources are memory-backed where possible and deleted on terminal state. The later full local library will use SQLite metadata while originals remain normal files.
 
 The WebView bundles Caveat Variable for inline annotation editing, while Rust embeds the matching OFL-licensed TTF at compile time so native Copy, Save, and Pin exports do not depend on a user-installed font. Dashboard windows remain hidden through lazy frontend bootstrap and invoke a native ready command after their first styled frame.
 

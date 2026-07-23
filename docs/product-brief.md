@@ -2,7 +2,9 @@
 
 ## Product definition
 
-**Confirmed:** Snaphub is a lightweight, always-available screenshot and visual communication utility currently supported on Windows 11.
+**Confirmed:** CapKit is a lightweight, always-available desktop toolkit to capture, record, and showcase, currently supported on Windows 11.
+
+**Confirmed tagline:** The lightweight desktop toolkit to capture, record, and showcase.
 
 **Provisional:** macOS, Ubuntu, and Fedora are rollout targets after their native adapters, packaging, and acceptance matrices are complete.
 
@@ -12,7 +14,7 @@ Its defining experience is not a main application window. The selected area of t
 
 Built-in screen snipping is immediate but omits common professional actions such as blur, secure pixelation, pinning, rich arrows, counters, and flexible completion behavior. Feature-dense tools solve those needs but create setup, menu, storage, and cognitive overhead that interrupts flow.
 
-Snaphub serves the gap between those extremes: a calm system utility with enough depth at the moment it is needed.
+CapKit serves the gap between those extremes: a calm system utility with enough depth at the moment it is needed.
 
 ## Primary audience
 

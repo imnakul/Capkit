@@ -1,12 +1,12 @@
 # Current Implementation Status
 
-**Checkpoint date:** 2026-07-19
+**Checkpoint date:** 2026-07-23
 
 **Overall state:** Phase 1 vertical slice in progress
 
 This document records what exists in the runtime today. The roadmap remains the source of truth for intended scope; this page prevents planned features, settings, or extension interfaces from being mistaken for completed behavior.
 
-**Confirmed product name:** Snaphub. Windows 11 is the only currently supported and physically tested platform; macOS, Ubuntu, and Fedora remain provisional rollout targets.
+**Confirmed product name:** CapKit. Tagline: “The lightweight desktop toolkit to capture, record, and showcase.” Windows 11 is the only currently supported and physically tested platform; macOS, Ubuntu, and Fedora remain provisional rollout targets.
 
 ## Working reference slice
 
@@ -17,6 +17,7 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** Capture/editor windows are created on demand and torn down after completion or cancellation.
 - **Implemented:** Escape cancels capture and returns control to the normal desktop.
 - **Implemented:** A local dashboard that indexes compatible images in the configured save folder, displays its path, and uses cached local thumbnails. Users can open the folder, open an image through its Windows default handler (with Open With fallback), and right-click for View, disabled-until-configured Cloud upload, Showcase navigation, or confirmed permanent deletion. Clipboard-only captures are never indexed.
+- **Implemented:** The resident service creates `Pictures/CapKit` on startup, migrates the prior default folder when present, and uses `CapKit_` filenames for toolbar, scrolling, pinned, and direct save workflows.
 - **Implemented:** Cloud and Showcase navigation lead to restrained, centered `Coming Soon...` placeholders until those product phases begin.
 - **Implemented:** A repeatable x64 Microsoft Store pipeline builds a full-trust Desktop Bridge `.msix`, symbols, and `.msixupload` with the reserved Partner Center identity. MakeAppx semantic validation and the initial Windows App Certification Kit run pass overall; interactive packaged-runtime checks remain required through a locally trusted build or private Store flight.
 - **Implemented:** Release executables use the Windows GUI subsystem, preventing an empty terminal window from appearing when an installed build starts. Debug builds retain console output, and the Store packager rejects any future console-subsystem executable.
@@ -37,10 +38,12 @@ This document records what exists in the runtime today. The roadmap remains the 
 
 - **Implemented:** Versioned, serializable annotation scene model with undo and redo.
 - **Implemented:** Line, smooth curved arrow, rectangle, ellipse, highlighter, freehand pencil, spotlight, counter, live source-backed blur and pixelation previews, blackout, and inline text tools.
+- **Implemented:** Existing annotations are selectable in capture mode, show a boundary and local delete action, and can be dragged to a new position without undoing the scene.
 - **Implemented:** Text placeholders select on first click, edit in place on the next click, commit before a subsequent placeholder is created, and expose a local delete action; Caveat is bundled for matching live and native exports.
 - **Implemented:** User-configurable Individual and Group toolbar modes. Individual mode exposes every tool as its own toggle. Group mode uses ordered rows as enabled toolbar slots, treats the first tool as the group default, and supports drag/reorder, row add/remove, and a disabled-tool pool.
 - **Implemented:** Hover-revealed grouped tools with consistently white submenu icons, animated primary indicators, an options-first contextual rail, separated quick-color rings, default color/stroke size, and a submenu that glides horizontally between toolbar slots while flipping/clamping at viewport edges.
 - **Implemented:** Copy image, save image, scrolling capture, pin, and cancel completion actions.
+- **Implemented:** Configurable `C`/`S` capture-mode shortcuts complete Copy/Save from the selected region; global shortcuts remain separate.
 - **Implemented:** Rust-side export composition that combines the immutable capture with the annotation scene.
 
 ### Pinning and preferences

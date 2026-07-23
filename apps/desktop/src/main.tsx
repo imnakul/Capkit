@@ -30,7 +30,7 @@ const DashboardPanel = lazy(async () => {
 const rootElement = document.getElementById("root");
 
 if (rootElement === null) {
-  throw new Error("Snaphub root element was not found.");
+  throw new Error("CapKit root element was not found.");
 }
 
 const searchParams = new URLSearchParams(window.location.search);
@@ -44,7 +44,7 @@ const currentWindowLabel = isTauri()
 
 createRoot(rootElement).render(
   <StrictMode>
-    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing Snaphub" />}>
+    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing CapKit" />}>
       {pinPath !== null ? (
         <PinnedCapture path={pinPath} />
       ) : pinWindowLabel !== null ? (

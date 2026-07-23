@@ -435,6 +435,8 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         if (scrollingCapture !== null) {
@@ -442,6 +444,12 @@ export function App(): React.JSX.Element {
           return;
         }
         void handleCancel();
+      } else if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeCopy.toUpperCase()) {
+        event.preventDefault();
+        void handleComplete("copy");
+      } else if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeSave.toUpperCase()) {
+        event.preventDefault();
+        void handleComplete("save");
       } else if (event.key === "Enter" && selection !== null) {
         event.preventDefault();
         void handleComplete("copy");
@@ -598,7 +606,7 @@ export function App(): React.JSX.Element {
       )}
 
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md">
-        Snaphub / {message}
+        CapKit / {message}
       </div>
     </main>
   );

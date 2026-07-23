@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { z } from "zod";
 import {
   Check,
   ChevronDown,
@@ -19,7 +20,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   defaultSnaphubSettings,
   type SnaphubSettings,
-  snaphubSettingsSchema,
   useSnaphubSettings,
 } from "../../domain/settings";
 import {
@@ -41,7 +41,7 @@ export function SettingsView(): React.JSX.Element {
   const [customColor, setCustomColor] = useState("#8b5cf6");
   const [recordingShortcut, setRecordingShortcut] = useState<ShortcutField | null>(null);
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
-  const [saveDirectory, setSaveDirectoryState] = useState("Pictures\\Snaphub");
+  const [saveDirectory, setSaveDirectoryState] = useState("Pictures\\CapKit");
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [choosingDirectory, setChoosingDirectory] = useState(false);
 
@@ -205,7 +205,7 @@ export function SettingsView(): React.JSX.Element {
         defaultPath: saveDirectory,
         directory: true,
         multiple: false,
-        title: "Choose where Snaphub saves captures",
+        title: "Choose where CapKit saves captures",
       });
       if (typeof selected !== "string") return;
       const directory = await setSaveDirectory(selected);
@@ -235,7 +235,7 @@ export function SettingsView(): React.JSX.Element {
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Preferences</p>
           <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100">Make capture feel like yours</h1>
           <p className="mt-1.5 max-w-2xl text-xs leading-5 text-stone-500 dark:text-stone-400">Start with the essentials. Advanced controls stay grouped where they affect your workflow.</p>
-        </div>
+            </div>
         <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-medium text-stone-500 dark:text-stone-400"><Check aria-hidden="true" className="text-emerald-600" size={13} />Saved locally</div>
       </header>
 
@@ -254,7 +254,7 @@ export function SettingsView(): React.JSX.Element {
                   <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={customColor} onChange={(event) => setCustomColor(event.currentTarget.value)} />
                 </label>
                 <button aria-label="Add custom color" className="rounded-md border border-stone-300 bg-white px-2.5 text-[11px] font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={addCustomColor}>Add custom</button>
-              </div>
+           </div>
               {settings.palette.length === 5 ? <p className="mt-2 text-[10px] text-stone-400 dark:text-stone-500">Remove one color before adding another.</p> : null}
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -281,7 +281,15 @@ export function SettingsView(): React.JSX.Element {
             <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
             <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
           </div>
-          {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[10px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
+           <div className="mt-3 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#2b2c29]">
+             <div className="border-b border-stone-200 px-3 py-2.5 dark:border-white/8">
+               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">While in capture mode</p>
+               <p className="mt-0.5 text-[10px] text-stone-500 dark:text-stone-400">Single keys work only after a region is selected. They never change your global shortcuts.</p>
+             </div>
+             <ShortcutRow label="Copy selection" description="Copy the edited capture and exit" value={settings.shortcuts.captureModeCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopy} recording={recordingShortcut === "captureModeCopy"} onRecord={() => setRecordingShortcut("captureModeCopy")} onReset={() => void resetShortcut("captureModeCopy")} />
+             <ShortcutRow label="Save selection" description="Save the edited capture and exit" value={settings.shortcuts.captureModeSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeSave} recording={recordingShortcut === "captureModeSave"} onRecord={() => setRecordingShortcut("captureModeSave")} onReset={() => void resetShortcut("captureModeSave")} />
+           </div>
+           {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[10px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
           <SectionReset onClick={() => void resetShortcuts()} />
         </SettingsSection>
 
@@ -311,18 +319,18 @@ export function SettingsView(): React.JSX.Element {
           <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
         </SettingsSection>
 
-        <SettingsSection icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what Snaphub recognizes and how the frozen screen is shaded.">
+        <SettingsSection icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what CapKit recognizes and how the frozen screen is shaded.">
           <div className="grid gap-x-7 gap-y-4 lg:grid-cols-2">
             <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
             <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
-            <ToggleField label="Open at startup" description="Keep Snaphub ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
+          <ToggleField label="Open at startup" description="Keep CapKit ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
             <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[10px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
           </div>
           <SectionReset onClick={() => void resetBehavior()} />
         </SettingsSection>
 
         <SettingsSection icon={MousePointer2} eyebrow="Pointer" title="Capture cursor" description="Only changes the precision cursor used over the frozen screen.">
-          <ToggleField label="Use Snaphub drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
+          <ToggleField label="Use CapKit drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
           <div className="mt-4 grid grid-cols-3 gap-2">{(["crosshair", "target", "precision"] as const).map((cursorStyle) => { const previewCursor = captureCursor({ enabled: true, style: cursorStyle, size: settings.cursor.size }, settings.accentColor); return <button aria-label={`Use ${cursorStyle} cursor`} aria-pressed={settings.cursor.style === cursorStyle} className="group rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={cursorStyle} style={{ cursor: previewCursor }} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, style: cursorStyle } })}><span className="block text-xs font-semibold capitalize">{cursorStyle}</span><span className="mt-1 block text-[9px] text-stone-400 transition-colors group-hover:text-stone-600 dark:text-stone-500 dark:group-hover:text-stone-300">Hover to preview</span></button>; })}</div>
           <div className="mt-4 max-w-xs"><FieldLabel>Cursor size</FieldLabel><div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">{(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} cursor`} aria-pressed={settings.cursor.size === size} className="rounded px-2.5 py-1.5 text-[10px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, size } })}>{size}</button>)}</div></div>
           <SectionReset onClick={() => update({ ...settings, cursor: defaultSnaphubSettings.cursor })} />
@@ -433,6 +441,16 @@ function formatShortcut(event: KeyboardEvent): string { const parts: string[] = 
 async function registerShortcuts(
   shortcuts: SnaphubSettings["shortcuts"],
 ): Promise<SnaphubSettings["shortcuts"]> {
-  const raw: unknown = await invoke("update_global_shortcuts", { shortcuts });
-  return snaphubSettingsSchema.shape.shortcuts.parse(raw);
+  const nativeShortcuts = {
+    capture: shortcuts.capture,
+    captureAndCopy: shortcuts.captureAndCopy,
+    captureAndSave: shortcuts.captureAndSave,
+  };
+  const raw: unknown = await invoke("update_global_shortcuts", { shortcuts: nativeShortcuts });
+  const registered = z.object({
+    capture: z.string().min(1),
+    captureAndCopy: z.string().min(1),
+    captureAndSave: z.string().min(1),
+  }).parse(raw);
+  return { ...shortcuts, ...registered };
 }

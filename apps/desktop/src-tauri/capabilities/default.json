@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "capture-window",
-  "description": "Least-privilege capability for the Snaphub capture surface.",
+  "description": "Least-privilege capability for the CapKit capture surface.",
   "windows": ["dashboard", "capture", "pin-*"],
   "permissions": [
     "core:default",

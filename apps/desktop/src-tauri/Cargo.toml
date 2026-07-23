@@ -1,8 +1,8 @@
 [package]
 name = "snaphub-desktop"
 version = "0.1.1"
-description = "Snaphub lightweight screenshot utility"
-authors = ["Snaphub"]
+description = "CapKit lightweight desktop toolkit to capture, record, and showcase"
+authors = ["CapKit"]
 edition = "2024"
 
 [lib]

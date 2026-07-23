@@ -36,11 +36,11 @@ Implementation progress is tracked separately in [Current implementation status]
 - Templates and reusable watermark presets
 - PNG, JPEG, WebP, PDF, and later PPTX-compatible export
 
-Snaphub is not intended to become a general PowerPoint replacement.
+CapKit is not intended to become a general PowerPoint replacement.
 
 ## Phase 3: local library
 
-The Phase 1 dashboard's on-demand view of the configured save folder is a convenience surface, not the library. It may open, delete, or route an image toward Showcase, while Cloud upload remains disabled until an account/storage connection exists. Phase 3 begins when Snaphub adds durable metadata and organization.
+The Phase 1 dashboard's on-demand view of the configured save folder is a convenience surface, not the library. It may open, delete, or route an image toward Showcase, while Cloud upload remains disabled until an account/storage connection exists. Phase 3 begins when CapKit adds durable metadata and organization.
 
 - Local-first capture history
 - Tags, folders, favorites, filters, and search
