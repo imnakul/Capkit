@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "capture-window",
   "description": "Least-privilege capability for the CapKit capture surface.",
-  "windows": ["dashboard", "capture", "pin-*"],
+  "windows": ["dashboard", "capture", "onscreen", "make-easy", "recorder", "record-region", "camera", "recording-border", "pin-*"],
   "permissions": [
     "core:default",
     "core:event:default",

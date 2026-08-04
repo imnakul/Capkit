@@ -18,7 +18,10 @@ arboard = "3.6.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "6.0.0"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "png"] }
-imageproc = "0.27.0"
+# Only `drawing` (incl. `draw_text_mut`) and `rect` are used, so the default
+# `fft` (rustfft) and `rayon` features are dropped. Note this does not stop
+# `image/default` being unified in: `xcap`'s `image` feature still requires it.
+imageproc = { version = "0.27.0", default-features = false, features = ["text"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tauri = { version = "2.11.5", features = ["tray-icon", "protocol-asset"] }
@@ -30,4 +33,29 @@ uuid = { version = "1.24.0", features = ["v4", "serde"] }
 xcap = { version = "0.9.6", features = ["image", "wgc"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = [
+  "Foundation", "Globalization", "Graphics_Imaging", "Media_Ocr", "Storage", "Storage_Streams",
+  "Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility",
+  "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging",
+  # Recording: a Windows Graphics Capture frame pool onto our own D3D11 device.
+  "Graphics_Capture", "Graphics_DirectX_Direct3D11",
+  "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
+  "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi",
+  # Encoding through the OS sink writer, and WASAPI for system/microphone audio.
+  "Win32_Media_MediaFoundation", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints",
+  "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Devices_FunctionDiscovery",
+  "Win32_UI_Shell_PropertiesSystem",
+  # Cursor sampling and the shared QPC clock.
+  "Win32_UI_Input", "Win32_System_Performance", "Win32_System_Threading",
+] }
+
+# Size is a product gate, not an afterthought: `docs/performance-quality.md`
+# budgets the installed app at under 60 MB, and the video recorder is being
+# built against that ceiling. `panic = "abort"` is safe here because no code
+# path unwinds across the FFI boundary or recovers from a panic.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

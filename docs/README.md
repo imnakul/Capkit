@@ -6,6 +6,7 @@ This directory is the canonical handoff for product, design, engineering, brand,
 | --- | --- |
 | [Product brief](product-brief.md) | Audience, problem, positioning, principles, success |
 | [Feature roadmap](feature-roadmap.md) | Phase boundaries and complete feature inventory |
+| [Local feature inventory](local-features.md) | User-facing inventory of everything currently available locally |
 | [Capture UX specification](capture-ux-spec.md) | Phase 1 interaction and state specification |
 | [Technical architecture](technical-architecture.md) | Runtime, adapters, data flow, security, rollout |
 | [Microsoft Store release](microsoft-store-release.md) | Partner identity, MSIX build pipeline, submission, acceptance |
@@ -13,5 +14,7 @@ This directory is the canonical handoff for product, design, engineering, brand,
 | [Business and cloud](business-cloud.md) | Packaging, pricing hypotheses, R2, analytics |
 | [Brand and marketing handoff](brand-marketing-handoff.md) | Brand direction, messaging, asset requests |
 | [Decision log](decision-log.md) | Confirmed, provisional, rejected, unresolved decisions |
+
+The Make it Easy extraction handoff is maintained beside the repository at [capkit-make-it-easy/README.md](../../capkit-make-it-easy/README.md); the live runtime stays here so the packaged Tauri application has one source of truth.
 
 When documents disagree, the newest dated entry in the decision log wins until the affected document is reconciled.

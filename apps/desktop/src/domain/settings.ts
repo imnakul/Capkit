@@ -11,6 +11,58 @@ const shapeDefaultSchema = z.enum([
   "highlighter",
 ]);
 const effectDefaultSchema = z.enum(["blur", "spotlight", "pixelate", "blackout"]);
+const onScreenCursorStyleSchema = z.enum(["ring", "laser", "precision", "crosshair"]);
+const onScreenToolShortcutSchema = z.string().regex(/^[0-9]?$/);
+
+export const onScreenToolIds = [
+  "pencil",
+  "rectangle",
+  "ellipse",
+  "arrow",
+  "text",
+  "spotlight",
+  "magnifier",
+  "pointer",
+  "eraser",
+  "blur",
+] as const;
+
+const onScreenToolShortcutSettingsSchema = z.object({
+  pencil: onScreenToolShortcutSchema,
+  rectangle: onScreenToolShortcutSchema,
+  ellipse: onScreenToolShortcutSchema,
+  arrow: onScreenToolShortcutSchema,
+  text: onScreenToolShortcutSchema,
+  spotlight: onScreenToolShortcutSchema,
+  magnifier: onScreenToolShortcutSchema,
+  pointer: onScreenToolShortcutSchema,
+  eraser: onScreenToolShortcutSchema,
+  blur: onScreenToolShortcutSchema,
+});
+
+export const defaultOnScreenSettings = {
+  color: "#d9ff43",
+  strokeSize: 4,
+  spotlightSize: 180,
+  liveDesktop: true,
+  persistDrawings: false,
+  toolShortcuts: {
+    pencil: "1",
+    rectangle: "2",
+    ellipse: "3",
+    arrow: "4",
+    text: "5",
+    spotlight: "6",
+    magnifier: "7",
+    pointer: "8",
+    eraser: "9",
+    blur: "0",
+  },
+  cursor: {
+    style: "ring",
+    size: "medium",
+  },
+} as const;
 
 export const captureToolbarToolIds = [
   "rectangle",
@@ -106,9 +158,24 @@ export const snaphubSettingsSchema = z.object({
     capture: z.string().min(1).max(64),
     captureAndCopy: z.string().min(1).max(64),
     captureAndSave: z.string().min(1).max(64),
+    onScreenToggle: z.string().min(1).max(64).default("Alt+Shift+A"),
+    makeEasy: z.string().min(1).max(64).default("Alt+Shift+E"),
+    recordToggle: z.string().min(1).max(64).default("Alt+Shift+R"),
     captureModeCopy: z.string().min(1).max(16).default("C"),
     captureModeSave: z.string().min(1).max(16).default("S"),
   }),
+  onScreen: z.object({
+    color: hexColorSchema.default(defaultOnScreenSettings.color),
+    strokeSize: z.number().int().min(1).max(24).default(defaultOnScreenSettings.strokeSize),
+    spotlightSize: z.number().int().min(80).max(360).default(defaultOnScreenSettings.spotlightSize),
+    liveDesktop: z.boolean().default(defaultOnScreenSettings.liveDesktop),
+    persistDrawings: z.boolean().default(defaultOnScreenSettings.persistDrawings),
+    toolShortcuts: onScreenToolShortcutSettingsSchema,
+    cursor: z.object({
+      style: onScreenCursorStyleSchema,
+      size: z.enum(["small", "medium", "large"]),
+    }),
+  }).default(defaultOnScreenSettings),
   detection: z.object({
     windows: z.boolean(),
     uiRegions: z.boolean(),
@@ -131,6 +198,7 @@ export const snaphubSettingsSchema = z.object({
 export type SnaphubSettings = z.infer<typeof snaphubSettingsSchema>;
 export type ShapeDefault = z.infer<typeof shapeDefaultSchema>;
 export type EffectDefault = z.infer<typeof effectDefaultSchema>;
+export type OnScreenToolId = typeof onScreenToolIds[number];
 
 export function parseShapeDefault(value: string): ShapeDefault {
   return shapeDefaultSchema.parse(value);
@@ -163,9 +231,13 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     capture: "Alt+Shift+S",
     captureAndCopy: "Alt+Shift+C",
     captureAndSave: "Alt+Shift+D",
+    onScreenToggle: "Alt+Shift+A",
+    makeEasy: "Alt+Shift+E",
+    recordToggle: "Alt+Shift+R",
     captureModeCopy: "C",
     captureModeSave: "S",
   },
+  onScreen: defaultOnScreenSettings,
   detection: { windows: true, uiRegions: false },
   scrolling: { defaultMode: "automatic" },
   overlay: { color: "#070807", opacity: 0.64 },
@@ -184,10 +256,26 @@ function readSettings(): SnaphubSettings {
   try {
     const value: unknown = JSON.parse(raw);
     const parsed = snaphubSettingsSchema.safeParse(value);
-    return parsed.success ? parsed.data : defaultSnaphubSettings;
+    return parsed.success ? migrateCaptureModeShortcuts(parsed.data) : defaultSnaphubSettings;
   } catch {
     return defaultSnaphubSettings;
   }
+}
+
+function migrateCaptureModeShortcuts(settings: SnaphubSettings): SnaphubSettings {
+  const copyShortcut = settings.shortcuts.captureModeCopy === "Enter" ? "C" : settings.shortcuts.captureModeCopy;
+  const saveShortcut = ["Ctrl S", "Ctrl+S"].includes(settings.shortcuts.captureModeSave)
+    ? "S"
+    : settings.shortcuts.captureModeSave;
+  if (copyShortcut === settings.shortcuts.captureModeCopy && saveShortcut === settings.shortcuts.captureModeSave) return settings;
+  return {
+    ...settings,
+    shortcuts: {
+      ...settings.shortcuts,
+      captureModeCopy: copyShortcut,
+      captureModeSave: saveShortcut,
+    },
+  };
 }
 
 let cachedRaw: string | null = null;

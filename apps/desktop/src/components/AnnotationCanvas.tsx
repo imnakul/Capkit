@@ -1,5 +1,4 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
 import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type {
   Annotation,
@@ -8,6 +7,7 @@ import type {
   RegionAnnotation,
   ToolId,
 } from "../domain/annotations";
+import { Cancel } from "./icons";
 import type { Point, Rect as CaptureRect } from "../domain/capture";
 import { normalizeRect } from "../lib/geometry";
 
@@ -330,7 +330,7 @@ export function AnnotationCanvas({
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                <X aria-hidden="true" size={11} strokeWidth={2.4} />
+                <Cancel aria-hidden="true" size={11} strokeWidth={2.4} />
               </button>
             ) : null}
           </div>
@@ -343,7 +343,7 @@ export function AnnotationCanvas({
         return (
           <div aria-label={`Selected ${selected.kind} annotation`} className="pointer-events-none absolute z-30 border border-dashed border-lime-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]" style={{ left: selectedBounds.x, top: selectedBounds.y, width: selectedBounds.width, height: selectedBounds.height }}>
             <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-2.5 -top-2.5 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
-              <X aria-hidden="true" size={11} strokeWidth={2.4} />
+              <Cancel aria-hidden="true" size={11} strokeWidth={2.4} />
             </button>
           </div>
         );

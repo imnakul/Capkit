@@ -28,6 +28,12 @@ body,
   overflow: hidden;
 }
 
+html.on-screen-surface,
+html.on-screen-surface body,
+html.on-screen-surface #root {
+  background: transparent;
+}
+
 button,
 input,
 select,

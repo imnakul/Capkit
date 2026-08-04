@@ -27,6 +27,7 @@ import type {
 import { useSnaphubSettings } from "./domain/settings";
 import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
+import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
   cancelManualScrolling,
@@ -71,6 +72,10 @@ export function App(): React.JSX.Element {
   const uiLookupSequence = useRef(0);
   const uiLookupInFlight = useRef(false);
   const pendingUiLookup = useRef<Point | null>(null);
+  const visualTargetDetector = useRef<VisualTargetDetector | null>(null);
+  const visualTargetSequence = useRef(0);
+  const visualLookupFrame = useRef<number | null>(null);
+  const pendingVisualPoint = useRef<Point | null>(null);
   const interaction = useRef<Interaction | null>(null);
   const pendingSelection = useRef<Rect | null>(null);
   const selectionFrameRequest = useRef<number | null>(null);
@@ -80,6 +85,20 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    visualTargetSequence.current += 1;
+    const sequence = visualTargetSequence.current;
+    visualTargetDetector.current = null;
+    if (session === null || !settings.detection.uiRegions || session.snapshotUrl === "") return;
+    void createVisualTargetDetector(session.snapshotUrl, session.display.bounds)
+      .then((detector) => {
+        if (sequence === visualTargetSequence.current) visualTargetDetector.current = detector;
+      })
+      .catch(() => {
+        // Native UI Automation remains the fallback when the asset protocol is not canvas-readable.
+      });
+  }, [session, settings.detection.uiRegions]);
 
   const startSession = useCallback(async (): Promise<void> => {
     if (activationState.current !== "idle") return;
@@ -164,7 +183,25 @@ export function App(): React.JSX.Element {
   }
 
   function scheduleUiTarget(point: Point): void {
+    pendingVisualPoint.current = point;
+    if (visualLookupFrame.current !== null) return;
+    visualLookupFrame.current = window.requestAnimationFrame(() => {
+      visualLookupFrame.current = null;
+      const pending = pendingVisualPoint.current;
+      pendingVisualPoint.current = null;
+      if (pending !== null) resolveUiTarget(pending);
+    });
+  }
+
+  function resolveUiTarget(point: Point): void {
     if (!settingsRef.current.detection.uiRegions || session === null) return;
+    const visualTarget = visualTargetDetector.current?.targetAt(point) ?? null;
+    if (visualTarget !== null) {
+      setHoverTarget((previous) => previous?.id === visualTarget.id ? previous : visualTarget);
+      setMessage("Visual target ready | click to select");
+      return;
+    }
+    setHoverTarget((previous) => previous === null ? previous : null);
     pendingUiLookup.current = point;
     if (uiLookupInFlight.current) return;
     const lookupPoint = pendingUiLookup.current;
@@ -416,15 +453,16 @@ export function App(): React.JSX.Element {
         setMessage(
           result.outputPath === null ? "Capture complete" : `Saved to ${result.outputPath}`,
         );
-        window.setTimeout(() => {
-          activationState.current = "idle";
-          setSession(null);
-          setSelection(null);
-          setTargets([]);
-          setHoverTarget(null);
-          setIsDraftingSelection(false);
-          setBusy(false);
-        }, 420);
+        // The native surface is already hidden when completion resolves. Tear
+        // down the React capture state immediately so the next shortcut cannot
+        // be swallowed by a completion animation.
+        activationState.current = "idle";
+        setSession(null);
+        setSelection(null);
+        setTargets([]);
+        setHoverTarget(null);
+        setIsDraftingSelection(false);
+        setBusy(false);
       } catch (error: unknown) {
         setBusy(false);
         setMessage(error instanceof Error ? error.message : "Capture could not be completed");
@@ -587,6 +625,8 @@ export function App(): React.JSX.Element {
           >
             <CompletionToolbar
               busy={busy}
+              copyShortcut={settings.shortcuts.captureModeCopy}
+              saveShortcut={settings.shortcuts.captureModeSave}
               onComplete={(action) => void handleComplete(action)}
             />
           </div>
@@ -606,7 +646,7 @@ export function App(): React.JSX.Element {
       )}
 
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md">
-        CapKit / {message}
+        Capkit / {message}
       </div>
     </main>
   );

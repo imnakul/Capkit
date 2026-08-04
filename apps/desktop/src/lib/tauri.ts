@@ -3,10 +3,20 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type { AnnotationScene } from "../domain/annotations";
+import type { SnaphubSettings } from "../domain/settings";
+import { readableRegionSchema, type ReadableRegion } from "../domain/readable";
+import {
+  mediaFileSchema,
+  mediaFolderSchema,
+  toMediaItems,
+  type MediaFolder,
+  type MediaItem,
+} from "../domain/showcase";
 import {
   captureSessionSchema,
   completionActionSchema,
   detectedTargetSchema,
+  displaySchema,
   pointSchema,
   rectSchema,
   scrollingCaptureResultSchema,
@@ -24,13 +34,45 @@ import {
 const backendSessionSchema = captureSessionSchema.omit({ snapshotUrl: true }).extend({
   snapshotPath: z.string(),
 });
+const onScreenSessionSchema = z.object({ display: displaySchema });
 
 const completionResultSchema = z.object({
   action: completionActionSchema,
   outputPath: z.string().nullable(),
 });
 
+const registeredGlobalShortcutsSchema = z.object({
+  capture: z.string().min(1),
+  captureAndCopy: z.string().min(1),
+  captureAndSave: z.string().min(1),
+  onScreenToggle: z.string().min(1),
+  makeEasy: z.string().min(1),
+  recordToggle: z.string().min(1),
+});
+
 export type CompletionResult = z.infer<typeof completionResultSchema>;
+export type OnScreenSession = z.infer<typeof onScreenSessionSchema>;
+export type MakeEasySession = CaptureSession;
+
+export async function updateGlobalShortcuts(
+  shortcuts: SnaphubSettings["shortcuts"],
+): Promise<SnaphubSettings["shortcuts"]> {
+  if (!isTauri()) return shortcuts;
+  const raw: unknown = await invoke("update_global_shortcuts", {
+    shortcuts: {
+      capture: shortcuts.capture,
+      captureAndCopy: shortcuts.captureAndCopy,
+      captureAndSave: shortcuts.captureAndSave,
+      onScreenToggle: shortcuts.onScreenToggle,
+      makeEasy: shortcuts.makeEasy,
+      recordToggle: shortcuts.recordToggle,
+    },
+  });
+  return {
+    ...shortcuts,
+    ...registeredGlobalShortcutsSchema.parse(raw),
+  };
+}
 
 export async function requestCapture(): Promise<CaptureSession> {
   if (!isTauri()) return createDemoSession();
@@ -38,7 +80,9 @@ export async function requestCapture(): Promise<CaptureSession> {
   const raw: unknown = await invoke("begin_capture");
   const parsed = backendSessionSchema.parse(raw);
   const snapshotUrl = convertFileSrc(parsed.snapshotPath);
-  await preloadImage(snapshotUrl);
+  // Do not block the shortcut on a second disk read. The capture surface can
+  // paint the frozen BMP while React mounts, which keeps the trigger feeling
+  // immediate on large or mixed-DPI displays.
   return {
     id: parsed.id,
     phase: parsed.phase,
@@ -54,6 +98,94 @@ export async function showCaptureSurface(): Promise<void> {
   await invoke("show_capture_surface");
 }
 
+export async function requestOnScreenSession(): Promise<OnScreenSession> {
+  if (!isTauri()) return { display: createDemoSession().display };
+  const raw: unknown = await invoke("on_screen_session");
+  return onScreenSessionSchema.parse(raw);
+}
+
+export async function requestOnScreenSnapshot(
+  revealAfterCapture = true,
+): Promise<string> {
+  if (!isTauri()) return createDemoSession().snapshotUrl;
+  const raw: unknown = await invoke("on_screen_snapshot", {
+    revealAfter: revealAfterCapture,
+  });
+  const parsed = backendSessionSchema.parse(raw);
+  const snapshotUrl = convertFileSrc(parsed.snapshotPath);
+  await preloadImage(snapshotUrl);
+  return snapshotUrl;
+}
+
+export async function showOnScreenSurface(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("on_screen_ready");
+}
+
+export async function dismissOnScreen(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("dismiss_on_screen");
+}
+
+export async function requestMakeEasySession(): Promise<MakeEasySession> {
+  if (!isTauri()) return createDemoSession();
+  const raw: unknown = await invoke("make_easy_session");
+  const parsed = backendSessionSchema.parse(raw);
+  const snapshotUrl = convertFileSrc(parsed.snapshotPath);
+  await preloadImage(snapshotUrl);
+  return {
+    id: parsed.id,
+    phase: parsed.phase,
+    display: parsed.display,
+    snapshotUrl,
+    colorSpace: parsed.colorSpace,
+    createdAt: parsed.createdAt,
+  };
+}
+
+export async function showMakeEasySurface(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("make_easy_ready");
+}
+
+export async function extractReadableRegion(selection: Rect): Promise<ReadableRegion> {
+  if (!isTauri()) {
+    return {
+      source: "ocr-text",
+      text: "# Make it Easy\n\nSelect dense content and CapKit turns it into a calm reading view.",
+      imagePath: "",
+      imageUrl: createDemoSession().snapshotUrl,
+      language: "en-US",
+      warning: null,
+    };
+  }
+  const raw: unknown = await invoke("extract_readable_region", { request: { selection } });
+  const parsed = readableRegionSchema.parse(raw);
+  const imageUrl = convertFileSrc(parsed.imagePath);
+  await preloadImage(imageUrl);
+  return { ...parsed, imageUrl };
+}
+
+export async function showMakeEasyReader(selection: Rect): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("show_make_easy_reader", { selection });
+}
+
+export async function restartMakeEasySelection(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("restart_make_easy_selection");
+}
+
+export async function setMakeEasyAlwaysOnTop(enabled: boolean): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("set_make_easy_always_on_top", { enabled });
+}
+
+export async function dismissMakeEasy(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("dismiss_make_easy");
+}
+
 export async function dismissCapture(): Promise<void> {
   if (!isTauri()) return;
   await invoke("dismiss_capture");
@@ -65,7 +197,7 @@ export async function completeCapture(
   selection: Rect,
   scene: AnnotationScene,
 ): Promise<CompletionResult> {
-  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/CapKit.png" : null };
+  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/Capkit.png" : null };
 
   const raw: unknown = await invoke("complete_capture", {
     request: { action, sessionId, selection, scene },
@@ -155,7 +287,7 @@ export async function detectTargets(
 }
 
 export async function getSaveDirectory(): Promise<string> {
-  if (!isTauri()) return "Pictures\\CapKit";
+  if (!isTauri()) return "Pictures\\Capkit";
   const raw: unknown = await invoke("get_save_directory");
   return z.string().min(1).parse(raw);
 }
@@ -167,7 +299,7 @@ export async function setSaveDirectory(directory: string): Promise<string> {
 }
 
 export async function resetSaveDirectory(): Promise<string> {
-  if (!isTauri()) return "Pictures\\CapKit";
+  if (!isTauri()) return "Pictures\\Capkit";
   const raw: unknown = await invoke("reset_save_directory");
   return z.string().min(1).parse(raw);
 }
@@ -199,6 +331,41 @@ export async function openSavedCapture(path: string): Promise<void> {
 export async function deleteSavedCapture(path: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("delete_saved_capture", { path });
+}
+
+/**
+ * Adapts a saved capture into Showcase media.
+ *
+ * The full-size file already sits inside the asset-protocol scope, so the
+ * studio composes against it rather than the library thumbnail.
+ */
+export function savedCaptureToMedia(capture: SavedCapture): MediaItem {
+  return {
+    path: capture.path,
+    fileName: capture.fileName,
+    sizeBytes: capture.sizeBytes,
+    modifiedAt: capture.modifiedAt,
+    url: isTauri() ? convertFileSrc(capture.path) : capture.thumbnailUrl,
+  };
+}
+
+/**
+ * Registers images the user picked from anywhere on disk and returns them with
+ * renderable asset URLs. Outside the desktop shell this resolves to nothing —
+ * the Showcase studio falls back to a browser file input there.
+ */
+export async function importMediaFiles(paths: readonly string[]): Promise<readonly MediaItem[]> {
+  if (!isTauri()) return [];
+  const raw: unknown = await invoke("import_media_files", { paths });
+  return toMediaItems(z.array(mediaFileSchema).parse(raw), convertFileSrc);
+}
+
+/** Lists the images inside an attached background folder, newest first. */
+export async function listFolderImages(directory: string): Promise<MediaFolder> {
+  if (!isTauri()) return { path: directory, name: directory, images: [] };
+  const raw: unknown = await invoke("list_folder_images", { directory });
+  const parsed = mediaFolderSchema.parse(raw);
+  return { path: parsed.path, name: parsed.name, images: toMediaItems(parsed.images, convertFileSrc) };
 }
 
 export function describeInvokeError(error: unknown, fallback: string): string {

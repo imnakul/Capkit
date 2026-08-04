@@ -14,25 +14,40 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     expect(await screen.findByRole("heading", { name: "Saved captures" })).toBeVisible();
-    expect(screen.getByText("Only images explicitly saved by CapKit appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
-    expect(screen.getByRole("navigation", { name: "CapKit sections" })).toBeVisible();
+    expect(screen.getByText("Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Capkit sections" })).toBeVisible();
   });
 
-  it("shows centered coming-soon states for unfinished product areas", () => {
+  it("no longer offers a Cloud section", () => {
     render(<DashboardPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Cloud" }));
+    expect(screen.queryByRole("button", { name: "Open Cloud" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Record" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Studio" })).toBeVisible();
+  });
 
-    const cloudState = screen.getByRole("region", { name: "Cloud coming soon" });
-    expect(within(cloudState).getByText("Cloud")).toBeVisible();
-    expect(within(cloudState).getByRole("heading", { name: "Coming Soon..." })).toBeVisible();
+  it("opens the recorder and the studio", async () => {
+    render(<DashboardPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Record" }));
+    expect(await screen.findByRole("heading", { name: "Capture your screen." })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open the recorder" })).toBeVisible();
     expect(screen.queryByText("Saved captures")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Studio" }));
+    // With no recordings yet, Studio explains how to get one rather than
+    // showing an editor with nothing in it.
+    expect(await screen.findByRole("heading", { name: "Nothing to edit yet" })).toBeVisible();
+  });
+
+  it("opens the Showcase studio", async () => {
+    render(<DashboardPanel />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Showcase" }));
 
-    const showcaseState = screen.getByRole("region", { name: "Showcase coming soon" });
-    expect(within(showcaseState).getByText("Showcase")).toBeVisible();
-    expect(within(showcaseState).getByRole("heading", { name: "Coming Soon..." })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Showcase studio" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import media from this computer" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Show Background controls" })).toBeVisible();
   });
 
   it("limits the quick palette to five selected colors", () => {
@@ -71,7 +86,7 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
     openSettings();
 
-    expect(screen.getAllByRole("button", { name: "Reset this section" })).toHaveLength(8);
+    expect(screen.getAllByRole("button", { name: "Reset this section" })).toHaveLength(9);
   });
 
   it("provides inline resets for overlay tint and individual shortcuts", () => {
@@ -82,6 +97,62 @@ describe("DashboardPanel", () => {
     expect(screen.getByRole("button", { name: "Reset Start capture shortcut" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset Capture & copy shortcut" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset Capture & save shortcut" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reset Toggle on-screen toolbar shortcut" })).toBeDisabled();
+  });
+
+  it("configures unique number keys for on-screen tools", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const pencil = screen.getByRole("combobox", { name: "Shortcut for Pencil" });
+    const rectangle = screen.getByRole("combobox", { name: "Shortcut for Rectangle" });
+    expect(pencil).toHaveValue("1");
+    expect(rectangle).toHaveValue("2");
+
+    fireEvent.change(rectangle, { target: { value: "1" } });
+
+    expect(rectangle).toHaveValue("1");
+    expect(pencil).toHaveValue("");
+  });
+
+  it("keeps on-screen drawing appearance in Settings instead of the live dock", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const strokeSize = screen.getByRole("slider", { name: "On-screen stroke width" });
+    const spotlightSize = screen.getByRole("slider", { name: "On-screen spotlight size" });
+    expect(strokeSize).toHaveValue("4");
+    expect(spotlightSize).toHaveValue("180");
+
+    fireEvent.change(strokeSize, { target: { value: "7" } });
+    fireEvent.change(spotlightSize, { target: { value: "260" } });
+
+    expect(strokeSize).toHaveValue("7");
+    expect(spotlightSize).toHaveValue("260");
+  });
+
+  it("lets users preserve Screen Draw annotations between toggles", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const persistence = screen.getByRole("switch", {
+      name: "Keep drawings between toggles",
+    });
+    expect(persistence).not.toBeChecked();
+    fireEvent.click(persistence);
+    expect(persistence).toBeChecked();
+  });
+
+  it("keeps the desktop live under Screen Draw by default", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const liveDesktop = screen.getByRole("switch", {
+      name: "Keep desktop live",
+    });
+    expect(liveDesktop).toBeChecked();
+    fireEvent.click(liveDesktop);
+    expect(liveDesktop).not.toBeChecked();
   });
 
   it("lets users choose whether scrolling starts automatically or asks first", () => {

@@ -35,7 +35,7 @@ describe("SavedCapturesView", () => {
 
   it("opens folders and images and exposes the requested context actions", async () => {
     const onShowcase = vi.fn();
-    render(<SavedCapturesView cloudConfigured={false} onShowcase={onShowcase} />);
+    render(<SavedCapturesView onShowcase={onShowcase} />);
 
     const capture = await screen.findByRole("button", { name: "View capture.png" });
     fireEvent.click(screen.getByRole("button", { name: "Open save folder" }));
@@ -45,7 +45,7 @@ describe("SavedCapturesView", () => {
 
     fireEvent.contextMenu(capture, { clientX: 140, clientY: 120 });
     expect(screen.getByRole("menuitem", { name: "View" })).toBeEnabled();
-    expect(screen.getByRole("menuitem", { name: "Upload to Cloud" })).toBeDisabled();
+    expect(screen.queryByRole("menuitem", { name: "Upload to Cloud" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Showcase" })).toBeEnabled();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeEnabled();
 

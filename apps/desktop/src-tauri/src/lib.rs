@@ -8,15 +8,20 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use domain::{
-    CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult, DetectedTargetDto,
-    Point, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+    AudioDeviceDto, CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult,
+    DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto, OnScreenSessionDto, Point,
+    ReadableRegionDto, ReadableRegionRequest, RecordingArtifactsDto, RecordingRequestDto,
+    RecordingSourceDto, RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest,
+    ScrollingCaptureResult,
 };
 use error::SnaphubError;
 use platform::xcap_backend::XcapPlatformBackend;
 use services::capture::CaptureService;
+use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
@@ -31,6 +36,9 @@ struct ShortcutSettingsDto {
     capture: String,
     capture_and_copy: String,
     capture_and_save: String,
+    on_screen_toggle: String,
+    make_easy: String,
+    record_toggle: String,
 }
 
 #[derive(Clone)]
@@ -39,6 +47,9 @@ struct RegisteredShortcuts {
     capture: Shortcut,
     capture_and_copy: Shortcut,
     capture_and_save: Shortcut,
+    on_screen_toggle: Shortcut,
+    make_easy: Shortcut,
+    record_toggle: Shortcut,
 }
 
 #[derive(Clone, Copy)]
@@ -46,10 +57,40 @@ enum ShortcutAction {
     Capture,
     Copy,
     Save,
+    OnScreen,
+    MakeEasy,
+    RecordToggle,
 }
 
 struct ShortcutConfiguration(Mutex<RegisteredShortcuts>);
 struct PinnedCaptureRegistry(Mutex<HashMap<String, String>>);
+
+enum OnScreenModeState {
+    Idle,
+    Preparing,
+    Active(Box<OnScreenActiveState>),
+}
+
+struct OnScreenActiveState {
+    display: DisplayDto,
+    snapshot: Option<CaptureSessionDto>,
+}
+
+struct OnScreenModeRegistry(Mutex<OnScreenModeState>);
+
+enum MakeEasyModeState {
+    Idle,
+    Preparing,
+    Active(Box<MakeEasyActiveState>),
+}
+
+struct MakeEasyActiveState {
+    display: DisplayDto,
+    snapshot: CaptureSessionDto,
+    output_path: Option<PathBuf>,
+}
+
+struct MakeEasyModeRegistry(Mutex<MakeEasyModeState>);
 
 #[tauri::command]
 fn begin_capture(
@@ -102,6 +143,177 @@ fn dashboard_ready(app: AppHandle) -> Result<(), SnaphubError> {
         return Ok(());
     }
     show_dashboard(&app)
+}
+
+#[tauri::command]
+fn on_screen_session(
+    registry: tauri::State<'_, OnScreenModeRegistry>,
+) -> Result<OnScreenSessionDto, SnaphubError> {
+    let state = registry
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+    match &*state {
+        OnScreenModeState::Active(active) => Ok(OnScreenSessionDto {
+            display: active.display.clone(),
+        }),
+        OnScreenModeState::Idle | OnScreenModeState::Preparing => {
+            Err(SnaphubError::Window("On-screen mode is not ready".into()))
+        }
+    }
+}
+
+#[tauri::command]
+async fn on_screen_snapshot(
+    app: AppHandle,
+    reveal_after: bool,
+) -> Result<CaptureSessionDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || prepare_on_screen_snapshot(&app, reveal_after))
+        .await
+        .map_err(|error| SnaphubError::Window(error.to_string()))?
+}
+
+#[tauri::command]
+fn on_screen_ready(app: AppHandle) -> Result<(), SnaphubError> {
+    let window = app
+        .get_webview_window("onscreen")
+        .ok_or_else(|| SnaphubError::Window("On-screen toolbar window is unavailable".into()))?;
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_on_screen(app: AppHandle) -> Result<(), SnaphubError> {
+    close_on_screen_mode(&app)
+}
+
+#[tauri::command]
+fn make_easy_session(
+    registry: tauri::State<'_, MakeEasyModeRegistry>,
+) -> Result<CaptureSessionDto, SnaphubError> {
+    let state = registry
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+    match &*state {
+        MakeEasyModeState::Active(active) => Ok(active.snapshot.clone()),
+        MakeEasyModeState::Idle | MakeEasyModeState::Preparing => {
+            Err(SnaphubError::Window("Make it Easy is not ready".into()))
+        }
+    }
+}
+
+#[tauri::command]
+fn make_easy_ready(app: AppHandle) -> Result<(), SnaphubError> {
+    let window = app
+        .get_webview_window("make-easy")
+        .ok_or_else(|| SnaphubError::Window("Make it Easy window is unavailable".into()))?;
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn extract_readable_region(
+    app: AppHandle,
+    request: ReadableRegionRequest,
+) -> Result<ReadableRegionDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        extract_readable_region_blocking(&app, request.selection)
+    })
+    .await
+    .map_err(|error| SnaphubError::Capture(error.to_string()))?
+}
+
+#[tauri::command]
+fn show_make_easy_reader(app: AppHandle, selection: Rect) -> Result<(), SnaphubError> {
+    let registry = app.state::<MakeEasyModeRegistry>();
+    let state = registry
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+    let MakeEasyModeState::Active(active) = &*state else {
+        return Err(SnaphubError::Window("Make it Easy is not active".into()));
+    };
+    let display = active.display.clone();
+    drop(state);
+
+    let window = app
+        .get_webview_window("make-easy")
+        .ok_or_else(|| SnaphubError::Window("Make it Easy window is unavailable".into()))?;
+    let width = 720.0_f64.min(display.bounds.width - 32.0).max(480.0);
+    let height = 680.0_f64.min(display.bounds.height - 32.0).max(420.0);
+    let right_x = selection.x + selection.width + 16.0;
+    let x = if right_x + width <= display.bounds.width - 16.0 {
+        right_x
+    } else if selection.x >= width + 32.0 {
+        selection.x - width - 16.0
+    } else {
+        (display.bounds.width - width) / 2.0
+    };
+    let y = selection
+        .y
+        .min(display.bounds.height - height - 16.0)
+        .max(16.0);
+    let scale = display.scale_factor;
+    window
+        .set_position(PhysicalPosition::new(
+            ((display.bounds.x + x) * scale).round() as i32,
+            ((display.bounds.y + y) * scale).round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            (width * scale).round() as u32,
+            (height * scale).round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_resizable(true)
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn restart_make_easy_selection(app: AppHandle) -> Result<(), SnaphubError> {
+    let registry = app.state::<MakeEasyModeRegistry>();
+    let mut state = registry
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+    let MakeEasyModeState::Active(active) = &mut *state else {
+        return Err(SnaphubError::Window("Make it Easy is not active".into()));
+    };
+    if let Some(path) = active.output_path.take() {
+        let _ = std::fs::remove_file(path);
+    }
+    let display = active.display.clone();
+    drop(state);
+    configure_make_easy_fullscreen(&app, &display)
+}
+
+#[tauri::command]
+fn set_make_easy_always_on_top(app: AppHandle, enabled: bool) -> Result<(), SnaphubError> {
+    let window = app
+        .get_webview_window("make-easy")
+        .ok_or_else(|| SnaphubError::Window("Make it Easy window is unavailable".into()))?;
+    window
+        .set_always_on_top(enabled)
+        .map_err(|error| SnaphubError::Window(error.to_string()))
+}
+
+#[tauri::command]
+fn dismiss_make_easy(app: AppHandle) -> Result<(), SnaphubError> {
+    close_make_easy_mode(&app)
 }
 
 #[tauri::command]
@@ -295,6 +507,44 @@ fn delete_saved_capture(
     path: String,
 ) -> Result<(), SnaphubError> {
     service.delete_saved_capture(Path::new(&path))
+}
+
+/// Grants the webview read access to images the user explicitly picked from disk.
+///
+/// The asset protocol scope is otherwise locked to the CapKit save and temp
+/// folders, so every Showcase import has to opt its own file in.
+#[tauri::command]
+fn import_media_files(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<MediaFileDto>, SnaphubError> {
+    let scope = app.asset_protocol_scope();
+    let mut imported = Vec::with_capacity(paths.len());
+    for raw in &paths {
+        let path = PathBuf::from(raw);
+        let file = services::media::describe_image(&path)?;
+        scope.allow_file(&path).map_err(SnaphubError::export)?;
+        imported.push(file);
+    }
+    Ok(imported)
+}
+
+/// Lists the images inside a folder the user attached as a background library.
+#[tauri::command]
+async fn list_folder_images(
+    app: AppHandle,
+    directory: String,
+) -> Result<MediaFolderDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<MediaFolderDto, SnaphubError> {
+        let path = PathBuf::from(&directory);
+        let folder = services::media::read_folder(&path)?;
+        app.asset_protocol_scope()
+            .allow_directory(&path, false)
+            .map_err(SnaphubError::export)?;
+        Ok(folder)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(format!("Background folder worker failed: {error}")))?
 }
 
 #[tauri::command]
@@ -495,12 +745,24 @@ impl RegisteredShortcuts {
         let capture = parse_shortcut(&settings.capture)?;
         let capture_and_copy = parse_shortcut(&settings.capture_and_copy)?;
         let capture_and_save = parse_shortcut(&settings.capture_and_save)?;
-        if capture == capture_and_copy
-            || capture == capture_and_save
-            || capture_and_copy == capture_and_save
-        {
+        let on_screen_toggle = parse_shortcut(&settings.on_screen_toggle)?;
+        let make_easy = parse_shortcut(&settings.make_easy)?;
+        let record_toggle = parse_shortcut(&settings.record_toggle)?;
+        let shortcuts = [
+            capture,
+            capture_and_copy,
+            capture_and_save,
+            on_screen_toggle,
+            make_easy,
+            record_toggle,
+        ];
+        let has_duplicate = shortcuts
+            .iter()
+            .enumerate()
+            .any(|(index, shortcut)| shortcuts[index + 1..].contains(shortcut));
+        if has_duplicate {
             return Err(SnaphubError::Shortcut(
-                "Each capture workflow needs a different shortcut".into(),
+                "Each global workflow needs a different shortcut".into(),
             ));
         }
         Ok(Self {
@@ -508,11 +770,21 @@ impl RegisteredShortcuts {
             capture,
             capture_and_copy,
             capture_and_save,
+            on_screen_toggle,
+            make_easy,
+            record_toggle,
         })
     }
 
-    fn shortcuts(&self) -> [Shortcut; 3] {
-        [self.capture, self.capture_and_copy, self.capture_and_save]
+    fn shortcuts(&self) -> [Shortcut; 6] {
+        [
+            self.capture,
+            self.capture_and_copy,
+            self.capture_and_save,
+            self.on_screen_toggle,
+            self.make_easy,
+            self.record_toggle,
+        ]
     }
 
     fn action_for(&self, shortcut: &Shortcut) -> Option<ShortcutAction> {
@@ -522,6 +794,12 @@ impl RegisteredShortcuts {
             Some(ShortcutAction::Copy)
         } else if shortcut == &self.capture_and_save {
             Some(ShortcutAction::Save)
+        } else if shortcut == &self.on_screen_toggle {
+            Some(ShortcutAction::OnScreen)
+        } else if shortcut == &self.make_easy {
+            Some(ShortcutAction::MakeEasy)
+        } else if shortcut == &self.record_toggle {
+            Some(ShortcutAction::RecordToggle)
         } else {
             None
         }
@@ -542,6 +820,9 @@ fn default_shortcuts() -> ShortcutSettingsDto {
         capture: "Alt+Shift+S".into(),
         capture_and_copy: "Alt+Shift+C".into(),
         capture_and_save: "Alt+Shift+D".into(),
+        on_screen_toggle: "Alt+Shift+A".into(),
+        make_easy: "Alt+Shift+E".into(),
+        record_toggle: "Alt+Shift+R".into(),
     }
 }
 
@@ -593,6 +874,510 @@ fn restore_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
             .map_err(|error| SnaphubError::Window(error.to_string()))?;
     }
     Ok(())
+}
+
+fn toggle_make_easy_mode(app: &AppHandle) {
+    let should_prepare = {
+        let registry = app.state::<MakeEasyModeRegistry>();
+        let Ok(mut state) = registry.0.lock() else {
+            eprintln!("SH-MAKE-EASY-STATE-001: state is unavailable");
+            return;
+        };
+        if matches!(&*state, MakeEasyModeState::Idle) {
+            *state = MakeEasyModeState::Preparing;
+            true
+        } else {
+            false
+        }
+    };
+    if !should_prepare {
+        if let Err(error) = close_make_easy_mode(app) {
+            eprintln!("SH-MAKE-EASY-CLOSE-001: {error}");
+        }
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = prepare_make_easy_mode(&app) {
+            eprintln!("SH-MAKE-EASY-OPEN-001: {error}");
+            let _ = close_make_easy_mode(&app);
+        }
+    });
+}
+
+fn prepare_make_easy_mode(app: &AppHandle) -> Result<(), SnaphubError> {
+    let cursor = app
+        .cursor_position()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    // Capture before the overlay exists. The frozen image is the reliable Windows fallback for
+    // WebView2 configurations that resolve a transparent always-on-top window as opaque black.
+    let snapshot = app.state::<CaptureService>().begin(Point {
+        x: cursor.x,
+        y: cursor.y,
+    })?;
+    let display = snapshot.display.clone();
+    {
+        let registry = app.state::<MakeEasyModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+        if !matches!(&*state, MakeEasyModeState::Preparing) {
+            let _ = app.state::<CaptureService>().cancel(&snapshot.id);
+            return Ok(());
+        }
+        *state = MakeEasyModeState::Active(Box::new(MakeEasyActiveState {
+            display: display.clone(),
+            snapshot,
+            output_path: None,
+        }));
+    }
+    if app.get_webview_window("make-easy").is_none() {
+        WebviewWindowBuilder::new(
+            app,
+            "make-easy",
+            WebviewUrl::App(PathBuf::from("index.html")),
+        )
+        .title("CapKit — Make it Easy")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(true)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    }
+    configure_make_easy_fullscreen(app, &display)
+}
+
+fn configure_make_easy_fullscreen(
+    app: &AppHandle,
+    display: &DisplayDto,
+) -> Result<(), SnaphubError> {
+    let window = app
+        .get_webview_window("make-easy")
+        .ok_or_else(|| SnaphubError::Window("Make it Easy window is unavailable".into()))?;
+    let scale = display.scale_factor;
+    window
+        .hide()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_resizable(false)
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_position(PhysicalPosition::new(
+            (display.bounds.x * scale).round() as i32,
+            (display.bounds.y * scale).round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            (display.bounds.width * scale).round() as u32,
+            (display.bounds.height * scale).round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+fn extract_readable_region_blocking(
+    app: &AppHandle,
+    selection: Rect,
+) -> Result<ReadableRegionDto, SnaphubError> {
+    let window = app
+        .get_webview_window("make-easy")
+        .ok_or_else(|| SnaphubError::Window("Make it Easy window is unavailable".into()))?;
+    window
+        .hide()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    std::thread::sleep(Duration::from_millis(45));
+
+    let (display, snapshot, previous_output) = {
+        let registry = app.state::<MakeEasyModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+        let MakeEasyModeState::Active(active) = &mut *state else {
+            return Err(SnaphubError::Window("Make it Easy is not active".into()));
+        };
+        (
+            active.display.clone(),
+            active.snapshot.clone(),
+            active.output_path.take(),
+        )
+    };
+    if let Some(path) = previous_output {
+        let _ = std::fs::remove_file(path);
+    }
+    #[cfg(target_os = "windows")]
+    let accessible_text = {
+        let scale = display.scale_factor;
+        platform::windows_ui::text_for_region(Rect {
+            x: (display.bounds.x + selection.x) * scale,
+            y: (display.bounds.y + selection.y) * scale,
+            width: selection.width * scale,
+            height: selection.height * scale,
+        })
+        .ok()
+        .flatten()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let accessible_text: Option<String> = None;
+    let source_path = PathBuf::from(&snapshot.snapshot_path);
+    let result = (|| {
+        let source = image::open(&source_path).map_err(SnaphubError::capture)?;
+        let scale = snapshot.display.scale_factor;
+        let x = (selection.x * scale).round().max(0.0) as u32;
+        let y = (selection.y * scale).round().max(0.0) as u32;
+        let width = (selection.width * scale)
+            .round()
+            .max(1.0)
+            .min((source.width().saturating_sub(x)) as f64) as u32;
+        let height = (selection.height * scale)
+            .round()
+            .max(1.0)
+            .min((source.height().saturating_sub(y)) as f64) as u32;
+        if width == 0 || height == 0 {
+            return Err(SnaphubError::Capture(
+                "The selected reading region is outside the captured display".into(),
+            ));
+        }
+        let output_dir = std::env::temp_dir().join("CapKit").join("readable");
+        std::fs::create_dir_all(&output_dir).map_err(SnaphubError::capture)?;
+        let output_path = output_dir.join(format!("{}.png", uuid::Uuid::new_v4()));
+        source
+            .crop_imm(x, y, width, height)
+            .save_with_format(&output_path, image::ImageFormat::Png)
+            .map_err(SnaphubError::capture)?;
+
+        let recognized = recognize_readable_file(&output_path);
+
+        let (source_kind, text, language, warning) = if let Some(text) = accessible_text {
+            ("accessible-text", text, None, None)
+        } else {
+            match recognized {
+                Ok((text, language)) if !text.trim().is_empty() => (
+                    "ocr-text",
+                    text.trim().to_owned(),
+                    language,
+                None,
+            ),
+            Ok(_) => (
+                "visual-only",
+                String::new(),
+                None,
+                Some("No text was recognized. Use the enhanced original view or choose another region.".into()),
+            ),
+            Err(error) => (
+                "visual-only",
+                String::new(),
+                None,
+                Some(error.to_string()),
+            ),
+            }
+        };
+        let registry = app.state::<MakeEasyModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+        if let MakeEasyModeState::Active(active) = &mut *state {
+            active.output_path = Some(output_path.clone());
+        }
+        Ok(ReadableRegionDto {
+            source: source_kind,
+            text,
+            image_path: output_path.to_string_lossy().into_owned(),
+            language,
+            warning,
+        })
+    })();
+    if result.is_err() {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn recognize_readable_file(path: &Path) -> Result<(String, Option<String>), SnaphubError> {
+    let result = platform::windows_ocr::recognize_file(path)?;
+    Ok((result.text, result.language))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn recognize_readable_file(_path: &Path) -> Result<(String, Option<String>), SnaphubError> {
+    Err(SnaphubError::Capture(
+        "Local OCR is unavailable on this platform".into(),
+    ))
+}
+
+fn close_make_easy_mode(app: &AppHandle) -> Result<(), SnaphubError> {
+    let registry = app.state::<MakeEasyModeRegistry>();
+    let (output_path, snapshot_id) = {
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("Make it Easy state is unavailable".into()))?;
+        let previous = std::mem::replace(&mut *state, MakeEasyModeState::Idle);
+        match previous {
+            MakeEasyModeState::Active(active) => (active.output_path, Some(active.snapshot.id)),
+            MakeEasyModeState::Idle | MakeEasyModeState::Preparing => (None, None),
+        }
+    };
+    if let Some(path) = output_path {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(session_id) = snapshot_id {
+        let _ = app.state::<CaptureService>().cancel(&session_id);
+    }
+    if let Some(window) = app.get_webview_window("make-easy") {
+        window
+            .destroy()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn toggle_on_screen_mode(app: &AppHandle) {
+    let should_prepare = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let Ok(mut state) = registry.0.lock() else {
+            eprintln!("SH-ONSCREEN-STATE-001: on-screen mode state is unavailable");
+            return;
+        };
+        if matches!(&*state, OnScreenModeState::Idle) {
+            *state = OnScreenModeState::Preparing;
+            true
+        } else {
+            false
+        }
+    };
+
+    if !should_prepare {
+        if let Err(error) = close_on_screen_mode(app) {
+            eprintln!("SH-ONSCREEN-CLOSE-001: {error}");
+        }
+        return;
+    }
+
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = prepare_on_screen_mode(&app) {
+            eprintln!("SH-ONSCREEN-OPEN-001: {error}");
+            let _ = close_on_screen_mode(&app);
+        }
+    });
+}
+
+fn prepare_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
+    let cursor = app
+        .cursor_position()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let display = display_at_point(app, cursor.x, cursor.y)?;
+
+    let should_continue = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        if matches!(&*state, OnScreenModeState::Preparing) {
+            *state = OnScreenModeState::Active(Box::new(OnScreenActiveState {
+                display: display.clone(),
+                snapshot: None,
+            }));
+            true
+        } else {
+            false
+        }
+    };
+    if !should_continue {
+        return Ok(());
+    }
+
+    let window = match WebviewWindowBuilder::new(
+        app,
+        "onscreen",
+        WebviewUrl::App(PathBuf::from("index.html")),
+    )
+    .title("CapKit On-Screen Toolbar")
+    .closable(true)
+    .decorations(false)
+    .always_on_top(true)
+    .transparent(true)
+    .resizable(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    {
+        Ok(window) => window,
+        Err(error) => {
+            if let Ok(mut state) = app.state::<OnScreenModeRegistry>().0.lock() {
+                *state = OnScreenModeState::Idle;
+            }
+            return Err(SnaphubError::Window(error.to_string()));
+        }
+    };
+
+    let scale = display.scale_factor;
+    let positioning = window
+        .set_position(PhysicalPosition::new(
+            (display.bounds.x * scale).round() as i32,
+            (display.bounds.y * scale).round() as i32,
+        ))
+        .and_then(|_| {
+            window.set_size(PhysicalSize::new(
+                (display.bounds.width * scale).round() as u32,
+                (display.bounds.height * scale).round() as u32,
+            ))
+        });
+    if let Err(error) = positioning {
+        let _ = window.destroy();
+        let _ = close_on_screen_mode(app);
+        return Err(SnaphubError::Window(error.to_string()));
+    }
+    Ok(())
+}
+
+fn display_at_point(app: &AppHandle, x: f64, y: f64) -> Result<DisplayDto, SnaphubError> {
+    let monitor = app
+        .monitor_from_point(x, y)
+        .map_err(|error| SnaphubError::Window(error.to_string()))?
+        .ok_or_else(|| SnaphubError::Window("No display was found for on-screen mode".into()))?;
+    let position = monitor.position();
+    let size = monitor.size();
+    let scale_factor = monitor.scale_factor();
+    let is_primary = app
+        .primary_monitor()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?
+        .is_some_and(|primary| primary.position() == position && primary.size() == size);
+    Ok(DisplayDto {
+        id: format!("monitor-{}-{}", position.x, position.y),
+        name: monitor.name().cloned().unwrap_or_else(|| "Display".into()),
+        bounds: Rect {
+            x: f64::from(position.x) / scale_factor,
+            y: f64::from(position.y) / scale_factor,
+            width: f64::from(size.width) / scale_factor,
+            height: f64::from(size.height) / scale_factor,
+        },
+        scale_factor,
+        is_primary,
+    })
+}
+
+fn prepare_on_screen_snapshot(
+    app: &AppHandle,
+    reveal_after: bool,
+) -> Result<CaptureSessionDto, SnaphubError> {
+    let display = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        match &*state {
+            OnScreenModeState::Active(active) => {
+                if let Some(session) = active.snapshot.as_ref() {
+                    return Ok(session.clone());
+                }
+                active.display.clone()
+            }
+            OnScreenModeState::Idle | OnScreenModeState::Preparing => {
+                return Err(SnaphubError::Window("On-screen mode is not active".into()));
+            }
+        }
+    };
+
+    let window = app
+        .get_webview_window("onscreen")
+        .ok_or_else(|| SnaphubError::Window("On-screen toolbar window is unavailable".into()))?;
+    window
+        .hide()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    std::thread::sleep(Duration::from_millis(24));
+
+    let scale = display.scale_factor;
+    let capture_point = Point {
+        x: (display.bounds.x + display.bounds.width / 2.0) * scale,
+        y: (display.bounds.y + display.bounds.height / 2.0) * scale,
+    };
+    let service = app.state::<CaptureService>();
+    let capture_result = service.begin(capture_point);
+
+    let session = match capture_result {
+        Ok(session) => session,
+        Err(error) => {
+            if reveal_after {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            return Err(error);
+        }
+    };
+
+    let retained = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        match &mut *state {
+            OnScreenModeState::Active(active) => {
+                active.snapshot = Some(session.clone());
+                true
+            }
+            OnScreenModeState::Idle | OnScreenModeState::Preparing => false,
+        }
+    };
+    if !retained {
+        service.cancel(&session.id)?;
+        return Err(SnaphubError::Window(
+            "On-screen mode closed while preparing visual tools".into(),
+        ));
+    }
+
+    if reveal_after {
+        window
+            .show()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+        let _ = window.set_focus();
+    }
+    Ok(session)
+}
+
+fn close_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
+    let session_id = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let mut state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        match std::mem::replace(&mut *state, OnScreenModeState::Idle) {
+            OnScreenModeState::Active(active) => active.snapshot.map(|session| session.id),
+            OnScreenModeState::Idle | OnScreenModeState::Preparing => None,
+        }
+    };
+
+    let cleanup_result = session_id
+        .as_deref()
+        .map(|id| app.state::<CaptureService>().cancel(id))
+        .unwrap_or(Ok(()));
+    let destroy_result = app
+        .get_webview_window("onscreen")
+        .map(|window| {
+            window
+                .destroy()
+                .map_err(|error| SnaphubError::Window(error.to_string()))
+        })
+        .unwrap_or(Ok(()));
+    destroy_result.and(cleanup_result)
 }
 
 fn validated_scrolling_output(path: &str) -> Result<PathBuf, SnaphubError> {
@@ -673,6 +1458,364 @@ fn show_dashboard(app: &AppHandle) -> Result<(), SnaphubError> {
     Ok(())
 }
 
+/* -------------------------------------------------------------------------- */
+/* Recording                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/// Builds the recording service for the current platform.
+///
+/// Recording is Windows-only for now: it is built on Windows Graphics Capture
+/// and the Media Foundation sink writer, both of which ship with the OS, which
+/// is what keeps the feature close to free in installed size.
+#[cfg(target_os = "windows")]
+fn recording_service() -> RecordingService {
+    let backend = Arc::new(platform::windows_recorder::WindowsRecorderBackend::new());
+    RecordingService::new(backend.clone(), backend.clone(), backend)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn recording_service() -> RecordingService {
+    compile_error!("Recording currently requires a Windows backend");
+}
+
+#[tauri::command]
+fn recording_supported(service: tauri::State<'_, RecordingService>) -> bool {
+    service.is_supported()
+}
+
+#[tauri::command]
+async fn list_recording_sources(app: AppHandle) -> Result<Vec<RecordingSourceDto>, SnaphubError> {
+    // Now that this also captures a thumbnail per source, it is real
+    // display/window I/O rather than cheap enumeration, so it goes through
+    // the same off-main-thread pattern as recording start/stop.
+    tauri::async_runtime::spawn_blocking(move || app.state::<RecordingService>().sources())
+        .await
+        .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
+        .and_then(|result| result)
+}
+
+#[tauri::command]
+async fn list_audio_devices(
+    service: tauri::State<'_, RecordingService>,
+) -> Result<Vec<AudioDeviceDto>, SnaphubError> {
+    service.audio_devices()
+}
+
+// Recording start/stop/cancel do real device, encoder, and thread setup or
+// teardown. A plain sync command runs inline on the main UI thread, and a
+// WinRT COM call blocking on that same thread can deadlock it waiting on a
+// message pump that can never run while the command is still executing —
+// which is exactly what "stuck at 0, whole window frozen" looks like from the
+// outside. `spawn_blocking` moves the work off that thread, matching every
+// other non-trivial command in this file (see `capture_scrolling_automatic`).
+
+#[tauri::command]
+async fn start_recording(app: AppHandle, request: RecordingRequestDto) -> Result<(), SnaphubError> {
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<RecordingService>().start(&request)
+    })
+    .await
+    .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
+    .and_then(|result| result)?;
+    let _ = app.emit("snaphub://recording-started", ());
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_recording(app: AppHandle) -> Result<RecordingArtifactsDto, SnaphubError> {
+    let worker_app = app.clone();
+    let artifacts =
+        tauri::async_runtime::spawn_blocking(move || worker_app.state::<RecordingService>().stop())
+            .await
+            .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
+            .and_then(|result| result)?;
+    // The recording lives outside the statically scoped asset directories, so
+    // its session folder is opted in for this run only.
+    let _ = app
+        .asset_protocol_scope()
+        .allow_directory(&artifacts.directory, false);
+    let _ = app.emit("snaphub://recording-stopped", artifacts.clone());
+    Ok(artifacts)
+}
+
+#[tauri::command]
+async fn cancel_recording(app: AppHandle) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<RecordingService>().cancel())
+        .await
+        .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
+        .and_then(|result| result)
+}
+
+/// Pauses or resumes the recording; paused time is omitted from the output.
+#[tauri::command]
+fn set_recording_paused(
+    service: tauri::State<'_, RecordingService>,
+    paused: bool,
+) -> Result<bool, SnaphubError> {
+    service.set_paused(paused)
+}
+
+/// Opens the webcam window, excluded from capture so the preview cannot end up
+/// inside the screen recording alongside the camera track itself.
+/// Shows a click-through outline around exactly what is about to be, or is
+/// being, recorded — the countdown alone gives no sense of the boundary,
+/// especially for a window or region smaller than the full screen.
+#[tauri::command]
+fn show_recording_border(
+    app: AppHandle,
+    service: tauri::State<'_, RecordingService>,
+    bounds: Rect,
+) -> Result<(), SnaphubError> {
+    let window = match app.get_webview_window("recording-border") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app,
+            "recording-border",
+            WebviewUrl::App("index.html".into()),
+        )
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?,
+    };
+
+    let _ = window.set_position(PhysicalPosition::new(bounds.x as i32, bounds.y as i32));
+    let _ = window.set_size(PhysicalSize::new(
+        bounds.width.max(1.0) as u32,
+        bounds.height.max(1.0) as u32,
+    ));
+    // Never intercepts a click: the whole point is to sit over the recorded
+    // content without changing how the user interacts with it.
+    let _ = window.set_ignore_cursor_events(true);
+    if let Ok(handle) = window.hwnd() {
+        let _ = service.set_capture_exclusion(handle.0 as isize, true);
+    }
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_recording_border(app: AppHandle) -> Result<(), SnaphubError> {
+    if let Some(window) = app.get_webview_window("recording-border") {
+        let _ = window.destroy();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
+    if let Some(window) = app.get_webview_window("camera") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let monitor = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .ok_or_else(|| SnaphubError::Window("No display available for the camera".into()))?;
+    let bounds = monitor.size();
+    let size = 260u32;
+
+    let window = WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
+        .title("CapKit Camera")
+        .inner_size(f64::from(size), f64::from(size))
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+
+    let x = 48;
+    let y = bounds.height.saturating_sub(size + 220);
+    let _ = window.set_position(PhysicalPosition::new(x, y as i32));
+    Ok(())
+}
+
+#[tauri::command]
+fn camera_ready(
+    app: AppHandle,
+    service: tauri::State<'_, RecordingService>,
+) -> Result<(), SnaphubError> {
+    let Some(window) = app.get_webview_window("camera") else {
+        return Ok(());
+    };
+    if let Ok(handle) = window.hwnd() {
+        let _ = service.set_capture_exclusion(handle.0 as isize, true);
+    }
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn close_camera(app: AppHandle) -> Result<(), SnaphubError> {
+    if let Some(window) = app.get_webview_window("camera") {
+        let _ = window.destroy();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn recording_status(app: AppHandle) -> Result<Option<RecordingStatsDto>, SnaphubError> {
+    // `stats()` stats the output file on disk; kept off the main thread so a
+    // once-a-second poll from the dock can never contribute to UI jank.
+    tauri::async_runtime::spawn_blocking(move || app.state::<RecordingService>().stats())
+        .await
+        .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
+        .and_then(|result| result)
+}
+
+/// Hides a window from screen capture so the recorder's own chrome never lands
+/// in the video.
+#[tauri::command]
+fn set_capture_exclusion(
+    app: AppHandle,
+    service: tauri::State<'_, RecordingService>,
+    label: String,
+    excluded: bool,
+) -> Result<(), SnaphubError> {
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| SnaphubError::Window(format!("No window named {label}")))?;
+    let handle = window
+        .hwnd()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    service.set_capture_exclusion(handle.0 as isize, excluded)
+}
+
+/// Reveals the recorder once its first frame is painted, and excludes it from
+/// capture in the same step because the affinity does not survive recreation.
+#[tauri::command]
+fn recorder_ready(
+    app: AppHandle,
+    service: tauri::State<'_, RecordingService>,
+) -> Result<(), SnaphubError> {
+    println!("[recorder] recorder_ready invoked");
+    let Some(window) = app.get_webview_window("recorder") else {
+        println!("[recorder] recorder_ready: no window named \"recorder\" exists");
+        return Ok(());
+    };
+    if let Ok(handle) = window.hwnd() {
+        // A failure here must not be silent: the dock would be recorded.
+        if service
+            .set_capture_exclusion(handle.0 as isize, true)
+            .is_err()
+        {
+            let _ = app.emit("snaphub://recorder-exclusion-failed", ());
+        }
+    }
+    // `.show()` alone maps to `ShowWindow(SW_SHOW)`, which does not clear a
+    // minimized state; a window can end up simultaneously WS_VISIBLE and
+    // WS_MINIMIZE, parked at the OS's off-screen sentinel position and
+    // invisible even though every state check says "visible". `unminimize()`
+    // guards against that regardless of how it got minimized in the first place.
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    println!("[recorder] recorder_ready: window shown");
+    #[cfg(debug_assertions)]
+    window.open_devtools();
+    Ok(())
+}
+
+#[tauri::command]
+fn open_recorder(app: AppHandle) -> Result<(), SnaphubError> {
+    println!("[recorder] open_recorder invoked");
+    show_recorder(&app)
+}
+
+#[tauri::command]
+fn close_recorder(
+    app: AppHandle,
+    service: tauri::State<'_, RecordingService>,
+) -> Result<(), SnaphubError> {
+    service.cancel()?;
+    if let Some(window) = app.get_webview_window("recorder") {
+        let _ = window.destroy();
+    }
+    Ok(())
+}
+
+/// Opens the recorder, or brings it to front if it is already open.
+///
+/// Bound to a global shortcut so recording can be reached without navigating
+/// through the dashboard. Unlike the on-screen and Make it Easy toggles, a
+/// second press never closes the window here: doing so while a recording is
+/// in progress would silently discard it.
+fn toggle_recording(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("recorder") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    if let Err(error) = show_recorder(app) {
+        eprintln!("SH-RECORD-SHORTCUT-001: {error}");
+    }
+}
+
+/// Creates the recorder window hidden and lets the frontend reveal it, matching
+/// the on-screen overlay's prepare-then-reveal lifecycle.
+fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
+    println!("[recorder] show_recorder invoked");
+    if let Some(window) = app.get_webview_window("recorder") {
+        println!("[recorder] show_recorder: reusing the existing window");
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    println!("[recorder] show_recorder: building a fresh window");
+
+    let monitor = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
+    let bounds = monitor.size();
+    let width = 720u32;
+    let height = 132u32;
+
+    let window = WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
+        .title("CapKit Recorder")
+        .inner_size(f64::from(width), f64::from(height))
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+
+    let x = (bounds.width.saturating_sub(width)) / 2;
+    let y = bounds.height.saturating_sub(height + 72);
+    let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+    let _ = window.set_size(PhysicalSize::new(width, height));
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend = Arc::new(XcapPlatformBackend::default());
@@ -705,18 +1848,35 @@ pub fn run() {
                         Some(ShortcutAction::Save) => {
                             run_quick_capture(app, CompletionAction::Save);
                         }
+                        Some(ShortcutAction::OnScreen) => toggle_on_screen_mode(app),
+                        Some(ShortcutAction::MakeEasy) => toggle_make_easy_mode(app),
+                        Some(ShortcutAction::RecordToggle) => toggle_recording(app),
                         None => {}
                     }
                 })
                 .build(),
         )
         .manage(CaptureService::new(backend))
+        .manage(recording_service())
         .manage(ShortcutConfiguration(Mutex::new(shortcuts)))
         .manage(PinnedCaptureRegistry(Mutex::new(HashMap::new())))
+        .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
+        .manage(MakeEasyModeRegistry(Mutex::new(MakeEasyModeState::Idle)))
         .invoke_handler(tauri::generate_handler![
             begin_capture,
             show_capture_surface,
             dashboard_ready,
+            on_screen_session,
+            on_screen_snapshot,
+            on_screen_ready,
+            dismiss_on_screen,
+            make_easy_session,
+            make_easy_ready,
+            extract_readable_region,
+            show_make_easy_reader,
+            restart_make_easy_selection,
+            set_make_easy_always_on_top,
+            dismiss_make_easy,
             complete_capture,
             cancel_capture,
             dismiss_capture,
@@ -733,6 +1893,8 @@ pub fn run() {
             open_save_directory,
             open_saved_capture,
             delete_saved_capture,
+            import_media_files,
+            list_folder_images,
             scrolling_capture_supported,
             stitch_scrolling_frames,
             capture_scrolling_automatic,
@@ -741,7 +1903,24 @@ pub fn run() {
             cancel_manual_scrolling_capture,
             discard_scrolling_output,
             complete_scrolling_capture,
-            update_global_shortcuts
+            update_global_shortcuts,
+            recording_supported,
+            list_recording_sources,
+            list_audio_devices,
+            start_recording,
+            stop_recording,
+            cancel_recording,
+            recording_status,
+            set_capture_exclusion,
+            recorder_ready,
+            open_recorder,
+            close_recorder,
+            set_recording_paused,
+            show_recording_border,
+            hide_recording_border,
+            open_camera,
+            camera_ready,
+            close_camera
         ])
         .setup(move |app| {
             if std::env::args().any(|argument| argument == "--background")
@@ -749,6 +1928,15 @@ pub fn run() {
             {
                 window.hide()?;
             }
+
+            // Recordings and their source-picker thumbnails are written under
+            // %TEMP%\CapKit at runtime, after the static asset scope in
+            // tauri.conf.json was already resolved at startup. One recursive
+            // grant here covers every file the recorder ever writes, so
+            // individual commands don't each need their own widen call.
+            let _ = app
+                .asset_protocol_scope()
+                .allow_directory(std::env::temp_dir().join("CapKit"), true);
 
             let configured = app
                 .state::<ShortcutConfiguration>()
@@ -764,6 +1952,20 @@ pub fn run() {
                 MenuItem::with_id(app, "dashboard", "Open CapKit", true, None::<&str>)?;
             let capture_item =
                 MenuItem::with_id(app, "capture", "Capture  Alt+Shift+S", true, None::<&str>)?;
+            let on_screen_item = MenuItem::with_id(
+                app,
+                "on-screen",
+                "On-screen toolbar  Alt+Shift+A",
+                true,
+                None::<&str>,
+            )?;
+            let make_easy_item = MenuItem::with_id(
+                app,
+                "make-easy",
+                "Make it Easy  Alt+Shift+E",
+                true,
+                None::<&str>,
+            )?;
             let restore_pins_item = MenuItem::with_id(
                 app,
                 "restore-pins",
@@ -777,6 +1979,8 @@ pub fn run() {
                 &[
                     &dashboard_item,
                     &capture_item,
+                    &on_screen_item,
+                    &make_easy_item,
                     &restore_pins_item,
                     &quit_item,
                 ],
@@ -793,6 +1997,8 @@ pub fn run() {
                         }
                     }
                     "capture" => emit_capture_request(app),
+                    "on-screen" => toggle_on_screen_mode(app),
+                    "make-easy" => toggle_make_easy_mode(app),
                     "restore-pins" => {
                         for (label, window) in app.webview_windows() {
                             if label.starts_with("pin-") {
@@ -826,6 +2032,22 @@ pub fn run() {
             {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            if window.label() == "onscreen"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                if let Err(error) = close_on_screen_mode(window.app_handle()) {
+                    eprintln!("SH-ONSCREEN-CLOSE-002: {error}");
+                }
+            }
+            if window.label() == "make-easy"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                if let Err(error) = close_make_easy_mode(window.app_handle()) {
+                    eprintln!("SH-MAKE-EASY-CLOSE-002: {error}");
+                }
             }
             if window.label().starts_with("pin-")
                 && let tauri::WindowEvent::CloseRequested { api, .. } = event
@@ -885,7 +2107,37 @@ mod shortcut_tests {
             capture: "Alt+Shift+S".into(),
             capture_and_copy: "Alt+Shift+S".into(),
             capture_and_save: "Alt+Shift+D".into(),
+            on_screen_toggle: "Alt+Shift+A".into(),
+            make_easy: "Alt+Shift+E".into(),
+            record_toggle: "Alt+Shift+R".into(),
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn maps_the_record_toggle_shortcut() {
+        let parsed = RegisteredShortcuts::parse(default_shortcuts()).unwrap();
+        assert!(matches!(
+            parsed.action_for(&parsed.record_toggle),
+            Some(ShortcutAction::RecordToggle)
+        ));
+    }
+
+    #[test]
+    fn maps_the_on_screen_toggle_shortcut() {
+        let parsed = RegisteredShortcuts::parse(default_shortcuts()).unwrap();
+        assert!(matches!(
+            parsed.action_for(&parsed.on_screen_toggle),
+            Some(ShortcutAction::OnScreen)
+        ));
+    }
+
+    #[test]
+    fn maps_the_make_easy_shortcut() {
+        let parsed = RegisteredShortcuts::parse(default_shortcuts()).unwrap();
+        assert!(matches!(
+            parsed.action_for(&parsed.make_easy),
+            Some(ShortcutAction::MakeEasy)
+        ));
     }
 }

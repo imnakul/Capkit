@@ -1,4 +1,3 @@
-import { GripVertical, List, Plus, Rows3, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import {
   captureToolbarToolIds,
@@ -6,6 +5,13 @@ import {
   type SnaphubSettings,
 } from "../../domain/settings";
 import { getToolbarTool, toolbarCatalog } from "../toolbarCatalog";
+import {
+  Add as Plus,
+  Cancel as X,
+  Grip as GripVertical,
+  List,
+  Rows as Rows3,
+} from "../icons";
 
 type ToolbarConfigurationProps = {
   toolbar: SnaphubSettings["toolbar"];
@@ -177,7 +183,7 @@ export function ToolbarConfiguration({
   return (
     <div>
       <div className="mb-5 flex items-center justify-between gap-4">
-        <p className="max-w-lg text-[10px] leading-4 text-stone-500 dark:text-stone-400">
+        <p className="max-w-lg text-[12px] leading-4 text-stone-500 dark:text-stone-400">
           Select stays fixed as the first recovery tool. Configure everything that follows it.
         </p>
         <div aria-label="Toolbar organization" className="grid grid-cols-2 rounded-md border border-stone-300 bg-stone-100 p-1 dark:border-white/10 dark:bg-[#20211f]" role="radiogroup">
@@ -194,7 +200,7 @@ export function ToolbarConfiguration({
             return (
               <label className="flex min-h-10 cursor-pointer items-center gap-2.5 border-b border-stone-200/80 py-2 dark:border-white/7" key={tool.id}>
                 <Icon aria-hidden="true" className={enabled ? "text-[var(--snaphub-accent)]" : "text-stone-400 dark:text-stone-600"} size={14} />
-                <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-stone-700 dark:text-stone-300">{tool.label}</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-stone-700 dark:text-stone-300">{tool.label}</span>
                 <CompactToggle checked={enabled} label={`Show ${tool.label}`} onChange={(checked) => onChange({ ...toolbar, individual: { ...toolbar.individual, [tool.id]: checked } })} />
               </label>
             );
@@ -219,11 +225,11 @@ export function ToolbarConfiguration({
                   key={`group-${String(rowIndex)}`}
                 >
                   <div>
-                    <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-stone-400">Group {String(rowIndex + 1).padStart(2, "0")}</p>
-                    <p className="mt-1 truncate text-[9px] text-stone-500 dark:text-stone-500">{firstTool === null ? "Drop a default" : `Default · ${firstTool.label}`}</p>
+                    <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-400">Group {String(rowIndex + 1).padStart(2, "0")}</p>
+                    <p className="mt-1 truncate text-[11px] text-stone-500 dark:text-stone-500">{firstTool === null ? "Drop a default" : `Default · ${firstTool.label}`}</p>
                   </div>
                   <div className="flex min-h-9 flex-wrap items-center gap-1.5">
-                    {group.length === 0 ? <span className="text-[10px] text-stone-400 dark:text-stone-600">Drop tools here</span> : null}
+                    {group.length === 0 ? <span className="text-[12px] text-stone-400 dark:text-stone-600">Drop tools here</span> : null}
                     {group.map((toolId, toolIndex) => (
                       <Fragment key={toolId}>
                         {dropTarget?.row === rowIndex && dropTarget.index === toolIndex && draggingToolId !== toolId ? <span aria-hidden="true" className="h-7 w-0.5 rounded-full bg-[var(--snaphub-accent)] shadow-[0_0_8px_var(--snaphub-accent)]" /> : null}
@@ -249,15 +255,15 @@ export function ToolbarConfiguration({
             })}
           </div>
 
-          <button aria-label="Add toolbar group" className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-stone-300 text-[10px] font-semibold text-stone-500 outline-none transition hover:border-stone-500 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/12 dark:text-stone-400 dark:hover:border-white/25 dark:hover:text-stone-200" disabled={toolbar.groups.length >= 8} type="button" onClick={addRow}><Plus aria-hidden="true" size={13} />Add group</button>
+          <button aria-label="Add toolbar group" className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-stone-300 text-[12px] font-semibold text-stone-500 outline-none transition hover:border-stone-500 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/12 dark:text-stone-400 dark:hover:border-white/25 dark:hover:text-stone-200" disabled={toolbar.groups.length >= 8} type="button" onClick={addRow}><Plus aria-hidden="true" size={13} />Add group</button>
 
           <div className="mt-5 border-t border-stone-200 pt-4 dark:border-white/8">
-            <div className="mb-2 flex items-center justify-between"><p className="text-[9px] font-bold uppercase tracking-[0.15em] text-stone-400">Available tools</p><p className="text-[9px] text-stone-400">Drag into a row to enable</p></div>
+            <div className="mb-2 flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-400">Available tools</p><p className="text-[11px] text-stone-400">Drag into a row to enable</p></div>
             <div
               className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-stone-300 bg-stone-100/60 p-2 transition-colors dark:border-white/10 dark:bg-black/10"
               data-toolbar-available="true"
             >
-              {disabledTools.length === 0 ? <span className="text-[10px] text-stone-400">Every tool is enabled</span> : disabledTools.map((toolId) => (
+              {disabledTools.length === 0 ? <span className="text-[12px] text-stone-400">Every tool is enabled</span> : disabledTools.map((toolId) => (
                 <ToolPill
                   dragging={draggingToolId === toolId}
                   isDefault={false}
@@ -283,12 +289,12 @@ export function ToolbarConfiguration({
 
 type ModeButtonProps = { active: boolean; icon: typeof List; label: string; onClick: () => void };
 function ModeButton({ active, icon: Icon, label, onClick }: ModeButtonProps): React.JSX.Element {
-  return <button aria-label={`Use ${label} toolbar mode`} aria-checked={active} className="flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[10px] font-semibold text-stone-500 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:bg-white aria-checked:text-stone-900 dark:text-stone-400 dark:aria-checked:bg-white/9 dark:aria-checked:text-white" role="radio" type="button" onClick={onClick}><Icon aria-hidden="true" size={12} />{label}</button>;
+  return <button aria-label={`Use ${label} toolbar mode`} aria-checked={active} className="flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold text-stone-500 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:bg-white aria-checked:text-stone-900 dark:text-stone-400 dark:aria-checked:bg-white/9 dark:aria-checked:text-white" role="radio" type="button" onClick={onClick}><Icon aria-hidden="true" size={12} />{label}</button>;
 }
 
 type GroupRuleProps = { number: string; title: string; description: string };
 function GroupRule({ number, title, description }: GroupRuleProps): React.JSX.Element {
-  return <div className="bg-white p-3 dark:bg-[#2b2c29]"><span className="font-mono text-[9px] font-bold text-[var(--snaphub-accent)]">{number}</span><p className="mt-1 text-[10px] font-semibold text-stone-700 dark:text-stone-200">{title}</p><p className="mt-1 text-[9px] leading-4 text-stone-500 dark:text-stone-400">{description}</p></div>;
+  return <div className="bg-white p-3 dark:bg-[#2b2c29]"><span className="font-mono text-[11px] font-bold text-[var(--snaphub-accent)]">{number}</span><p className="mt-1 text-[12px] font-semibold text-stone-700 dark:text-stone-200">{title}</p><p className="mt-1 text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</p></div>;
 }
 
 type ToolPillProps = {
@@ -306,13 +312,13 @@ type ToolPillProps = {
 function ToolPill({ toolId, rowIndex, toolIndex, isDefault, dragging, onKeyDown, onPointerCancel, onPointerDown, onPointerMove, onPointerUp }: ToolPillProps): React.JSX.Element {
   const tool = getToolbarTool(toolId);
   const Icon = tool.icon;
-  return <button aria-label={`${tool.label}${isDefault ? ", group default" : ""}. Drag to reorder; Delete disables`} className={`flex h-8 touch-none cursor-grab items-center gap-1.5 rounded-md border px-2 text-[9px] font-semibold outline-none transition-[transform,opacity,border-color,background-color] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:cursor-grabbing ${isDefault ? "border-[var(--snaphub-accent)]/55 bg-[color-mix(in_srgb,var(--snaphub-accent)_9%,white)] text-stone-800 dark:bg-[color-mix(in_srgb,var(--snaphub-accent)_12%,#2b2c29)] dark:text-stone-100" : "border-stone-200 bg-stone-50 text-stone-600 dark:border-white/10 dark:bg-[#343532] dark:text-stone-300"} ${dragging ? "scale-95 opacity-35" : "opacity-100"}`} data-toolbar-index={toolIndex} data-toolbar-pill="true" data-toolbar-row={rowIndex ?? undefined} data-toolbar-tool={toolId} type="button" onKeyDown={onKeyDown} onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}><GripVertical aria-hidden="true" className="text-stone-400" size={11} /><Icon aria-hidden="true" size={12} />{tool.label}{isDefault ? <span className="ml-0.5 rounded bg-black/6 px-1 py-0.5 font-mono text-[7px] uppercase tracking-wide dark:bg-white/8">Default</span> : null}</button>;
+  return <button aria-label={`${tool.label}${isDefault ? ", group default" : ""}. Drag to reorder; Delete disables`} className={`flex h-8 touch-none cursor-grab items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold outline-none transition-[transform,opacity,border-color,background-color] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:cursor-grabbing ${isDefault ? "border-[var(--snaphub-accent)]/55 bg-[color-mix(in_srgb,var(--snaphub-accent)_9%,white)] text-stone-800 dark:bg-[color-mix(in_srgb,var(--snaphub-accent)_12%,#2b2c29)] dark:text-stone-100" : "border-stone-200 bg-stone-50 text-stone-600 dark:border-white/10 dark:bg-[#343532] dark:text-stone-300"} ${dragging ? "scale-95 opacity-35" : "opacity-100"}`} data-toolbar-index={toolIndex} data-toolbar-pill="true" data-toolbar-row={rowIndex ?? undefined} data-toolbar-tool={toolId} type="button" onKeyDown={onKeyDown} onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}><GripVertical aria-hidden="true" className="text-stone-400" size={11} /><Icon aria-hidden="true" size={12} />{tool.label}{isDefault ? <span className="ml-0.5 rounded bg-black/6 px-1 py-0.5 font-mono text-[11px] uppercase tracking-wide dark:bg-white/8">Default</span> : null}</button>;
 }
 
 function DragPreview({ toolId, x, y }: { toolId: CaptureToolbarToolId; x: number; y: number }): React.JSX.Element {
   const tool = getToolbarTool(toolId);
   const Icon = tool.icon;
-  return <div aria-hidden="true" className="pointer-events-none fixed z-[200] flex h-8 items-center gap-1.5 rounded-md border border-[var(--snaphub-accent)]/60 bg-[#242522] px-2 text-[9px] font-semibold text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)]" style={{ left: x + 12, top: y + 12 }}><GripVertical size={11} /><Icon size={12} />{tool.label}</div>;
+  return <div aria-hidden="true" className="pointer-events-none fixed z-[200] flex h-8 items-center gap-1.5 rounded-md border border-[var(--snaphub-accent)]/60 bg-[#242522] px-2 text-[11px] font-semibold text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)]" style={{ left: x + 12, top: y + 12 }}><GripVertical size={11} /><Icon size={12} />{tool.label}</div>;
 }
 
 type CompactToggleProps = { checked: boolean; label: string; onChange: (checked: boolean) => void };

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MousePointer2, type LucideIcon } from "lucide-react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId, SnaphubSettings } from "../domain/settings";
+import { SelectPointer, type CapkitIconComponent } from "./icons";
 import { ContextControls } from "./ContextControls";
 import { getToolbarTool, toolbarCatalog, type ToolbarToolDefinition } from "./toolbarCatalog";
 
@@ -22,7 +22,7 @@ type AnnotationToolbarProps = {
 type PrimaryItem = {
   id: string;
   label: string;
-  icon: LucideIcon;
+  icon: CapkitIconComponent;
   active: boolean;
   disabled: boolean;
   shortcut?: string;
@@ -83,7 +83,7 @@ export function AnnotationToolbar({
   const items: PrimaryItem[] = [{
     id: "select",
     label: "Select",
-    icon: MousePointer2,
+    icon: SelectPointer,
     shortcut: "V",
     active: activeTool === "select",
     disabled: false,

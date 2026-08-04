@@ -45,7 +45,7 @@ Supporting messages:
 - Product UI typography: Plus Jakarta Sans Variable for interface copy and JetBrains Mono Variable for technical values. Both fonts are bundled locally with the desktop application.
 - Capture-writing typography: Caveat Variable provides the approachable handwritten annotation preset and is bundled under the SIL Open Font License; it is not the dashboard/interface font.
 - Color: largely neutral interface with one high-visibility focus accent validated over arbitrary desktop imagery.
-- Iconography: crisp optical shapes at tray and toolbar sizes; consistent stroke and filled active states.
+- Iconography: the product interface uses the free Hugeicons Stroke Rounded pack with crisp optical shapes at tray and toolbar sizes, consistent strokes, current-color rendering, and filled/contrasting active containers. Assign a distinct symbol to each action instead of reusing generic shapes for unrelated tools.
 
 Avoid purple gradients, glassmorphism everywhere, floating dashboard cards, generic camera-aperture logos, AI sparkles, excessive neon, and claims based on feature count.
 

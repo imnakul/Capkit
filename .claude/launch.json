@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["next", "dev", "apps/landing-page", "-p", "3210"],
       "port": 3210
+    },
+    {
+      "name": "capkit-desktop",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "apps/desktop", "--port", "1420", "--strictPort"],
+      "port": 1420
     }
   ]
 }

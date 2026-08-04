@@ -49,6 +49,24 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 - Enabling startup launches CapKit quietly into the tray rather than opening a dashboard during login.
 - Dashboard panels provide persistent light and dark appearances with compact typography and controls; the choice does not alter frozen-screen capture fidelity.
 
+## On-screen presentation toolbar
+
+- **Confirmed:** A configurable global shortcut toggles a separate on-screen annotation mode over the display under the pointer. Pressing the same shortcut again exits immediately; `Escape` is the safety exit.
+- **Confirmed:** The mode is independent from screenshot capture and never changes the underlying application. Its transparent, always-on-top surface is created on demand and destroyed on exit.
+- **Confirmed:** Settings optionally persists annotations across toggle cycles. When disabled, every Screen Draw session starts clean; when enabled, the runtime-validated scene is restored without retaining pointer trails or transient tool state.
+- **Confirmed:** Screen Draw defaults to a live transparent desktop. Settings can choose a frozen frame instead; that mode captures and preloads the current monitor before revealing the overlay. A capture failure falls back to the live desktop with a recoverable status message.
+- A comfortably sized dock floats above the bottom-center system edge and exposes Pencil, Rectangle, Ellipse, Arrow, Text, Spotlight, Magnifier, Presentation Pointer, Eraser, Blur, Undo, Redo, and a visually distinct Clear action.
+- Presentation Pointer is the default active tool when Screen Draw opens and after Clear. This avoids leaving permanent marks from the first presentation gesture; Pencil remains one click or its assigned number away.
+- Spotlight follows the pointer, uses its persisted radius, and dims the surrounding desktop without hiding it. Magnifier follows the pointer and shows a 1.85x lens. Presentation Pointer shows its complete luminous trail for exactly as long as the primary pointer button remains held, then removes the whole transient trail immediately on release or cancellation.
+- Pencil, shapes, arrows, text, and blur remain until individually erased, cleared, undone, or the mode exits. Clear participates in history so Undo can restore the previous overlay.
+- Selecting Text shows a compact placement instruction. Clicking outside the dock opens a focused in-place editor at a viewport-clamped position; clicking inside that editor cannot create another text object. Losing focus commits the editor once, `Escape` cancels it, and `Ctrl+Enter` commits explicitly.
+- Settings assigns unique optional `0`-`9` shortcuts to tools. Assigned numbers are visible on the dock; conflicts move the number to the newly assigned tool.
+- Settings also owns the toggle shortcut, persistent drawing color, stroke width, spotlight radius, plus Ring, Laser, Precision, and Crosshair cursors in Small, Medium, and Large sizes. Color and size controls are deliberately omitted from the live dock.
+- In live mode, Blur and Magnifier request a validated snapshot only when first selected. Snapshot work is excluded from the default toggle-to-toolbar path so Pencil, Shapes, Spotlight, Pointer, Text, Eraser, Undo, and Redo become available as soon as the on-demand WebView is ready. Frozen mode reuses its entry snapshot.
+- Undo and Redo are immediate commands, never selectable drawing modes. The first click after completing an annotation changes history.
+- A single accent surface glides between hovered tools instead of remounting or flashing separate button backgrounds.
+- Pointer coordinates and live drafts are coalesced to one visual update per display frame. Static annotations and the dock do not rerender for cursor-only movement. Presentation-pointer samples are distance- and time-throttled while held, with no expiry timers or persistent scene writes.
+
 ## Quick tools
 
 Annotations are non-destructive scene objects until export. Tool defaults remember the last safe choice without changing the global behavior unexpectedly.

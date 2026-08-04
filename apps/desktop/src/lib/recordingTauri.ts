@@ -1,0 +1,130 @@
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
+import {
+  audioDeviceSchema,
+  recordingArtifactsSchema,
+  recordingSourceSchema,
+  recordingStatsSchema,
+  type AudioDevice,
+  type RecorderSettings,
+  type RecordingArtifacts,
+  type RecordingSource,
+  type RecordingStats,
+  toRecordingRequest,
+} from "../domain/recording";
+import { cursorTrackSchema, type CursorTrack } from "../domain/cursorTrack";
+
+/** Displays and windows the user can record. Empty outside the desktop shell. */
+export async function listRecordingSources(): Promise<readonly RecordingSource[]> {
+  if (!isTauri()) return [];
+  const raw = await invoke("list_recording_sources");
+  return recordingSourceSchema.array().parse(raw);
+}
+
+export async function listAudioDevices(): Promise<readonly AudioDevice[]> {
+  if (!isTauri()) return [];
+  const raw = await invoke("list_audio_devices");
+  return audioDeviceSchema.array().parse(raw);
+}
+
+export async function recordingSupported(): Promise<boolean> {
+  if (!isTauri()) return false;
+  return Boolean(await invoke("recording_supported"));
+}
+
+export async function startRecording(
+  settings: RecorderSettings,
+  source: RecordingSource,
+  region: { x: number; y: number; width: number; height: number } | null,
+): Promise<void> {
+  await invoke("start_recording", { request: toRecordingRequest(settings, source, region) });
+}
+
+export async function stopRecording(): Promise<RecordingArtifacts> {
+  const raw = await invoke("stop_recording");
+  return recordingArtifactsSchema.parse(raw);
+}
+
+export async function cancelRecording(): Promise<void> {
+  await invoke("cancel_recording");
+}
+
+/** Live counters, or `null` when nothing is recording. */
+export async function recordingStatus(): Promise<RecordingStats | null> {
+  const raw = await invoke("recording_status");
+  return raw === null ? null : recordingStatsSchema.parse(raw);
+}
+
+/** Hides a window from screen capture, so the dock never lands in the video. */
+export async function setCaptureExclusion(label: string, excluded: boolean): Promise<void> {
+  await invoke("set_capture_exclusion", { label, excluded });
+}
+
+/**
+ * Reveals the recorder and excludes it from capture in one step.
+ *
+ * The exclusion is a property of the live window and does not survive
+ * recreation, so it is applied next to the reveal rather than at build time.
+ */
+export async function recorderReady(): Promise<void> {
+  await invoke("recorder_ready");
+}
+
+/** Pauses or resumes; returns the paused state the backend settled on. */
+export async function setRecordingPaused(paused: boolean): Promise<boolean> {
+  return Boolean(await invoke("set_recording_paused", { paused }));
+}
+
+/**
+ * Shows a click-through outline around exactly what is about to be, or is
+ * being, recorded. Bounds are in physical desktop pixels, matching a source's
+ * own `bounds`.
+ */
+export async function showRecordingBorder(bounds: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<void> {
+  await invoke("show_recording_border", { bounds });
+}
+
+export async function hideRecordingBorder(): Promise<void> {
+  await invoke("hide_recording_border").catch(() => undefined);
+}
+
+export async function openCamera(): Promise<void> {
+  await invoke("open_camera");
+}
+
+export async function cameraReady(): Promise<void> {
+  await invoke("camera_ready");
+}
+
+export async function closeCamera(): Promise<void> {
+  await invoke("close_camera");
+}
+
+export async function openRecorder(): Promise<void> {
+  await invoke("open_recorder");
+}
+
+export async function closeRecorder(): Promise<void> {
+  await invoke("close_recorder");
+}
+
+/** Reads the cursor samples recorded alongside a video. */
+export async function loadCursorTrack(path: string): Promise<CursorTrack | null> {
+  try {
+    const response = await fetch(convertFileSrc(path));
+    return cursorTrackSchema.parse(await response.json());
+  } catch {
+    // A recording without a readable cursor track still plays; it just cannot
+    // offer smooth-cursor or zoom-on-click.
+    return null;
+  }
+}
+
+/** Renderable URL for a recorded artefact. */
+export function recordingSrc(path: string): string {
+  return isTauri() ? convertFileSrc(path) : path;
+}

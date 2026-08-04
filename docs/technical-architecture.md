@@ -28,7 +28,9 @@ The OS webview is created for active UI and destroyed or hidden out of the resid
 - Scrolling capture and stitching
 - Raster export and secure redaction
 - Pinned windows
-- Later OCR, recording, Studio, library indexing, and upload
+- On-screen presentation overlay with lazy, first-use magnifier/blur snapshot; screen capture and image encoding stay outside the common toggle path
+- Provisional `Make it Easy` readable-region worker with bounded UI Automation text extraction, local OCR fallback, and an image-only accessibility fallback
+- Later OCR, library indexing, and upload
 
 ## State machine
 
@@ -45,10 +47,23 @@ Transitions are explicit and validated. Terminal states release capture windows,
 - `PinnedWindowBackend`: create and control pinned image windows
 - `PermissionBackend`: inspect, request, and open platform permission settings
 - `ScrollingCaptureBackend`: automatic/manual input and frame acquisition
+- `ScreenRecordingBackend`: recordable sources, capability probe, and session start; sessions expose pause, resume, stats, and stop
+- `AudioDeviceBackend`: capture-device enumeration and the default loopback endpoint
+- `PointerTrackBackend`: cursor and click sampling for the duration of a recording
+- `WindowCaptureExclusionBackend`: mark a window invisible to screen capture
+- Provisional `ReadableRegionBackend`: capability/language probe, bounded accessible-text extraction, physical-pixel OCR, cancellation, and confidence/source metadata
+
+Recording backends are registered as their own service rather than extending the capture backend, so the screenshot path and its tests stay unaware of recording.
 
 Windows uses Windows Graphics Capture or DXGI as appropriate, Win32 shortcut/window APIs, and optional UI Automation. macOS will use ScreenCaptureKit. Linux will use XDG portals/PipeWire on Wayland and an X11 fallback.
 
 The Windows scrolling worker is on-demand: it hides the capture WebView, sends bounded wheel input at the selected region, samples only that region, detects unchanged frames, removes a repeated sticky prefix from later frames, and performs overlap stitching off the UI thread. Manual fallback uses the same immutable frame/stitch pipeline but gives the user a short overlay-hidden interval to move the underlying scroll container. Temporary stitched previews remain within the scoped CapKit session directory and are runtime-validated before completion.
+
+The on-screen presentation mode is a distinct `onscreen` Tauri window with a small native lifecycle state (`Idle`, `Preparing`, or `Active`). The shared global-shortcut registry toggles it. Live desktop is the default and reveals the transparent WebView without capture work; magnifier and blur lazily request and reuse one raster when first invoked. The optional frozen-frame mode captures and preloads one validated monitor snapshot while the window remains hidden, then renders that frame beneath the vector annotations. Spotlight and the press-and-hold presentation laser remain transient WebView layers in both modes; laser samples never enter scene history and are discarded together on pointer release/cancel. Exit by the same shortcut, `Escape`, or a native close request destroys the window, cancels the temporary capture session, and deletes any snapshot.
+
+The recorder is a distinct `recorder` Tauri window carrying both its setup phase and its in-recording dock, so source and device state never cross a window boundary. It is transparent, always on top, and excluded from screen capture through `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, applied next to its reveal because the affinity does not survive window recreation; if the call fails the dock hides for the duration rather than being recorded silently. A separate fullscreen `record-region` window per display selects an area or window over live content, which the frozen-snapshot `capture` window cannot do. Capture itself acquires a whole display through a Windows Graphics Capture frame pool and applies the chosen region as a crop, because the sink writer cannot change input media type mid-stream and a padded or zoomed-out composition needs pixels from outside the target window. A fixed-rate pacer resubmits the most recent frame when the screen is static, since the frame pool only delivers on change. The first encoded frame's timestamp is the single origin that the audio and cursor tracks are expressed against. Pause/resume tells the pacer to keep its schedule but write nothing, so paused time is absent from the output rather than duplicated into it. A `camera` window mirrors the recorder's exclusion treatment so the webcam preview cannot end up inside the screen recording alongside its own track.
+
+Studio is a dashboard section, not a separate window: it is a heavy editing surface that belongs beside Showcase rather than in the resident tray process. It reuses Showcase's scene model (`src/domain/showcase.ts`) for background, padding, radius, and shadow, extended by `src/domain/scene.ts` with a structured `BackgroundPaint` form that a `<canvas>` can render directly, since Showcase's CSS-string form only renders in the DOM. `src/lib/videoCompositor.ts` exposes one `paintFrame` function used by both the live preview (drawn every animation frame from the source `<video>` element) and the exporter (drawn once per encoded frame), so preview and export cannot diverge. Cursor smoothing (`src/domain/cursorTrack.ts`: teleport splitting, Ramer-Douglas-Peucker simplification, centripetal Catmull-Rom resampling, zero-phase exponential smoothing) and automatic zoom-on-click (`src/domain/zoomKeyframes.ts`: click clustering, hold-and-pan between nearby clusters, focus clamped inside the source frame) are pure functions operating on the recorded cursor track, independent of rendering. Export renders through `VideoEncoder` (WebCodecs) into `mp4-muxer` for MP4, or a small hand-written GIF89a/LZW writer for GIF, by seeking the source video frame-by-frame rather than playing it in real time.
 
 ## Shared models
 
