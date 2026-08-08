@@ -29,6 +29,60 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{AW_BLEND, AW_HIDE, AnimateWindow};
+
+// A plain `.show()`/`.hide()` on the capture window pops the WebView2 surface in or
+// out instantly, which exposes the one or two frames before WebView2's swap chain has
+// actually composited fresh content (it reads as a black flash). AnimateWindow's
+// cross-fade masks that gap behind a deliberate reveal instead of an instant pop.
+const CAPTURE_REVEAL_MS: u32 = 180;
+const CAPTURE_DISMISS_MS: u32 = 140;
+
+#[cfg(target_os = "windows")]
+fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
+    // AW_BLEND silently no-ops on windows the system won't temporarily layer (e.g. some
+    // always-on-top configurations) — an unchecked result would leave the window in
+    // whatever state it was already in. Always fall back to a plain, guaranteed show.
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        if unsafe { AnimateWindow(hwnd, CAPTURE_REVEAL_MS, AW_BLEND) }.is_ok() {
+            return Ok(());
+        }
+    }
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))
+}
+
+#[cfg(target_os = "windows")]
+fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
+    // Same guarantee as reveal_window_smoothly: a silently failed animate-hide must never
+    // strand the capture overlay on screen (e.g. Escape appearing to do nothing).
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        if unsafe { AnimateWindow(hwnd, CAPTURE_DISMISS_MS, AW_BLEND | AW_HIDE) }.is_ok() {
+            return Ok(());
+        }
+    }
+    window
+        .hide()
+        .map_err(|error| SnaphubError::Window(error.to_string()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
+    window
+        .hide()
+        .map_err(|error| SnaphubError::Window(error.to_string()))
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,9 +182,7 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
-    window
-        .show()
-        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    reveal_window_smoothly(&window)?;
     // Some Windows focus policies reject programmatic focus. The capture must remain usable
     // instead of falling back to an opaque error window when that happens.
     let _ = window.set_focus();
@@ -857,18 +909,14 @@ fn emit_capture_saved(app: &AppHandle, path: &str) {
 
 fn hide_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("capture") {
-        window
-            .hide()
-            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+        hide_window_smoothly(&window)?;
     }
     Ok(())
 }
 
 fn restore_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("capture") {
-        window
-            .show()
-            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+        reveal_window_smoothly(&window)?;
         window
             .set_focus()
             .map_err(|error| SnaphubError::Window(error.to_string()))?;

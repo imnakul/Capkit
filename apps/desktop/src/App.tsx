@@ -549,11 +549,7 @@ export function App(): React.JSX.Element {
             top: hoverTarget.bounds.y,
             width: hoverTarget.bounds.width,
           }}
-        >
-          <div className="absolute left-2 top-2 max-w-[min(22rem,calc(100%-1rem))] truncate rounded-md border border-lime-200/25 bg-[#11130f]/90 px-2 py-1 text-[10px] font-semibold tracking-wide text-lime-100 shadow-lg backdrop-blur-sm">
-            {hoverTarget.title || "Selectable region"}
-          </div>
-        </div>
+        />
       ) : null}
 
       {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" /> : null}
