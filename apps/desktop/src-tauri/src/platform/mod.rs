@@ -11,8 +11,6 @@ use crate::{
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_display;
 #[cfg(target_os = "windows")]
-pub(crate) mod windows_ocr;
-#[cfg(target_os = "windows")]
 pub(crate) mod windows_recorder;
 #[cfg(target_os = "windows")]
 pub mod windows_shell;

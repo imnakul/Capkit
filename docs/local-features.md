@@ -13,7 +13,7 @@
 ## Product shell and lifecycle
 
 - **Implemented:** Tauri 2 desktop application with a Rust resident core, React/TypeScript UI, Vite, Tailwind CSS, ESLint, Vitest, and pnpm workspace.
-- **Implemented:** Lightweight system-tray lifecycle with dashboard, capture, Screen Draw, Make it Easy, restore-pins, and quit actions.
+- **Implemented:** Lightweight system-tray lifecycle with dashboard, capture, Screen Draw, restore-pins, and quit actions.
 - **Implemented:** Dashboard and editor surfaces are created or revealed on demand; capture/editor workers and temporary assets are released after completion or cancellation.
 - **Implemented:** Windows GUI-subsystem release builds do not open a terminal window.
 - **Implemented:** Plus Jakarta Sans is used for interface text; JetBrains Mono is used for shortcuts, dimensions, color values, and technical data; Caveat is bundled for handwritten annotations.
@@ -79,21 +79,6 @@ The editor is in-place: the selected pixels remain the immutable source while an
 - **Implemented:** Settings for drawing color, stroke size, spotlight size, cursor preset, unique number-key shortcuts, live/frozen behavior, and drawing persistence.
 - **Partial:** Physical latency, accessibility, and broad application compatibility remain validation work.
 
-## Make it Easy readability tool
-
-- **Implemented:** Separate configurable `Alt+Shift+E` shortcut.
-- **Implemented:** Frozen monitor snapshot beneath a rectangular selector so the content never disappears behind an opaque-black transparent window.
-- **Implemented:** Windows UI Automation accessible-text extraction first.
-- **Implemented:** Installed Windows OCR fallback for raster regions.
-- **Implemented:** Visual-only fallback when no text is recognized.
-- **Implemented:** Reader card placed beside the selection and clamped/flipped at display edges.
-- **Implemented:** Resizable reader with Original/Readable comparison, pinning, copy, edit extracted text, typography sizing, line-height control, and Paper/Dark/High Contrast themes.
-- **Implemented:** Auto, Plain, Markdown/GFM, JSON, Code, and Table reading modes.
-- **Implemented:** Raw HTML is not enabled and extracted links are inert.
-- **Implemented:** Escape, repeat shortcut, visible Cancel, and new-region flow.
-- **Partial:** Mixed-DPI placement, OCR language-pack recovery, elevated apps, confidence reporting, and broader UI Automation coverage need physical validation. The external handoff for this feature is [capkit-make-it-easy/README.md](../../capkit-make-it-easy/README.md).
-- **Not local yet:** AI explanations, summaries, translation, and rewriting. These remain opt-in future work.
-
 ## Showcase and visual asset studio
 
 - **Implemented:** Full-width Showcase workspace with saved-capture selection.
@@ -110,7 +95,7 @@ The editor is in-place: the selected pixels remain the immutable source while an
 
 ## Settings and shortcuts
 
-- **Implemented:** Global shortcuts for Start Capture, Capture & Copy, Capture & Save, Screen Draw, and Make it Easy.
+- **Implemented:** Global shortcuts for Start Capture, Capture & Copy, Capture & Save, and Screen Draw.
 - **Implemented:** In-capture `C` and `S` shortcuts.
 - **Implemented:** Screen Draw number-key shortcut configuration.
 - **Implemented:** Quick colors (up to five), custom colors, default color/size, theme accent, light/dark appearance, toolbar Individual/Group composition, detection toggles, overlay tint, save location, startup behavior, cursor preview/size, and reset controls.
@@ -118,8 +103,7 @@ The editor is in-place: the selected pixels remain the immutable source while an
 
 ## Privacy, storage, and performance behavior
 
-- **Implemented:** Phase 1 capture, editing, Screen Draw, Make it Easy, and local export require no account, cloud, telemetry, or network service.
-- **Implemented:** OCR and readability raster remain local and temporary until the user explicitly saves/exports them.
+- **Implemented:** Phase 1 capture, editing, Screen Draw, and local export require no account, cloud, telemetry, or network service.
 - **Implemented:** Redaction tools permanently rasterize blackout, secure pixelation, and blur on export.
 - **Observed:** Hidden development tray process measured 33.18 MiB working set and effectively 0% CPU in an idle sample.
 - **Observed:** CapKit 0.1.1 x64 NSIS installer is 3.57 MiB; optimized release executable is 11.01 MiB.
@@ -139,9 +123,8 @@ The editor is in-place: the selected pixels remain the immutable source while an
 3. Capture a region, draw each annotation, select/move/delete an annotation, then test Copy, Save, Pin, and Escape.
 4. Test Automatic, Manual, and Always ask scrolling capture on a long browser page.
 5. Toggle Screen Draw, hold the presentation laser, place text, use Spotlight, Clear, Undo, and Redo.
-6. Press `Alt+Shift+E`, select dense content, verify the readable card, switch modes/themes, edit text, copy, pin, and create another region.
-7. Open Dashboard and Showcase, verify saved-capture indexing, folder opening, context actions, frames, backgrounds, padding, transforms, and export.
-8. Record a short clip, open Studio, trim, apply a Showcase treatment, and validate MP4/GIF playback.
+6. Open Dashboard and Showcase, verify saved-capture indexing, folder opening, context actions, frames, backgrounds, padding, transforms, and export.
+7. Record a short clip, open Studio, trim, apply a Showcase treatment, and validate MP4/GIF playback.
 
 ## Source of truth
 

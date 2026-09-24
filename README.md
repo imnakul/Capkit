@@ -24,7 +24,6 @@ For a single user-facing inventory of current local capabilities, see [Local fea
 - [Current implementation status](docs/current-status.md)
 - [Local feature inventory](docs/local-features.md)
 - [Feature roadmap](docs/feature-roadmap.md)
-- [Make it Easy readability specification](docs/make-it-easy-spec.md)
 - [Capture UX specification](docs/capture-ux-spec.md)
 - [Technical architecture](docs/technical-architecture.md)
 - [Performance and quality](docs/performance-quality.md)

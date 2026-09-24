@@ -52,11 +52,6 @@ const RecordingBorder = lazy(async () => {
   return { default: module.RecordingBorder };
 });
 
-const MakeEasyOverlay = lazy(async () => {
-  const module = await import("./components/MakeEasyOverlay");
-  return { default: module.MakeEasyOverlay };
-});
-
 const rootElement = document.getElementById("root");
 
 if (rootElement === null) {
@@ -85,8 +80,6 @@ createRoot(rootElement).render(
         <DashboardPanel />
       ) : currentWindowLabel === "onscreen" ? (
         <OnScreenOverlay />
-      ) : currentWindowLabel === "make-easy" ? (
-        <MakeEasyOverlay />
       ) : currentWindowLabel === "recorder" ? (
         <RecorderDock />
       ) : currentWindowLabel === "record-region" ? (

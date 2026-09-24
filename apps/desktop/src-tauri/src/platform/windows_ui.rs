@@ -1,19 +1,17 @@
 use std::{ffi::c_void, thread::sleep, time::Duration};
 
 use windows::Win32::{
-    Foundation::{HWND, POINT, RECT},
+    Foundation::{HWND, RECT},
     System::Com::{
         CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
         CoUninitialize,
     },
     UI::{
         Accessibility::{
-            CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-            TextPatternRangeEndpoint_End, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
+            CUIAutomation, IUIAutomation, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
             UIA_ControlTypePropertyId, UIA_CustomControlTypeId, UIA_DocumentControlTypeId,
             UIA_GroupControlTypeId, UIA_IsContentElementPropertyId, UIA_IsControlElementPropertyId,
             UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_PaneControlTypeId,
-            UIA_TextPatternId,
         },
         WindowsAndMessaging::{GetClassNameW, GetWindowRect},
     },
@@ -40,70 +38,6 @@ const BROWSER_WINDOW_CLASSES: [&str; 2] = ["Chrome_WidgetWin_1", "MozillaWindowC
 const BROWSER_SCAN_MIN_REGIONS: usize = 6;
 const BROWSER_SCAN_RETRIES: u32 = 2;
 const BROWSER_SCAN_RETRY_DELAY: Duration = Duration::from_millis(180);
-
-pub fn text_for_region(region: Rect) -> Result<Option<String>, SnaphubError> {
-    let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-    if initialized.is_err() {
-        return Err(SnaphubError::Capture(format!(
-            "UI Automation could not initialize: {initialized:?}"
-        )));
-    }
-    let result = unsafe { collect_text(region) };
-    unsafe { CoUninitialize() };
-    result
-}
-
-unsafe fn collect_text(region: Rect) -> Result<Option<String>, SnaphubError> {
-    let automation: IUIAutomation = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-            .map_err(SnaphubError::capture)?
-    };
-    let start_point = POINT {
-        x: region.x.round() as i32,
-        y: region.y.round() as i32,
-    };
-    let end_point = POINT {
-        x: (region.x + region.width).round() as i32,
-        y: (region.y + region.height).round() as i32,
-    };
-    let mut current: IUIAutomationElement = unsafe {
-        automation
-            .ElementFromPoint(start_point)
-            .map_err(SnaphubError::capture)?
-    };
-    let walker = unsafe {
-        automation
-            .ControlViewWalker()
-            .map_err(SnaphubError::capture)?
-    };
-    for _ in 0..8 {
-        if let Ok(pattern) =
-            unsafe { current.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
-            && let (Ok(start), Ok(end)) = (unsafe { pattern.RangeFromPoint(start_point) }, unsafe {
-                pattern.RangeFromPoint(end_point)
-            })
-        {
-            let _ = unsafe {
-                start.MoveEndpointByRange(
-                    TextPatternRangeEndpoint_End,
-                    &end,
-                    TextPatternRangeEndpoint_End,
-                )
-            };
-            if let Ok(value) = unsafe { start.GetText(100_000) } {
-                let text = value.to_string();
-                if !text.trim().is_empty() {
-                    return Ok(Some(text.trim().to_owned()));
-                }
-            }
-        }
-        let Ok(parent) = (unsafe { walker.GetParentElement(&current) }) else {
-            break;
-        };
-        current = parent;
-    }
-    Ok(None)
-}
 
 pub fn regions_for_window(window_id: u32) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
     // UI Automation objects are apartment-bound. Each bounded scan initializes and releases COM

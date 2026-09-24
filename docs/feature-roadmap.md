@@ -23,12 +23,6 @@ Implementation progress is tracked separately in [Current implementation status]
 - Scrolling capture with automatic and manual modes, overlap stitching, sticky-region handling, preview, retry, and limitation messaging
 - On-demand on-screen presentation toolbar with pencil, text, shapes, arrows, spotlight, magnifier, a press-and-hold presentation laser, eraser, blur, clear, undo/redo, configurable tool numbers, and custom cursors
 
-## Provisional next feature: Make it Easy
-
-`Make it Easy` is an on-demand local-first readability layer for dense, tiny, poorly contrasted, or visibly unrendered content. The first version selects a rectangle, prefers accessible text, falls back to Windows OCR, and opens a resizable reader beside the source with Plain text, Markdown, JSON, Code, and Table views. A visual-only magnified/high-contrast fallback remains available when extraction fails.
-
-Deterministic extraction and formatting do not require AI. Optional summarization, explanation, rewriting, and translation remain a later opt-in AI layer. See [Make it Easy specification](make-it-easy-spec.md).
-
 ## Phase 2: Studio
 
 **Confirmed phase boundary:** combine the full image editor and visual asset studio rather than shipping separate products.
@@ -81,7 +75,6 @@ The Phase 1 dashboard's on-demand view of the configured save folder is a conven
 
 ## Think Later
 
-- General-purpose OCR capture and OCR-indexed search beyond the bounded `Make it Easy` reader
 - QR-code detection
 - On-screen color detection and picker
 - Live presentation tools

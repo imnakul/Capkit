@@ -54,30 +54,6 @@
 - **Confirmed:** `image`'s `default-features = false` is still defeated by unification, but the remaining cause is `xcap`'s `image` feature, which cannot be dropped without losing `Monitor::capture_image`.
 - **Rationale:** The recorder must be designed against a truthful size baseline, and reclaiming 7.45 MB before adding a feature is cheaper than arguing about codecs afterwards.
 
-## 2026-07-27 - Make it Easy uses a frozen-screen selector
-
-- **Confirmed:** The monitor is captured before the selector window appears, and that snapshot is rendered below the selection tint.
-- **Rejected:** Depending on a transparent always-on-top WebView to reveal the live desktop. Some Windows/WebView2 configurations resolve it as opaque black, hiding the exact content the user needs to select.
-- **Confirmed:** Escape is handled both by the focused selector and the document, and a visible Cancel control remains available.
-- **Rationale:** A deterministic frozen image matches screenshot-selection expectations and eliminates a fullscreen failure mode.
-
-## 2026-07-27 - Make it Easy ships as a separate on-demand shortcut
-
-- **Confirmed:** `Alt+Shift+E` is the default configurable shortcut. Pressing it opens a monitor-local rectangle selector; pressing it again or pressing Escape closes the workflow.
-- **Confirmed:** The implementation attempts Windows UI Automation text first, then loads Windows OCR for the selected raster, retaining a visual-only reader when neither produces text.
-- **Confirmed:** The extracted raster and text remain temporary and local. Closing or starting another region removes the previous temporary image.
-- **Confirmed:** Deterministic rendering supports Markdown/GFM, JSON, code, tables, and plain text without executing raw HTML or activating extracted links.
-- **Provisional:** Mixed-DPI placement, OCR language recovery, and accessibility extraction coverage need physical validation before release.
-- **Rationale:** A distinct shortcut keeps the feature fast and discoverable without adding another resident worker or complicating the screenshot flow.
-
-## 2026-07-27 - Make it Easy is local-first, with AI kept optional
-
-- **Confirmed:** The feature name is `Make it Easy`; it addresses dense, tiny, poorly contrasted, or visibly unrendered on-screen content without changing the source application.
-- **Provisional:** The first interaction is rectangle selection followed by a resizable reader beside the source. It prefers bounded accessible text, falls back to installed Windows OCR, and retains a visual-only magnified/high-contrast fallback.
-- **Confirmed:** Markdown rendering, JSON formatting, code/table presentation, wrapping, contrast, and typography are deterministic local operations and do not require generative AI.
-- **Think Later:** Summarization, explanation, rewriting, and translation are separate opt-in AI actions. AI output never replaces original extracted text, and cloud processing requires an explicit disclosure.
-- **Rationale:** Local formatting solves the reference readability problems faster, more privately, and with greater technical fidelity than sending every selected region to a model.
-
 ## 2026-07-25 - Presentation laser follows press-and-hold semantics
 
 - **Confirmed:** The complete presentation-laser trail remains visible while the primary pointer button is held and clears immediately as one transient layer on release or cancellation.

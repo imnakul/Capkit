@@ -19,8 +19,6 @@ The 30.36 MB figure above is the **debug** executable and was being read as the 
 ## Installable Windows build (2026-07-27)
 
 - **Observed:** CapKit `0.1.1` x64 NSIS installer is **3.57 MiB** (`3,741,044` bytes).
-- **Observed:** Optimized release executable is **11.01 MiB** (`11,543,040` bytes) after adding the on-demand Make it Easy accessibility/OCR adapter and local Markdown renderer.
-- **Observed:** Built frontend assets total **1.45 MiB**; Make it Easy remains a lazy chunk and does not load in the resident tray path.
 - **Distribution note:** The current local installer is unsigned and may trigger Windows SmartScreen. Public distribution requires signing.
 - **Superseded:** The 11.01 MiB figure predates the `[profile.release]` size work recorded below; the same tree now builds to 10.25 MB before the recorder and 10.48 MB with it.
 

@@ -4,7 +4,6 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type { AnnotationScene } from "../domain/annotations";
 import type { SnaphubSettings } from "../domain/settings";
-import { readableRegionSchema, type ReadableRegion } from "../domain/readable";
 import {
   mediaFileSchema,
   mediaFolderSchema,
@@ -46,13 +45,11 @@ const registeredGlobalShortcutsSchema = z.object({
   captureAndCopy: z.string().min(1),
   captureAndSave: z.string().min(1),
   onScreenToggle: z.string().min(1),
-  makeEasy: z.string().min(1),
   recordToggle: z.string().min(1),
 });
 
 export type CompletionResult = z.infer<typeof completionResultSchema>;
 export type OnScreenSession = z.infer<typeof onScreenSessionSchema>;
-export type MakeEasySession = CaptureSession;
 
 export async function updateGlobalShortcuts(
   shortcuts: SnaphubSettings["shortcuts"],
@@ -64,7 +61,6 @@ export async function updateGlobalShortcuts(
       captureAndCopy: shortcuts.captureAndCopy,
       captureAndSave: shortcuts.captureAndSave,
       onScreenToggle: shortcuts.onScreenToggle,
-      makeEasy: shortcuts.makeEasy,
       recordToggle: shortcuts.recordToggle,
     },
   });
@@ -125,65 +121,6 @@ export async function showOnScreenSurface(): Promise<void> {
 export async function dismissOnScreen(): Promise<void> {
   if (!isTauri()) return;
   await invoke("dismiss_on_screen");
-}
-
-export async function requestMakeEasySession(): Promise<MakeEasySession> {
-  if (!isTauri()) return createDemoSession();
-  const raw: unknown = await invoke("make_easy_session");
-  const parsed = backendSessionSchema.parse(raw);
-  const snapshotUrl = convertFileSrc(parsed.snapshotPath);
-  await preloadImage(snapshotUrl);
-  return {
-    id: parsed.id,
-    phase: parsed.phase,
-    display: parsed.display,
-    snapshotUrl,
-    colorSpace: parsed.colorSpace,
-    createdAt: parsed.createdAt,
-  };
-}
-
-export async function showMakeEasySurface(): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("make_easy_ready");
-}
-
-export async function extractReadableRegion(selection: Rect): Promise<ReadableRegion> {
-  if (!isTauri()) {
-    return {
-      source: "ocr-text",
-      text: "# Make it Easy\n\nSelect dense content and CapKit turns it into a calm reading view.",
-      imagePath: "",
-      imageUrl: createDemoSession().snapshotUrl,
-      language: "en-US",
-      warning: null,
-    };
-  }
-  const raw: unknown = await invoke("extract_readable_region", { request: { selection } });
-  const parsed = readableRegionSchema.parse(raw);
-  const imageUrl = convertFileSrc(parsed.imagePath);
-  await preloadImage(imageUrl);
-  return { ...parsed, imageUrl };
-}
-
-export async function showMakeEasyReader(selection: Rect): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("show_make_easy_reader", { selection });
-}
-
-export async function restartMakeEasySelection(): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("restart_make_easy_selection");
-}
-
-export async function setMakeEasyAlwaysOnTop(enabled: boolean): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("set_make_easy_always_on_top", { enabled });
-}
-
-export async function dismissMakeEasy(): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("dismiss_make_easy");
 }
 
 export async function dismissCapture(): Promise<void> {

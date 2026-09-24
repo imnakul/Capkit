@@ -29,7 +29,6 @@ The OS webview is created for active UI and destroyed or hidden out of the resid
 - Raster export and secure redaction
 - Pinned windows
 - On-screen presentation overlay with lazy, first-use magnifier/blur snapshot; screen capture and image encoding stay outside the common toggle path
-- Provisional `Make it Easy` readable-region worker with bounded UI Automation text extraction, local OCR fallback, and an image-only accessibility fallback
 - Later OCR, library indexing, and upload
 
 ## State machine
@@ -51,7 +50,6 @@ Transitions are explicit and validated. Terminal states release capture windows,
 - `AudioDeviceBackend`: capture-device enumeration and the default loopback endpoint
 - `PointerTrackBackend`: cursor and click sampling for the duration of a recording
 - `WindowCaptureExclusionBackend`: mark a window invisible to screen capture
-- Provisional `ReadableRegionBackend`: capability/language probe, bounded accessible-text extraction, physical-pixel OCR, cancellation, and confidence/source metadata
 
 Recording backends are registered as their own service rather than extending the capture backend, so the screenshot path and its tests stay unaware of recording.
 

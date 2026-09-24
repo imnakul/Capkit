@@ -82,7 +82,7 @@ export function SettingsView(): React.JSX.Element {
     void registerShortcuts(settings.shortcuts).catch((error: unknown) => {
       setShortcutMessage(String(error));
     });
-  }, [settings.shortcuts.capture, settings.shortcuts.captureAndCopy, settings.shortcuts.captureAndSave, settings.shortcuts.makeEasy, settings.shortcuts.onScreenToggle, settings.shortcuts.recordToggle]);
+  }, [settings.shortcuts.capture, settings.shortcuts.captureAndCopy, settings.shortcuts.captureAndSave, settings.shortcuts.onScreenToggle, settings.shortcuts.recordToggle]);
 
   useEffect(() => {
     if (recordingShortcut === null) return;
@@ -195,7 +195,6 @@ export function SettingsView(): React.JSX.Element {
       captureAndCopy: "Capture & copy",
       captureAndSave: "Capture & save",
       onScreenToggle: "On-screen toolbar",
-      makeEasy: "Make it Easy",
       recordToggle: "Start recording",
       captureModeCopy: "Copy selection",
       captureModeSave: "Save selection",
@@ -360,7 +359,6 @@ export function SettingsView(): React.JSX.Element {
             <ShortcutRow label="Start capture" description="Open the selection overlay" value={settings.shortcuts.capture} defaultValue={defaultSnaphubSettings.shortcuts.capture} recording={recordingShortcut === "capture"} onRecord={() => setRecordingShortcut("capture")} onReset={() => void resetShortcut("capture")} />
             <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
             <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
-            <ShortcutRow label="Make it Easy" description="Select dense content and open a clear local reading view" value={settings.shortcuts.makeEasy} defaultValue={defaultSnaphubSettings.shortcuts.makeEasy} recording={recordingShortcut === "makeEasy"} onRecord={() => setRecordingShortcut("makeEasy")} onReset={() => void resetShortcut("makeEasy")} />
             <ShortcutRow label="Start recording" description="Open the recorder, ready to choose a source and record" value={settings.shortcuts.recordToggle} defaultValue={defaultSnaphubSettings.shortcuts.recordToggle} recording={recordingShortcut === "recordToggle"} onRecord={() => setRecordingShortcut("recordToggle")} onReset={() => void resetShortcut("recordToggle")} />
           </div>
            <div className="mt-3 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#2b2c29]">

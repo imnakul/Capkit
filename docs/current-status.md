@@ -6,11 +6,6 @@
 
 **Latest Windows artifact:** CapKit `0.1.1` x64 NSIS installer built 2026-07-27 at 3.57 MiB. The optimized executable is 11.01 MiB; this local artifact is not code-signed.
 
-## Make it Easy readability workflow
-
-- **Implemented:** Configurable `Alt+Shift+E` global shortcut, frozen-monitor rectangular selection, local UI Automation text extraction, Windows OCR fallback, visual-only fallback, edge-aware resizable reader, Original/Readable comparison, deterministic Markdown/JSON/code/table/plain views, editable extracted text, copy, typography themes, pinning, new-region flow, Escape plus visible-button dismissal, and temporary-image cleanup.
-- **Validation remaining:** Physical mixed-DPI and multi-monitor tests, broader UI Automation coverage, installed/missing OCR language packs, elevated applications, and packaged-build verification.
-
 This document records what exists in the runtime today. The roadmap remains the source of truth for intended scope; this page prevents planned features, settings, or extension interfaces from being mistaken for completed behavior.
 
 **Confirmed product name:** CapKit. Tagline: “The lightweight desktop toolkit to capture, record, and showcase.” Windows 11 is the only currently supported and physically tested platform; macOS, Ubuntu, and Fedora remain provisional rollout targets.

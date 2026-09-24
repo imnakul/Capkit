@@ -243,22 +243,6 @@ pub struct MediaFolderDto {
     pub images: Vec<MediaFileDto>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadableRegionRequest {
-    pub selection: Rect,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadableRegionDto {
-    pub source: &'static str,
-    pub text: String,
-    pub image_path: String,
-    pub language: Option<String>,
-    pub warning: Option<String>,
-}
-
 /* -------------------------------------------------------------------------- */
 /* Recording                                                                   */
 /* -------------------------------------------------------------------------- */
