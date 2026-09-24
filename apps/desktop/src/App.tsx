@@ -473,16 +473,23 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      const target = event.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
+      // Escape is the capture surface's unconditional exit hatch. Handle it in
+      // the capture phase before a focused control or WebView handler can consume
+      // it, including while the user is still hovering before making a selection.
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         if (scrollingCapture !== null) {
           void closeScrollingCapture();
           return;
         }
         void handleCancel();
-      } else if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeCopy.toUpperCase()) {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
+      if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeCopy.toUpperCase()) {
         event.preventDefault();
         void handleComplete("copy");
       } else if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeSave.toUpperCase()) {
@@ -496,9 +503,9 @@ export function App(): React.JSX.Element {
         dispatchScene({ type: event.shiftKey ? "redo" : "undo" });
       }
     }
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
     function cleanupKeyboardListener(): void {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
     }
     return cleanupKeyboardListener;
   }, [handleCancel, handleComplete, scrollingCapture, selection]);

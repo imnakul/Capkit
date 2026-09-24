@@ -1,12 +1,12 @@
 [package]
-name = "snaphub-desktop"
+name = "capkit-desktop"
 version = "0.1.1"
 description = "CapKit lightweight desktop toolkit to capture, record, and showcase"
 authors = ["CapKit"]
 edition = "2024"
 
 [lib]
-name = "snaphub_desktop_lib"
+name = "capkit_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

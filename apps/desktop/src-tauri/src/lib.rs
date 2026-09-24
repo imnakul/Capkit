@@ -30,7 +30,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{AW_BLEND, AW_HIDE, AnimateWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AW_BLEND, AW_HIDE, AnimateWindow, SetForegroundWindow,
+};
 
 // A plain `.show()`/`.hide()` on the capture window pops the WebView2 surface in or
 // out instantly, which exposes the one or two frames before WebView2's swap chain has
@@ -183,8 +185,18 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
     reveal_window_smoothly(&window)?;
-    // Some Windows focus policies reject programmatic focus. The capture must remain usable
-    // instead of falling back to an opaque error window when that happens.
+    // The shortcut is a direct user gesture, so Windows normally allows this
+    // process to promote its capture surface. Without foreground activation the
+    // overlay is visible but Escape is still delivered to the previously active
+    // application, leaving the user apparently trapped in capture mode.
+    #[cfg(target_os = "windows")]
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        let _ = unsafe { SetForegroundWindow(hwnd) };
+    }
+    // Keep Tauri's cross-platform focus request as the primary WebView focus path.
+    // A platform focus policy can still reject it, so capture visibility must not
+    // become dependent on the result.
     let _ = window.set_focus();
     Ok(())
 }

@@ -29,7 +29,7 @@
   <Applications>
     <Application
       Id="Snaphub"
-      Executable="snaphub-desktop.exe"
+      Executable="capkit-desktop.exe"
       uap10:RuntimeBehavior="packagedClassicApp"
       uap10:TrustLevel="mediumIL">
       <uap:VisualElements

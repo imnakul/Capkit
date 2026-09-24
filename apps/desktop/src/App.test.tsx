@@ -9,6 +9,17 @@ vi.mock("./components/AnnotationCanvas", () => ({
 }));
 
 describe("App", () => {
+  it("dismisses capture with Escape before a region is selected", async () => {
+    render(<App />);
+
+    expect(await screen.findAllByText(/Hover to preview targets/)).not.toHaveLength(0);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("main")).not.toBeInTheDocument();
+    });
+  });
+
   it("creates an in-place selection and reveals quick actions", async () => {
     render(<App />);
 

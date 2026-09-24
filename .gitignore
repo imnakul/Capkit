@@ -10,3 +10,9 @@ coverage/
 .DS_Store
 Thumbs.db
 apps/desktop/src-tauri/gen/
+.agents/*
+docs
+scripts
+.gitignore
+CHANGELOG.md
+AGENTS.md
