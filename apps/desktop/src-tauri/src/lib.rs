@@ -976,6 +976,8 @@ fn prepare_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
     .title("CapKit On-Screen Toolbar")
     .closable(true)
     .decorations(false)
+    // An undecorated shadow insets the client area, misaligning a monitor-sized surface.
+    .shadow(false)
     .always_on_top(true)
     .transparent(true)
     .resizable(false)
@@ -1901,5 +1903,24 @@ mod shortcut_tests {
                 .cleanup_warning
                 .is_some_and(|warning| warning.contains("SH-WINDOW-001"))
         );
+    }
+}
+
+#[cfg(test)]
+mod window_config_tests {
+    #[test]
+    fn capture_window_disables_the_undecorated_shadow() {
+        let config = serde_json::from_str::<serde_json::Value>(include_str!("../tauri.conf.json"))
+            .expect("Tauri config should be valid JSON");
+        let windows = config["app"]["windows"]
+            .as_array()
+            .expect("Tauri config should contain app windows");
+        let capture = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("capture"))
+            .expect("Tauri config should contain a capture window");
+
+        assert_eq!(capture["shadow"].as_bool(), Some(false));
+        assert_eq!(capture["decorations"].as_bool(), Some(false));
     }
 }

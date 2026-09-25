@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-25 - Monitor-sized overlays disable the undecorated shadow
+
+- **Confirmed:** Tauri defaults `shadow` to true; on Windows an undecorated shadow insets the WebView client area, offsetting and squeezing a monitor-sized frozen snapshot and drifting export coordinates.
+- **Confirmed:** Screen Draw's frozen-frame `onscreen` window is also monitor-sized and must disable the shadow to keep its background, blur, and magnifier aligned.
+- **Rejected:** replacing the frozen snapshot with a live overlay; the freeze is the confirmed capture model.
+
 ## 2026-09-25 - Selected-region Copy & Save owns one raster and a save-only retry
 
 - **Confirmed:** Copy & Save is available only in the standard selected-region overlay. It renders the immutable capture and current scene once, copies that `RgbaImage` first, then atomically saves the same raster as PNG in the configured folder.

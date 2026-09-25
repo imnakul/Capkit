@@ -127,6 +127,7 @@ Target hover uses cached windows and optional Windows UI Automation rectangles. 
 - Capture preparation happens while the capture surface remains hidden.
 - The dashboard also remains hidden through WebView and lazy-module bootstrap, then reveals only after its themed React frame is painted; unstyled white startup frames are not permitted.
 - The temporary frozen source uses a fast, lossless representation; compression and target enumeration are excluded from the reveal-critical path.
+- **Confirmed:** Monitor-sized overlay windows disable the undecorated window shadow; on Windows it insets the client area and misaligns the frozen snapshot and export coordinates.
 - The window may only become visible after the frozen snapshot has been validated, preloaded, and committed to the overlay.
 - No fullscreen idle, loading, preview, or error screen is permitted.
 - `Esc` from any screenshot state must discard the temporary capture, force-hide the entire surface, and immediately return CapKit to its normal tray-only mode, even when session creation is incomplete or failed.
