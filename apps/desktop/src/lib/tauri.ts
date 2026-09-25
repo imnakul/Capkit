@@ -98,9 +98,8 @@ export async function requestCapture(): Promise<CaptureSession> {
   const raw: unknown = await invoke("begin_capture");
   const parsed = backendSessionSchema.parse(raw);
   const snapshotUrl = convertFileSrc(parsed.snapshotPath);
-  // Do not block the shortcut on a second disk read. The capture surface can
-  // paint the frozen BMP while React mounts, which keeps the trigger feeling
-  // immediate on large or mixed-DPI displays.
+  // CaptureBackdrop decodes this URL after the session commits and reveals the
+  // surface only after the image has painted.
   return {
     id: parsed.id,
     phase: parsed.phase,

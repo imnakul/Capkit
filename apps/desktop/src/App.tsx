@@ -55,6 +55,17 @@ type SelectedCompletionState =
   | { phase: "working"; message: string }
   | { phase: "save-pending"; diagnostic: string };
 
+function isPreparingCaptureSession(
+  activationState: { current: "idle" | "preparing" | "active" },
+  activeSessionId: { current: string | null },
+  expectedSessionId: string,
+): boolean {
+  return (
+    activationState.current === "preparing"
+    && activeSessionId.current === expectedSessionId
+  );
+}
+
 const viewportBounds = (): Rect => ({
   x: 0,
   y: 0,
@@ -93,7 +104,26 @@ export function App(): React.JSX.Element {
   const completionInFlight = useRef(false);
   const sessionGeneration = useRef(0);
   const activeSessionId = useRef<string | null>(null);
+  const backdropReadyResolver = useRef<{
+    sessionId: string;
+    resolve: () => void;
+  } | null>(null);
   const settingsRef = useRef(settings);
+
+  const handleBackdropReady = useCallback((): void => {
+    const pending = backdropReadyResolver.current;
+    const sessionId = session?.id;
+    if (
+      pending === null
+      || sessionId === undefined
+      || pending.sessionId !== sessionId
+      || activeSessionId.current !== sessionId
+    ) {
+      return;
+    }
+    backdropReadyResolver.current = null;
+    pending.resolve();
+  }, [session]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -116,6 +146,9 @@ export function App(): React.JSX.Element {
   function clearCaptureUi(): void {
     activationState.current = "idle";
     activeSessionId.current = null;
+    const pendingBackdrop = backdropReadyResolver.current;
+    backdropReadyResolver.current = null;
+    pendingBackdrop?.resolve();
     completionInFlight.current = false;
     setSession(null);
     setSelection(null);
@@ -138,6 +171,9 @@ export function App(): React.JSX.Element {
     try {
       const next = await requestCapture();
       preparedSession = next;
+      const backdropReady = new Promise<void>((resolve) => {
+        backdropReadyResolver.current = { sessionId: next.id, resolve };
+      });
       flushSync(() => {
         setSession(next);
         activeSessionId.current = next.id;
@@ -157,7 +193,24 @@ export function App(): React.JSX.Element {
         dispatchScene({ type: "reset" });
       });
       setMessage("Hover to preview targets / drag to draw a rectangle");
+      let readyTimeout: number | undefined;
+      await Promise.race([
+        backdropReady,
+        new Promise<void>((resolve) => {
+          readyTimeout = window.setTimeout(resolve, 1500);
+        }),
+      ]);
+      if (readyTimeout !== undefined) window.clearTimeout(readyTimeout);
+      if (backdropReadyResolver.current?.sessionId === next.id) {
+        backdropReadyResolver.current = null;
+      }
+      if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
+        return;
+      }
       await showCaptureSurface();
+      if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
+        return;
+      }
       activationState.current = "active";
       if (!settingsRef.current.detection.windows) return;
       void listTargets(next.display)
@@ -167,6 +220,11 @@ export function App(): React.JSX.Element {
         .catch((error: unknown) => console.error("SH-TARGET-UI-001", error));
     } catch (error: unknown) {
       activationState.current = "idle";
+      const pendingBackdrop = backdropReadyResolver.current;
+      if (pendingBackdrop !== null && pendingBackdrop.sessionId === preparedSession?.id) {
+        pendingBackdrop.resolve();
+        backdropReadyResolver.current = null;
+      }
       if (preparedSession !== null) {
         await cancelCapture(preparedSession.id).catch(async () => dismissCapture());
       } else {
@@ -724,7 +782,7 @@ export function App(): React.JSX.Element {
       onPointerCancel={handlePointerUp}
       onPointerUp={handlePointerUp}
     >
-      <CaptureBackdrop snapshotUrl={session.snapshotUrl} />
+      <CaptureBackdrop onReady={handleBackdropReady} snapshotUrl={session.snapshotUrl} />
 
       {selection === null && hoverTarget !== null ? (
         <div

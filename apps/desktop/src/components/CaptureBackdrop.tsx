@@ -1,10 +1,52 @@
+import { useEffect, useRef } from "react";
+
 type CaptureBackdropProps = {
+  onReady?: () => void;
   snapshotUrl: string;
 };
 
-export function CaptureBackdrop({ snapshotUrl }: CaptureBackdropProps): React.JSX.Element {
+export function CaptureBackdrop({ onReady, snapshotUrl }: CaptureBackdropProps): React.JSX.Element {
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let firstFrame: number | null = null;
+    let secondFrame: number | null = null;
+
+    const notifyAfterPaint = (): void => {
+      if (disposed) return;
+      firstFrame = window.requestAnimationFrame(() => {
+        if (disposed) return;
+        secondFrame = window.requestAnimationFrame(() => {
+          if (!disposed) onReady?.();
+        });
+      });
+    };
+
+    if (snapshotUrl === "") {
+      onReady?.();
+    } else {
+      const image = imageRef.current;
+      if (image === null) {
+        notifyAfterPaint();
+      } else {
+        try {
+          void image.decode().then(notifyAfterPaint, notifyAfterPaint);
+        } catch {
+          notifyAfterPaint();
+        }
+      }
+    }
+
+    return (): void => {
+      disposed = true;
+      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [onReady, snapshotUrl]);
+
   if (snapshotUrl !== "") {
-    return <img alt="" className="pointer-events-none absolute inset-0 size-full select-none object-fill" src={snapshotUrl} />;
+    return <img alt="" className="pointer-events-none absolute inset-0 size-full select-none object-fill" ref={imageRef} src={snapshotUrl} />;
   }
 
   return (

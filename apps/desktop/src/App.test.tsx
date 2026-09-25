@@ -1,14 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { CompletionAction } from "./domain/capture";
+import type { CaptureSession, CompletionAction } from "./domain/capture";
 import type { CompletionResult } from "./lib/tauri";
 
 const captureMocks = vi.hoisted(() => ({
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
   listeners: [] as (() => void)[],
+  requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
+  showCaptureSurface: vi.fn(),
 }));
 
 vi.mock("./lib/tauri", async (importOriginal) => {
@@ -23,7 +25,9 @@ vi.mock("./lib/tauri", async (importOriginal) => {
         captureMocks.listeners.splice(captureMocks.listeners.indexOf(callback), 1);
       });
     }),
+    requestCapture: captureMocks.requestCapture,
     retryCaptureSave: captureMocks.retryCaptureSave,
+    showCaptureSurface: captureMocks.showCaptureSurface,
   };
 });
 
@@ -53,6 +57,68 @@ function deferred<T>(): Deferred<T> {
   return { promise, reject: rejectPromise, resolve: resolvePromise };
 }
 
+function createCaptureSession(snapshotUrl = ""): CaptureSession {
+  return {
+    id: crypto.randomUUID(),
+    phase: "snapshot-ready",
+    display: {
+      id: "display-1",
+      name: "Demo display",
+      bounds: { x: 0, y: 0, width: 1280, height: 720 },
+      scaleFactor: 1,
+      isPrimary: true,
+    },
+    snapshotUrl,
+    colorSpace: "srgb",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+let originalImageDecode: PropertyDescriptor | undefined;
+
+function mockImageDecode(decode: () => Promise<void>): ReturnType<typeof vi.fn> {
+  const imageDecode = vi.fn(decode);
+  originalImageDecode = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
+  Object.defineProperty(HTMLImageElement.prototype, "decode", {
+    configurable: true,
+    value: imageDecode,
+  });
+  return imageDecode;
+}
+
+function restoreImageDecode(): void {
+  if (originalImageDecode === undefined) {
+    Reflect.deleteProperty(HTMLImageElement.prototype, "decode");
+  } else {
+    Object.defineProperty(HTMLImageElement.prototype, "decode", originalImageDecode);
+  }
+  originalImageDecode = undefined;
+}
+
+function createAnimationFrameQueue(): {
+  flushNext: () => void;
+  pendingCount: () => number;
+} {
+  const callbacks: { callback: FrameRequestCallback; id: number }[] = [];
+  let nextId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+    nextId += 1;
+    callbacks.push({ callback, id: nextId });
+    return nextId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number): void => {
+    const index = callbacks.findIndex((frame) => frame.id === id);
+    if (index >= 0) callbacks.splice(index, 1);
+  });
+  return {
+    flushNext: (): void => {
+      const frame = callbacks.shift();
+      if (frame !== undefined) act(() => frame.callback(0));
+    },
+    pendingCount: (): number => callbacks.length,
+  };
+}
+
 async function selectRegion(): Promise<HTMLElement> {
   expect(await screen.findAllByText(/Hover to preview targets/)).not.toHaveLength(0);
   const surface = screen.getByRole("main");
@@ -71,8 +137,11 @@ vi.mock("./components/AnnotationCanvas", () => ({
 
 describe("App", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     window.localStorage.clear();
     captureMocks.listeners.length = 0;
+    captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
+    captureMocks.showCaptureSurface.mockResolvedValue(undefined);
     captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
       Promise.resolve(completedResult(action)),
     );
@@ -90,6 +159,101 @@ describe("App", () => {
 
   afterEach(() => {
     cleanup();
+    restoreImageDecode();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("waits for the snapshot backdrop to decode and paint before revealing capture", async () => {
+    const decoded = deferred<undefined>();
+    const imageDecode = mockImageDecode(() => decoded.promise);
+    const frames = createAnimationFrameQueue();
+    captureMocks.requestCapture.mockResolvedValueOnce(
+      createCaptureSession("asset://capture.bmp"),
+    );
+    render(<App />);
+
+    await screen.findByRole("main");
+    expect(imageDecode).toHaveBeenCalledTimes(1);
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+
+    await act(async () => {
+      decoded.resolve(undefined);
+      await decoded.promise;
+    });
+    expect(frames.pendingCount()).toBe(1);
+    frames.flushNext();
+    expect(frames.pendingCount()).toBe(1);
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+    frames.flushNext();
+
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
+  });
+
+  it("reveals after 1500 ms when the backdrop decode never settles", async () => {
+    vi.useFakeTimers();
+    mockImageDecode(() => new Promise<void>(() => undefined));
+    captureMocks.requestCapture.mockResolvedValueOnce(
+      createCaptureSession("asset://capture.bmp"),
+    );
+    render(<App />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+
+    await act(async () => vi.advanceTimersByTimeAsync(1499));
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+
+    expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reveal a cancelled session and allows a later capture", async () => {
+    const decoded = deferred<undefined>();
+    mockImageDecode(() => decoded.promise);
+    captureMocks.requestCapture.mockResolvedValueOnce(
+      createCaptureSession("asset://capture.bmp"),
+    );
+    render(<App />);
+    await screen.findByRole("main");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
+    await act(async () => {
+      decoded.resolve(undefined);
+      await decoded.promise;
+    });
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+
+    act(() => captureMocks.listeners.forEach((listener) => listener()));
+    await screen.findByRole("main");
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
+  });
+
+  it("reveals after a failed backdrop decode has passed two frames", async () => {
+    const decoded = deferred<undefined>();
+    mockImageDecode(() => decoded.promise);
+    const frames = createAnimationFrameQueue();
+    captureMocks.requestCapture.mockResolvedValueOnce(
+      createCaptureSession("asset://capture.bmp"),
+    );
+    render(<App />);
+    await screen.findByRole("main");
+
+    await act(async () => {
+      decoded.reject(new Error("decode failed"));
+      await decoded.promise.catch(() => undefined);
+    });
+    expect(frames.pendingCount()).toBe(1);
+    frames.flushNext();
+    expect(captureMocks.showCaptureSurface).not.toHaveBeenCalled();
+    frames.flushNext();
+
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
   });
   it("dismisses capture with Escape before a region is selected", async () => {
     render(<App />);
