@@ -81,6 +81,11 @@ button {
 .selection-handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 .selection-handle-w { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
 
+@keyframes laser-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,4 +1,4 @@
-import { cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Profiler } from "react";
 import { defaultSnaphubSettings } from "../domain/settings";
@@ -50,9 +50,50 @@ function createAnimationFrameQueue(): {
   };
 }
 
+function createMediaQueryList(matches: boolean, media: string): MediaQueryList {
+  return {
+    matches,
+    media,
+    onchange: null,
+    addListener: (): void => undefined,
+    removeListener: (): void => undefined,
+    addEventListener: (): void => undefined,
+    removeEventListener: (): void => undefined,
+    dispatchEvent: (): boolean => false,
+  };
+}
+
+function drawLaserStroke(
+  surface: HTMLElement,
+  frames: ReturnType<typeof createAnimationFrameQueue>,
+  pointerId: number,
+): void {
+  fireEvent.pointerDown(surface, {
+    button: 0,
+    clientX: pointerId * 10,
+    clientY: pointerId * 12,
+    pointerId,
+  });
+  fireEvent.pointerMove(surface, {
+    buttons: 1,
+    clientX: pointerId * 10 + 40,
+    clientY: pointerId * 12 + 35,
+    pointerId,
+  });
+  frames.flushNextFrame();
+  fireEvent.pointerUp(surface, {
+    button: 0,
+    buttons: 0,
+    clientX: pointerId * 10 + 40,
+    clientY: pointerId * 12 + 35,
+    pointerId,
+  });
+}
+
 describe("OnScreenOverlay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("matchMedia", (media: string): MediaQueryList => createMediaQueryList(false, media));
     Object.defineProperties(HTMLElement.prototype, {
       setPointerCapture: { configurable: true, value: vi.fn() },
       releasePointerCapture: { configurable: true, value: vi.fn() },
@@ -63,6 +104,7 @@ describe("OnScreenOverlay", () => {
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -189,7 +231,7 @@ describe("OnScreenOverlay", () => {
     expect(path.getAttribute("d")).toContain("L 150 170");
   });
 
-  it("keeps the pointer SVG mounted while selected and clears the live trail on release", async () => {
+  it("starts an independent fade on release and clears the live path for the next stroke", async () => {
     const frames = createAnimationFrameQueue();
     render(<OnScreenOverlay />);
     const surface = await screen.findByRole("application", {
@@ -227,6 +269,9 @@ describe("OnScreenOverlay", () => {
 
     expect(screen.getByTestId("on-screen-pointer-trail")).toBeInTheDocument();
     expect(corePath).toHaveAttribute("d", "");
+    expect(
+      screen.getByTestId("on-screen-fading-trail").querySelector("path"),
+    ).toHaveAttribute("d", "M 260 210");
 
     fireEvent.pointerDown(surface, {
       button: 0,
@@ -237,6 +282,90 @@ describe("OnScreenOverlay", () => {
     expect(corePath).toHaveAttribute("d", "");
     fireEvent.pointerCancel(surface, { pointerId: 9 });
     expect(screen.getByTestId("on-screen-pointer-trail")).toBeInTheDocument();
+  });
+
+  it("removes a fading laser trail when its animation ends", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    drawLaserStroke(surface, frames, 1);
+
+    const fadingTrail = screen.getByTestId("on-screen-fading-trail");
+    expect(fadingTrail).toHaveClass(
+      "animate-[laser-fade_450ms_ease-out_forwards]",
+      "motion-reduce:hidden",
+    );
+    expect(fadingTrail.querySelectorAll("path")).toHaveLength(2);
+
+    act(() => {
+      fireEvent.animationEnd(fadingTrail);
+      // React DOM registers WebKit's event name in jsdom, which lacks AnimationEvent.
+      fireEvent(fadingTrail, new Event("webkitAnimationEnd", { bubbles: true }));
+    });
+
+    expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
+  });
+
+  it("removes a fading laser trail after 600 ms if animationend never fires", async () => {
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    vi.useFakeTimers();
+    const frames = createAnimationFrameQueue();
+    drawLaserStroke(surface, frames, 2);
+
+    expect(screen.getByTestId("on-screen-fading-trail")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(599);
+    });
+    expect(screen.getByTestId("on-screen-fading-trail")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
+  });
+
+  it("keeps at most three fading trails after four quick strokes", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    for (let pointerId = 1; pointerId <= 4; pointerId += 1) {
+      drawLaserStroke(surface, frames, pointerId);
+    }
+
+    expect(screen.getAllByTestId("on-screen-fading-trail")).toHaveLength(3);
+  });
+
+  it("removes all fading trails when Clear is selected", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    drawLaserStroke(surface, frames, 1);
+    expect(screen.getByTestId("on-screen-fading-trail")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all on-screen changes" }));
+
+    expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
+  });
+
+  it("removes a released laser trail immediately when reduced motion is preferred", async () => {
+    vi.stubGlobal("matchMedia", (media: string): MediaQueryList => createMediaQueryList(true, media));
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    drawLaserStroke(surface, frames, 1);
+
+    expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
   });
 
   it("creates and commits text in place after selecting the Text tool", async () => {

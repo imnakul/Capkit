@@ -97,6 +97,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const [pointerHeld, setPointerHeld] = useState(false);
+  const [fadingTrails, setFadingTrails] = useState<{ id: string; d: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const drawingPointer = useRef<number | null>(null);
   const drawingTool = useRef<OnScreenToolId | null>(null);
@@ -110,6 +111,8 @@ export function OnScreenOverlay(): React.JSX.Element {
   const pointerPathRef = useRef("");
   const lastPointerPoint = useRef<Point | null>(null);
   const pointerHeldRef = useRef(false);
+  const fadingTrailsRef = useRef<{ id: string; d: string }[]>([]);
+  const fadingTrailTimers = useRef(new Map<string, number>());
   const pointerDotRef = useRef<SVGCircleElement>(null);
   const pointerGlowRef = useRef<SVGPathElement>(null);
   const pointerCoreRef = useRef<SVGPathElement>(null);
@@ -143,6 +146,43 @@ export function OnScreenOverlay(): React.JSX.Element {
     pointerGlowRef.current?.setAttribute("d", "");
     pointerCoreRef.current?.setAttribute("d", "");
   }, []);
+
+  const removeFadingTrail = useCallback((id: string): void => {
+    const timer = fadingTrailTimers.current.get(id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    fadingTrailTimers.current.delete(id);
+    fadingTrailsRef.current = fadingTrailsRef.current.filter((trail) => trail.id !== id);
+    setFadingTrails(fadingTrailsRef.current);
+  }, []);
+
+  const clearFadingTrails = useCallback((): void => {
+    for (const timer of fadingTrailTimers.current.values()) {
+      window.clearTimeout(timer);
+    }
+    fadingTrailTimers.current.clear();
+    fadingTrailsRef.current = [];
+    setFadingTrails([]);
+  }, []);
+
+  const startFadingTrail = useCallback((path: string): void => {
+    if (path === "" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
+    const trail = { id: crypto.randomUUID(), d: path };
+    const nextTrails = [...fadingTrailsRef.current, trail];
+    const removedTrails = nextTrails.slice(0, Math.max(0, nextTrails.length - 3));
+    for (const removed of removedTrails) {
+      const timer = fadingTrailTimers.current.get(removed.id);
+      if (timer !== undefined) window.clearTimeout(timer);
+      fadingTrailTimers.current.delete(removed.id);
+    }
+    fadingTrailsRef.current = nextTrails.slice(-3);
+    setFadingTrails(fadingTrailsRef.current);
+
+    const timer = window.setTimeout(() => removeFadingTrail(trail.id), 600);
+    fadingTrailTimers.current.set(trail.id, timer);
+  }, [removeFadingTrail]);
 
   const cancelText = useCallback((): void => {
     textEditorRef.current = null;
@@ -182,6 +222,7 @@ export function OnScreenOverlay(): React.JSX.Element {
 
   const clearAll = useCallback((): void => {
     cancelPointerFrame();
+    clearFadingTrails();
     draftRef.current = null;
     pendingDraft.current = null;
     drawingPointer.current = null;
@@ -194,7 +235,7 @@ export function OnScreenOverlay(): React.JSX.Element {
     setPointerHeld(false);
     setActiveTool(defaultOnScreenTool);
     dispatch({ type: "clear" });
-  }, [cancelPointerFrame, cancelText, clearLivePointerPath]);
+  }, [cancelPointerFrame, cancelText, clearFadingTrails, clearLivePointerPath]);
 
   const selectTool = useCallback(
     (tool: OnScreenToolId): void => {
@@ -255,17 +296,22 @@ export function OnScreenOverlay(): React.JSX.Element {
         window.cancelAnimationFrame(draftFrame.current);
       }
       cancelPointerFrame();
+      for (const timer of fadingTrailTimers.current.values()) {
+        window.clearTimeout(timer);
+      }
+      fadingTrailTimers.current.clear();
     };
   }, [cancelPointerFrame]);
 
   useEffect(() => {
+    clearFadingTrails();
     if (activeTool === "pointer") return;
     cancelPointerFrame();
     pointerHeldRef.current = false;
     clearLivePointerPath();
     pointerDotRef.current?.setAttribute("visibility", "hidden");
     setPointerHeld(false);
-  }, [activeTool, cancelPointerFrame, clearLivePointerPath]);
+  }, [activeTool, cancelPointerFrame, clearFadingTrails, clearLivePointerPath]);
 
   useEffect(() => {
     if (
@@ -336,6 +382,7 @@ export function OnScreenOverlay(): React.JSX.Element {
           cancelText();
           return;
         }
+        clearFadingTrails();
         void dismissOnScreen();
         return;
       }
@@ -356,7 +403,7 @@ export function OnScreenOverlay(): React.JSX.Element {
     }
     window.addEventListener("keydown", handleKeyboard, true);
     return (): void => window.removeEventListener("keydown", handleKeyboard, true);
-  }, [cancelText, settings.onScreen.toolShortcuts]);
+  }, [cancelText, clearFadingTrails, settings.onScreen.toolShortcuts]);
 
   function localPoint(event: React.PointerEvent<HTMLDivElement>): Point {
     return { x: event.clientX, y: event.clientY };
@@ -486,6 +533,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (completedTool === "pointer") {
+      startFadingTrail(pointerPathRef.current);
       pointerHeldRef.current = false;
       clearLivePointerPath();
       setPointerHeld(false);
@@ -544,7 +592,9 @@ export function OnScreenOverlay(): React.JSX.Element {
         accent={settings.onScreen.color}
         coreRef={pointerCoreRef}
         dotRef={pointerDotRef}
+        fadingTrails={fadingTrails}
         glowRef={pointerGlowRef}
+        onFadeEnd={removeFadingTrail}
         pointerHeld={pointerHeld}
       />
       {activeTool === "magnifier" && snapshotUrl !== null ? <Magnifier cursor={cursorPoint} snapshotUrl={snapshotUrl} /> : null}
@@ -720,16 +770,20 @@ function PointerLayer({
   active,
   pointerHeld,
   accent,
+  fadingTrails,
   dotRef,
   glowRef,
   coreRef,
+  onFadeEnd,
 }: {
   active: boolean;
   pointerHeld: boolean;
   accent: string;
+  fadingTrails: readonly { id: string; d: string }[];
   dotRef: React.RefObject<SVGCircleElement | null>;
   glowRef: React.RefObject<SVGPathElement | null>;
   coreRef: React.RefObject<SVGPathElement | null>;
+  onFadeEnd: (id: string) => void;
 }): React.JSX.Element | null {
   if (!active) return null;
   return (
@@ -739,6 +793,32 @@ function PointerLayer({
       data-testid="on-screen-pointer-trail"
       data-pointer-held={pointerHeld}
     >
+      {fadingTrails.map((trail) => (
+        <g
+          className="animate-[laser-fade_450ms_ease-out_forwards] motion-reduce:hidden"
+          data-testid="on-screen-fading-trail"
+          key={trail.id}
+          onAnimationEnd={() => onFadeEnd(trail.id)}
+        >
+          <path
+            d={trail.d}
+            fill="none"
+            opacity="0.24"
+            stroke={accent}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="12"
+          />
+          <path
+            d={trail.d}
+            fill="none"
+            stroke={accent}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="5"
+          />
+        </g>
+      ))}
       <path
         data-testid="on-screen-pointer-glow"
         fill="none"
