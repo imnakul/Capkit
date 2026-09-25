@@ -1,6 +1,6 @@
 # Current Implementation Status
 
-**Checkpoint date:** 2026-08-04
+**Checkpoint date:** 2026-09-25
 
 **Overall state:** Phase 1 vertical slice in progress
 
@@ -44,9 +44,10 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** Text placeholders select on first click, edit in place on the next click, commit before a subsequent placeholder is created, and expose a local delete action; Caveat is bundled for matching live and native exports.
 - **Implemented:** User-configurable Individual and Group toolbar modes. Individual mode exposes every tool as its own toggle. Group mode uses ordered rows as enabled toolbar slots, treats the first tool as the group default, and supports drag/reorder, row add/remove, and a disabled-tool pool.
 - **Implemented:** Hover-revealed grouped tools with consistently white submenu icons, animated primary indicators, an options-first contextual rail, separated quick-color rings, default color/stroke size, and a submenu that glides horizontally between toolbar slots while flipping/clamping at viewport edges.
-- **Implemented:** Copy image, save image, scrolling capture, pin, and cancel completion actions.
-- **Implemented:** Configurable `C`/`S` capture-mode shortcuts complete Copy/Save from the selected region; global shortcuts remain separate.
-- **Implemented:** Completion buttons show the configured capture-mode key as a compact hover keycap, while the completion action remains clickable and keyboard-accessible.
+- **Implemented:** Copy image, selected-region Copy & Save, save image, scrolling capture, pin, and cancel completion actions.
+- **Implemented:** Configurable `C`/`A`/`S` capture-mode shortcuts complete Copy/Copy & Save/Save from the selected region; global shortcuts and scrolling-capture actions remain separate. Invalid or duplicate persisted local keys are repaired deterministically, while new writes reject collisions.
+- **Implemented:** Completion buttons show configured capture-mode keys as compact badges, use one native click activation for mouse, touch, Enter, and Space, and expose a combined action with a distinct icon composition and valid `aria-keyshortcuts`.
+- **Implemented, physical validation pending:** Copy & Save renders once in Rust, copies before atomically saving identical pixels, emits one saved event after rename, serializes duplicate completion and Escape against the native session, and retains only the rendered raster for save-only retry after a post-copy file failure.
 - **Implemented:** Rust-side export composition that combines the immutable capture with the annotation scene.
 
 ### Pinning and preferences
@@ -60,8 +61,8 @@ This document records what exists in the runtime today. The roadmap remains the 
 
 ### Quality coverage
 
-- **Implemented:** Frontend tests for settings, selection behavior, toolbar interaction, geometry, scene history, and scrolling-image stitching.
-- **Implemented:** Rust tests covering capture/export helpers, platform contracts, settings, pins, scrolling stitching, and related native behavior.
+- **Implemented:** Frontend tests for settings migration/conflicts, selection behavior, combined completion states, keyboard exclusions, duplicate activation, stale-response handling, toolbar interaction, geometry, scene history, and scrolling-image stitching.
+- **Implemented:** Rust tests covering combined render/clipboard/save ordering, identical decoded pixels at non-unit scale, secure redaction, render/clipboard/save failures, repeated save-only retry, duplicate IPC, cancellation races, partial cleanup, collision-safe naming, capture/export helpers, platform contracts, settings, pins, scrolling stitching, and related native behavior.
 - **Implemented:** Type checking, ESLint, production build, Rust formatting, Clippy, and Rust test commands are part of the required checkpoint verification.
 
 ## Partial implementations and Phase 1 gaps

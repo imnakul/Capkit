@@ -61,6 +61,32 @@ describe("AnnotationToolbar", () => {
     expect(screen.getByRole("button", { name: "Select" }).querySelector("svg")).toHaveClass("text-white");
   });
 
+  it("does not advertise A for the Arrow tool", () => {
+    const toolbar = {
+      ...defaultSnaphubSettings.toolbar,
+      mode: "individual" as const,
+    };
+    render(
+      <AnnotationToolbar
+        activeTool="select"
+        canRedo={false}
+        canUndo={false}
+        palette={defaultSnaphubSettings.palette}
+        style={defaultAnnotationStyle}
+        toolbar={toolbar}
+        onRedo={() => undefined}
+        onScrollCapture={() => undefined}
+        onStyleChange={() => undefined}
+        onToolChange={() => undefined}
+        onUndo={() => undefined}
+      />,
+    );
+
+    const arrow = screen.getByRole("button", { name: "Arrow" });
+    expect(arrow.querySelector("kbd")).toBeNull();
+    expect(arrow).toHaveTextContent("Arrow");
+  });
+
   it("flips the contextual rail above when the toolbar is at the bottom edge", () => {
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function rectForElement(this: HTMLElement): DOMRect {
       if (this.getAttribute("aria-label") === "Quick editing tools") return new DOMRect(100, 710, 300, 48);

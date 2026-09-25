@@ -18,7 +18,7 @@ Implementation progress is tracked separately in [Current implementation status]
 - Writing group with highlighter, smoothed freehand pencil, and in-place Caveat text; spotlight, counter, blur, secure pixelation, and blackout
 - Contextual color, stroke, opacity, fill, radius, arrow, font, alignment, and redaction controls
 - Undo and redo
-- Copy, Save, Save As, Pin, Cancel, and optional watermark completion actions
+- Copy, Copy & Save, Save, Save As, Pin, Cancel, and optional watermark completion actions
 - Pinned-image resize, rotation, opacity, lock, click-through, copy, save, duplicate, and close
 - Scrolling capture with automatic and manual modes, overlap stitching, sticky-region handling, preview, retry, and limitation messaging
 - On-demand on-screen presentation toolbar with pencil, text, shapes, arrows, spotlight, magnifier, a press-and-hold presentation laser, eraser, blur, clear, undo/redo, configurable tool numbers, and custom cursors

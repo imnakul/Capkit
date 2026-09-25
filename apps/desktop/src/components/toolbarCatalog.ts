@@ -33,7 +33,7 @@ export const toolbarCatalog: readonly ToolbarToolDefinition[] = [
   { id: "rectangle", label: "Rectangle", icon: SquareShape, annotationTool: "rectangle", shortcut: "R", supportsStyle: true },
   { id: "ellipse", label: "Ellipse", icon: CircleShape, annotationTool: "ellipse", supportsStyle: true },
   { id: "line", label: "Line", icon: Minus, annotationTool: "line", shortcut: "L", supportsStyle: true },
-  { id: "arrow", label: "Arrow", icon: Arrow, annotationTool: "arrow", shortcut: "A", supportsStyle: true },
+  { id: "arrow", label: "Arrow", icon: Arrow, annotationTool: "arrow", supportsStyle: true },
   { id: "curved-arrow", label: "Curved arrow", icon: CurvedArrow, annotationTool: "curved-arrow", supportsStyle: true },
   { id: "highlighter", label: "Text highlighter", icon: Highlighter, annotationTool: "highlighter", shortcut: "H", supportsStyle: true },
   { id: "pencil", label: "Pencil", icon: Pencil, annotationTool: "pencil", shortcut: "P", supportsStyle: true },

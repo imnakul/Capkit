@@ -1,6 +1,6 @@
 # CapKit local feature inventory
 
-**Last reviewed:** 2026-08-04  
+**Last reviewed:** 2026-09-25
 **Product:** CapKit — *The lightweight desktop toolkit to capture, record, and showcase.*  
 **Scope:** This is an inventory of behavior present in the local Windows-first application. It is not a promise that every item is release-ready.
 
@@ -45,11 +45,12 @@ The editor is in-place: the selected pixels remain the immutable source while an
 - **Implemented:** Individual toolbar mode with per-tool toggles.
 - **Implemented:** Group toolbar mode with ordered rows, drag/reorder, default-first tool semantics, add/remove row, and disabled-tool pool.
 - **Implemented:** Hover-revealed submenus, options-first ordering, separated color rings, size control, submenu edge flipping, and smooth toolbar/subtoolbar motion.
-- **Implemented:** Copy, Save, Pin, Cancel, scrolling capture, and keyboard `C`/`S` completion actions.
+- **Implemented:** Copy, Copy & Save, Save, Pin, Cancel, scrolling capture, and keyboard `C`/`A`/`S` selected-region completion actions. The combined action renders once for identical clipboard/PNG pixels and retains a save-only retry after a post-copy file failure.
 
 ## Export, pinning, and local files
 
 - **Implemented:** Copy edited image to the clipboard.
+- **Implemented:** Copy & Save edited image once to the clipboard and atomically to the configured folder, with duplicate-action protection, cancellation serialization, partial-save diagnostics, and save-only retry.
 - **Implemented:** Save edited image to the configured folder.
 - **Implemented:** Native save-directory picker with a default `Pictures/CapKit` folder created on startup.
 - **Implemented:** Toolbar Save, scrolling Save, pinned-image Save, and direct Capture & Save use the same persisted save directory.
@@ -96,7 +97,7 @@ The editor is in-place: the selected pixels remain the immutable source while an
 ## Settings and shortcuts
 
 - **Implemented:** Global shortcuts for Start Capture, Capture & Copy, Capture & Save, and Screen Draw.
-- **Implemented:** In-capture `C` and `S` shortcuts.
+- **Implemented:** In-capture `C`, `A`, and `S` shortcuts with deterministic legacy repair and case-insensitive conflict rejection across Copy, Copy & Save, and Save.
 - **Implemented:** Screen Draw number-key shortcut configuration.
 - **Implemented:** Quick colors (up to five), custom colors, default color/size, theme accent, light/dark appearance, toolbar Individual/Group composition, detection toggles, overlay tint, save location, startup behavior, cursor preview/size, and reset controls.
 - **Implemented:** Settings values are Zod-validated and stored locally.
@@ -120,7 +121,7 @@ The editor is in-place: the selected pixels remain the immutable source while an
 
 1. Launch CapKit and confirm it remains in the tray with no terminal window.
 2. Open Settings and verify global shortcuts, colors, cursor previews, toolbar modes, detection, overlay tint, save directory, and resets.
-3. Capture a region, draw each annotation, select/move/delete an annotation, then test Copy, Save, Pin, and Escape.
+3. Capture a region, draw each annotation, select/move/delete an annotation, then test Copy, Copy & Save, Save, Pin, and Escape.
 4. Test Automatic, Manual, and Always ask scrolling capture on a long browser page.
 5. Toggle Screen Draw, hold the presentation laser, place text, use Spotlight, Clear, Undo, and Redo.
 6. Open Dashboard and Showcase, verify saved-capture indexing, folder opening, context actions, frames, backgrounds, padding, transforms, and export.

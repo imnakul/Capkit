@@ -11,7 +11,10 @@ coverage/
 Thumbs.db
 apps/desktop/src-tauri/gen/
 .agents/*
-docs
+docs/*
+!docs/specs/
+docs/specs/*
+!docs/specs/capture-copy-and-save.md
 scripts
 .gitignore
 CHANGELOG.md

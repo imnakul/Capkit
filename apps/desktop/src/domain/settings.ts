@@ -13,6 +13,7 @@ const shapeDefaultSchema = z.enum([
 const effectDefaultSchema = z.enum(["blur", "spotlight", "pixelate", "blackout"]);
 const onScreenCursorStyleSchema = z.enum(["ring", "laser", "precision", "crosshair"]);
 const onScreenToolShortcutSchema = z.string().regex(/^[0-9]?$/);
+const captureModeShortcutSchema = z.string().regex(/^[A-Z0-9]$/);
 
 export const onScreenToolIds = [
   "pencil",
@@ -160,8 +161,9 @@ export const snaphubSettingsSchema = z.object({
     captureAndSave: z.string().min(1).max(64),
     onScreenToggle: z.string().min(1).max(64).default("Alt+Shift+A"),
     recordToggle: z.string().min(1).max(64).default("Alt+Shift+R"),
-    captureModeCopy: z.string().min(1).max(16).default("C"),
-    captureModeSave: z.string().min(1).max(16).default("S"),
+    captureModeCopy: captureModeShortcutSchema.default("C"),
+    captureModeSave: captureModeShortcutSchema.default("S"),
+    captureModeCopyAndSave: captureModeShortcutSchema.default("A"),
   }),
   onScreen: z.object({
     color: hexColorSchema.default(defaultOnScreenSettings.color),
@@ -192,6 +194,27 @@ export const snaphubSettingsSchema = z.object({
     style: z.enum(["crosshair", "target", "precision"]),
     size: z.enum(["small", "medium", "large"]),
   }),
+}).superRefine((settings, context) => {
+  const labels = {
+    captureModeCopy: "Copy selection",
+    captureModeSave: "Save selection",
+    captureModeCopyAndSave: "Copy & Save selection",
+  } as const;
+  const assigned = new Map<string, (typeof labels)[keyof typeof labels]>();
+  for (const field of Object.keys(labels) as (keyof typeof labels)[]) {
+    const value = settings.shortcuts[field];
+    const normalized = value.toUpperCase();
+    const conflict = assigned.get(normalized);
+    if (conflict !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: `That key is already used by ${conflict}. Choose another key.`,
+        path: ["shortcuts", field],
+      });
+    } else {
+      assigned.set(normalized, labels[field]);
+    }
+  }
 });
 
 export type SnaphubSettings = z.infer<typeof snaphubSettingsSchema>;
@@ -234,6 +257,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     recordToggle: "Alt+Shift+R",
     captureModeCopy: "C",
     captureModeSave: "S",
+    captureModeCopyAndSave: "A",
   },
   onScreen: defaultOnScreenSettings,
   detection: { windows: true, uiRegions: false },
@@ -248,32 +272,106 @@ const storageKey = "snaphub.settings.v1";
 const legacyStorageKey = ["shot", "hub.settings.v1"].join("");
 const settingsEvent = "snaphub://settings-changed";
 
+type CaptureModeShortcutField =
+  | "captureModeCopy"
+  | "captureModeSave"
+  | "captureModeCopyAndSave";
+
+const captureModeShortcutFields: readonly CaptureModeShortcutField[] = [
+  "captureModeCopy",
+  "captureModeSave",
+  "captureModeCopyAndSave",
+];
+
+const captureModeShortcutFallbacks = [
+  "C",
+  "S",
+  "A",
+  ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split(""),
+] as const;
+
+export function captureModeShortcutConflict(
+  field: CaptureModeShortcutField,
+  value: string,
+  settings: SnaphubSettings,
+): string | null {
+  if (!/^[A-Z0-9]$/.test(value)) return null;
+  const labels: Record<CaptureModeShortcutField, string> = {
+    captureModeCopy: "Copy selection",
+    captureModeSave: "Save selection",
+    captureModeCopyAndSave: "Copy & Save selection",
+  };
+  for (const candidate of captureModeShortcutFields) {
+    if (
+      candidate !== field
+      && settings.shortcuts[candidate].toUpperCase() === value.toUpperCase()
+    ) {
+      return `That key is already used by ${labels[candidate]}. Choose another key.`;
+    }
+  }
+  return null;
+}
+
+export function parsePersistedSnaphubSettings(value: unknown): SnaphubSettings | null {
+  const migrated = migratePersistedCaptureModeShortcuts(value);
+  const parsed = snaphubSettingsSchema.safeParse(migrated);
+  return parsed.success ? parsed.data : null;
+}
+
 function readSettings(): SnaphubSettings {
   const raw = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
   if (raw === null) return defaultSnaphubSettings;
   try {
-    const value: unknown = JSON.parse(raw);
-    const parsed = snaphubSettingsSchema.safeParse(value);
-    return parsed.success ? migrateCaptureModeShortcuts(parsed.data) : defaultSnaphubSettings;
+    return parsePersistedSnaphubSettings(JSON.parse(raw)) ?? defaultSnaphubSettings;
   } catch {
     return defaultSnaphubSettings;
   }
 }
 
-function migrateCaptureModeShortcuts(settings: SnaphubSettings): SnaphubSettings {
-  const copyShortcut = settings.shortcuts.captureModeCopy === "Enter" ? "C" : settings.shortcuts.captureModeCopy;
-  const saveShortcut = ["Ctrl S", "Ctrl+S"].includes(settings.shortcuts.captureModeSave)
-    ? "S"
-    : settings.shortcuts.captureModeSave;
-  if (copyShortcut === settings.shortcuts.captureModeCopy && saveShortcut === settings.shortcuts.captureModeSave) return settings;
+function migratePersistedCaptureModeShortcuts(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const persistedShortcuts = isRecord(value.shortcuts) ? value.shortcuts : {};
+  const candidates: Partial<Record<CaptureModeShortcutField, string>> = {};
+  const used = new Set<string>();
+
+  for (const field of captureModeShortcutFields) {
+    const persistedValue = persistedShortcuts[field];
+    if (typeof persistedValue !== "string" || !/^[A-Za-z0-9]$/.test(persistedValue)) continue;
+    const normalized = persistedValue.toUpperCase();
+    if (used.has(normalized)) continue;
+    candidates[field] = normalized;
+    used.add(normalized);
+  }
+
+  for (const field of captureModeShortcutFields) {
+    if (candidates[field] !== undefined) continue;
+    const replacement = captureModeShortcutFallbacks.find((key) => !used.has(key));
+    if (replacement === undefined) return value;
+    candidates[field] = replacement;
+    used.add(replacement);
+  }
+  const captureModeCopy = candidates.captureModeCopy;
+  const captureModeSave = candidates.captureModeSave;
+  const captureModeCopyAndSave = candidates.captureModeCopyAndSave;
+  if (
+    captureModeCopy === undefined
+    || captureModeSave === undefined
+    || captureModeCopyAndSave === undefined
+  ) return value;
+
   return {
-    ...settings,
+    ...value,
     shortcuts: {
-      ...settings.shortcuts,
-      captureModeCopy: copyShortcut,
-      captureModeSave: saveShortcut,
+      ...persistedShortcuts,
+      captureModeCopy,
+      captureModeSave,
+      captureModeCopyAndSave,
     },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 let cachedRaw: string | null = null;

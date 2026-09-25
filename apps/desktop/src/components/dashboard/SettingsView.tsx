@@ -18,6 +18,7 @@ import {
 } from "../icons";
 import { useEffect, useId, useRef, useState } from "react";
 import {
+  captureModeShortcutConflict,
   defaultOnScreenSettings,
   defaultSnaphubSettings,
   onScreenToolIds,
@@ -95,6 +96,33 @@ export function SettingsView(): React.JSX.Element {
         return;
       }
       if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
+      if (isCaptureModeShortcutField(activeShortcut)) {
+        if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return;
+        const value = event.key.length === 1 ? event.key.toUpperCase() : "";
+        setRecordingShortcut(null);
+        if (!/^[A-Z0-9]$/.test(value)) {
+          setShortcutMessage("Use one letter or number without modifiers.");
+          return;
+        }
+        const conflict = captureModeShortcutConflict(
+          activeShortcut,
+          value,
+          settings,
+        );
+        if (conflict !== null) {
+          setShortcutMessage(conflict);
+          return;
+        }
+        updateSettings({
+          ...settings,
+          shortcuts: {
+            ...settings.shortcuts,
+            [activeShortcut]: value,
+          },
+        });
+        setShortcutMessage("Shortcut saved");
+        return;
+      }
       const value = formatShortcut(event);
       setRecordingShortcut(null);
       setShortcutMessage(null);
@@ -170,6 +198,13 @@ export function SettingsView(): React.JSX.Element {
   async function resetShortcut(field: ShortcutField): Promise<void> {
     setRecordingShortcut(null);
     const defaultValue = defaultSnaphubSettings.shortcuts[field];
+    if (isCaptureModeShortcutField(field)) {
+      const conflict = captureModeShortcutConflict(field, defaultValue, settings);
+      if (conflict !== null) {
+        setShortcutMessage(conflict);
+        return;
+      }
+    }
     if (isTauri()) {
       try {
         const registered = await registerShortcuts({
@@ -198,6 +233,7 @@ export function SettingsView(): React.JSX.Element {
       recordToggle: "Start recording",
       captureModeCopy: "Copy selection",
       captureModeSave: "Save selection",
+      captureModeCopyAndSave: "Copy & Save selection",
     };
     setShortcutMessage(`${labels[field]} shortcut reset`);
   }
@@ -366,8 +402,9 @@ export function SettingsView(): React.JSX.Element {
                <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">While in capture mode</p>
                <p className="mt-0.5 text-[12px] text-stone-500 dark:text-stone-400">Single keys work only after a region is selected. They never change your global shortcuts.</p>
              </div>
-             <ShortcutRow label="Copy selection" description="Copy the edited capture and exit" value={settings.shortcuts.captureModeCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopy} recording={recordingShortcut === "captureModeCopy"} onRecord={() => setRecordingShortcut("captureModeCopy")} onReset={() => void resetShortcut("captureModeCopy")} />
-             <ShortcutRow label="Save selection" description="Save the edited capture and exit" value={settings.shortcuts.captureModeSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeSave} recording={recordingShortcut === "captureModeSave"} onRecord={() => setRecordingShortcut("captureModeSave")} onReset={() => void resetShortcut("captureModeSave")} />
+              <ShortcutRow label="Copy selection" description="Copy the edited capture and exit" value={settings.shortcuts.captureModeCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopy} recording={recordingShortcut === "captureModeCopy"} onRecord={() => setRecordingShortcut("captureModeCopy")} onReset={() => void resetShortcut("captureModeCopy")} />
+              <ShortcutRow label="Copy & Save selection" description="Copy and save the edited capture, then exit" value={settings.shortcuts.captureModeCopyAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopyAndSave} recording={recordingShortcut === "captureModeCopyAndSave"} onRecord={() => setRecordingShortcut("captureModeCopyAndSave")} onReset={() => void resetShortcut("captureModeCopyAndSave")} />
+              <ShortcutRow label="Save selection" description="Save the edited capture and exit" value={settings.shortcuts.captureModeSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeSave} recording={recordingShortcut === "captureModeSave"} onRecord={() => setRecordingShortcut("captureModeSave")} onReset={() => void resetShortcut("captureModeSave")} />
            </div>
            {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[12px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
           <SectionReset onClick={() => void resetShortcuts()} />
@@ -599,6 +636,14 @@ function ShortcutRow({ label, description, value, defaultValue, recording, onRec
 
 type InlineResetButtonProps = { label: string; disabled: boolean; onClick: () => void };
 function InlineResetButton({ label, disabled, onClick }: InlineResetButtonProps): React.JSX.Element { return <button aria-label={label} className="flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-stone-400 outline-none transition hover:bg-stone-100 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-500 dark:hover:bg-white/7 dark:hover:text-stone-200 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent" disabled={disabled} title={label} type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset</button>; }
+
+function isCaptureModeShortcutField(
+  field: ShortcutField,
+): field is "captureModeCopy" | "captureModeSave" | "captureModeCopyAndSave" {
+  return field === "captureModeCopy"
+    || field === "captureModeSave"
+    || field === "captureModeCopyAndSave";
+}
 
 function formatShortcut(event: KeyboardEvent): string { const parts: string[] = []; if (event.ctrlKey) parts.push("Ctrl"); if (event.altKey) parts.push("Alt"); if (event.shiftKey) parts.push("Shift"); if (event.metaKey) parts.push("Meta"); const key = event.key.length === 1 ? event.key.toUpperCase() : event.key; parts.push(key); return parts.join("+"); }
 

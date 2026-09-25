@@ -35,10 +35,32 @@ const backendSessionSchema = captureSessionSchema.omit({ snapshotUrl: true }).ex
 });
 const onScreenSessionSchema = z.object({ display: displaySchema });
 
-const completionResultSchema = z.object({
-  action: completionActionSchema,
-  outputPath: z.string().nullable(),
-});
+export const completionResultSchema = z
+  .discriminatedUnion("status", [
+    z.object({
+      action: completionActionSchema,
+      cleanupWarning: z.string().nullable(),
+      diagnostic: z.null(),
+      outputPath: z.string().nullable(),
+      status: z.literal("completed"),
+    }),
+    z.object({
+      action: z.literal("copy-and-save"),
+      cleanupWarning: z.null(),
+      diagnostic: z.string().min(1),
+      outputPath: z.null(),
+      status: z.literal("save-pending"),
+    }),
+  ])
+  .superRefine((result, context) => {
+    if (result.status === "completed" && result.action === "copy-and-save" && result.outputPath === null) {
+      context.addIssue({
+        code: "custom",
+        message: "A completed Copy & Save action requires an output path",
+        path: ["outputPath"],
+      });
+    }
+  });
 
 const registeredGlobalShortcutsSchema = z.object({
   capture: z.string().min(1),
@@ -134,11 +156,19 @@ export async function completeCapture(
   selection: Rect,
   scene: AnnotationScene,
 ): Promise<CompletionResult> {
-  if (!isTauri()) return { action, outputPath: action === "save" ? "Demo/Capkit.png" : null };
+  if (!isTauri()) {
+    return createDemoCompletionResult(action);
+  }
 
   const raw: unknown = await invoke("complete_capture", {
     request: { action, sessionId, selection, scene },
   });
+  return completionResultSchema.parse(raw);
+}
+
+export async function retryCaptureSave(sessionId: string): Promise<CompletionResult> {
+  if (!isTauri()) return createDemoCompletionResult("copy-and-save");
+  const raw: unknown = await invoke("retry_capture_save", { sessionId });
   return completionResultSchema.parse(raw);
 }
 
@@ -185,7 +215,7 @@ export async function completeScrollingCapture(
   sessionId: string,
   outputPath: string,
 ): Promise<CompletionResult> {
-  if (!isTauri()) return { action, outputPath: null };
+  if (!isTauri()) return createDemoCompletionResult(action);
   const raw: unknown = await invoke("complete_scrolling_capture", {
     action,
     sessionId,
@@ -374,6 +404,17 @@ function preloadImage(source: string): Promise<void> {
     };
     image.src = source;
   });
+}
+
+function createDemoCompletionResult(action: CompletionAction): CompletionResult {
+  return {
+    action,
+    cleanupWarning: null,
+    diagnostic: null,
+    outputPath:
+      action === "save" || action === "copy-and-save" ? "Demo/Capkit.png" : null,
+    status: "completed",
+  };
 }
 
 function createDemoSession(): CaptureSession {

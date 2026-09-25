@@ -28,7 +28,7 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 ## Adaptive toolbars
 
 - Default to an annotation bar and a completion bar on separate available edges.
-- Copy, Save, and Pin form a vertical rail attached to the nearest free side of the selection; Escape replaces a visible cancel button.
+- Copy, Copy & Save, Save, and Pin form a vertical rail attached to the nearest free side of the selection; Escape replaces a visible cancel button.
 - The capture toolbar supports two persisted layouts. **Individual** renders each enabled tool as its own slot. **Group** renders each non-empty Settings row as one slot; tools in rows are enabled, unassigned tools are disabled, row order is submenu order, and the first tool is both the visible icon and default click action.
 - Select is always the first fixed recovery tool and cannot be configured away. Group rows may be added or removed, and tool pills can be reordered within or across rows. Settings also provides keyboard alternatives for reorder, cross-row movement, enable, and disable.
 - Hovering a group morphs a compact popover beside its icon; clicking is not required to discover variants. It opens below by default, flips above when bottom space is insufficient, and horizontally clamps to the capture viewport. Tool variants always appear before the separator, with colors, size, and other contextual properties afterward. A short pointer bridge delay keeps the menu stable across the gap; both the hover indicator and the complete contextual rail glide horizontally between slots instead of jumping or remounting.
@@ -78,11 +78,13 @@ Annotations are non-destructive scene objects until export. Tool defaults rememb
 - Counter increments automatically and allows an explicit starting value.
 - Blur and pixelation render live against the frozen source while drawing; blackout remains visibly opaque. Final export still performs permanent Rust-side rasterization, and the UI must clearly distinguish secure pixelation/blackout from visual blur.
 - Undo/redo covers annotations, transforms, selection changes, and properties.
-- While a region is selected, configurable single-key actions (default `C` to copy and `S` to save) complete the capture and return to the tray. Text fields consume those keys normally.
+- While a region is selected, configurable unmodified single-key actions (default `C` to copy, `A` to copy and save, and `S` to save) complete the capture and return to the tray. The three keys remain distinct case-insensitively; text fields consume them normally, and scrolling capture does not run selected-region completion shortcuts.
 
 ## Completion
 
 - `Copy` rasterizes and writes the image to the clipboard.
+- `Copy & Save` rasterizes once, writes that same raster to the clipboard first, then atomically saves it to the configured folder. It applies only to the standard selected-region overlay.
+- If Copy & Save reaches the clipboard but not the file, the overlay keeps the selected scene and rendered raster, explains the partial success, and offers a save-only retry that cannot rewrite the clipboard.
 - `Save` writes atomically to the configured folder using the naming policy.
 - `Save As` invokes the native picker.
 - `Pin` creates an always-on-top image and closes capture mode.
@@ -128,6 +130,6 @@ Target hover uses cached windows and optional Windows UI Automation rectangles. 
 - The window may only become visible after the frozen snapshot has been validated, preloaded, and committed to the overlay.
 - No fullscreen idle, loading, preview, or error screen is permitted.
 - `Esc` from any screenshot state must discard the temporary capture, force-hide the entire surface, and immediately return CapKit to its normal tray-only mode, even when session creation is incomplete or failed.
-- Export, scrolling stitch, and permission failures retain recoverable session state.
-- Retrying does not duplicate saves or clipboard writes.
+- Export, scrolling stitch, and permission failures retain recoverable session state. A Copy & Save file failure after a successful clipboard write is explicitly a save-pending state and retains only the raster needed for save-only retry.
+- Retrying does not duplicate saves or clipboard writes. Cancellation serializes with native output work, and responses from a closed or replaced capture session cannot mutate newer UI state.
 - Errors contain a human action and a diagnostic code suitable for logs.

@@ -33,7 +33,7 @@ The OS webview is created for active UI and destroyed or hidden out of the resid
 
 ## State machine
 
-`Idle -> Triggered -> SnapshotReady -> Selecting -> Editing -> Exporting -> Completed | Cancelled | Failed`
+`Idle -> Triggered -> SnapshotReady -> Selecting -> Editing -> Exporting | SavePending -> Completed | Cancelled | Failed`
 
 Transitions are explicit and validated. Terminal states release capture windows, image buffers, hooks, and temporary files before returning to `Idle`.
 
@@ -71,12 +71,12 @@ The versioned annotation scene uses discriminated unions. Shapes store source-sp
 
 ## Image transport
 
-Do not send large captures as JSON or base64. A session registers an in-memory raster resource with an opaque identifier and exposes it through a scoped custom protocol. The webview renders that resource while commands exchange small typed metadata. Export returns an opaque result identifier or writes directly through the Rust backend.
+Do not send large captures as JSON or base64. A session registers an in-memory raster resource with an opaque identifier and exposes it through a scoped custom protocol. The webview renders that resource while commands exchange small typed metadata. Export returns an opaque result identifier or writes directly through the Rust backend. Selected-region Copy & Save renders one native `RgbaImage`, passes that same value to the clipboard and atomic PNG writer, and retains it in native session state only when a save-only retry is required.
 
 ## Storage
 
 - Pinned windows load plain `index.html`, route by their native `pin-*` window label, and resolve their image through an in-memory native registry; filesystem paths are never transported as application-URL query strings.
-Phase 1 stores settings and user-requested exports only. A small native storage preference persists the default save directory so resident shortcut workflows do not depend on a running WebView. Toolbar Save, scrolling Save, pinned-image Save, and Capture & save all resolve unique PNG filenames through this same service. The dashboard enumerates the configured directory only when opened or when a native save event arrives, and generates bounded thumbnails under the temporary CapKit directory; it does not poll or create a database. Temporary session resources are memory-backed where possible and deleted on terminal state. The later full local library will use SQLite metadata while originals remain normal files.
+Phase 1 stores settings and user-requested exports only. A small native storage preference persists the default save directory so resident shortcut workflows do not depend on a running WebView. Selected-region Copy & Save, Toolbar Save, scrolling Save, pinned-image Save, and direct Capture & save all resolve collision-safe PNG filenames through this same service. The selected-region service serializes completion and cancellation per session, removes failed partial files, and retains a copied raster only across an explicit save-pending retry. The dashboard enumerates the configured directory only when opened or when a native save event arrives, and generates bounded thumbnails under the temporary CapKit directory; it does not poll or create a database. Temporary session resources are memory-backed where possible and deleted on terminal state. The later full local library will use SQLite metadata while originals remain normal files.
 
 The WebView bundles Caveat Variable for inline annotation editing, while Rust embeds the matching OFL-licensed TTF at compile time so native Copy, Save, and Pin exports do not depend on a user-installed font. Dashboard windows remain hidden through lazy frontend bootstrap and invoke a native ready command after their first styled frame.
 

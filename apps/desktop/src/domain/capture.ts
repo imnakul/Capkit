@@ -55,7 +55,13 @@ export const detectedTargetSchema = z.object({
 
 export type DetectedTarget = z.infer<typeof detectedTargetSchema>;
 
-export const completionActionSchema = z.enum(["copy", "save", "save-as", "pin"]);
+export const completionActionSchema = z.enum([
+  "copy",
+  "copy-and-save",
+  "save",
+  "save-as",
+  "pin",
+]);
 export type CompletionAction = z.infer<typeof completionActionSchema>;
 
 export const scrollingCaptureResultSchema = z.object({

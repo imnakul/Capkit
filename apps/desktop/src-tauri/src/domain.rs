@@ -182,9 +182,17 @@ pub struct CompletionRequest {
 #[serde(rename_all = "kebab-case")]
 pub enum CompletionAction {
     Copy,
+    CopyAndSave,
     Save,
     SaveAs,
     Pin,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompletionStatus {
+    Completed,
+    SavePending,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +200,9 @@ pub enum CompletionAction {
 pub struct CompletionResult {
     pub action: CompletionAction,
     pub output_path: Option<String>,
+    pub status: CompletionStatus,
+    pub diagnostic: Option<String>,
+    pub cleanup_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

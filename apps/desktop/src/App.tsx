@@ -41,6 +41,7 @@ import {
   listTargets,
   listenForCaptureRequest,
   requestCapture,
+  retryCaptureSave,
   showCaptureSurface,
 } from "./lib/tauri";
 
@@ -48,6 +49,11 @@ type Interaction =
   | { kind: "select"; start: Point; candidate: Rect | null }
   | { kind: "move"; start: Point; initial: Rect }
   | { kind: "resize"; start: Point; initial: Rect; handle: ResizeHandle };
+
+type SelectedCompletionState =
+  | { phase: "idle"; message: string }
+  | { phase: "working"; message: string }
+  | { phase: "save-pending"; diagnostic: string };
 
 const viewportBounds = (): Rect => ({
   x: 0,
@@ -64,6 +70,10 @@ export function App(): React.JSX.Element {
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [busy, setBusy] = useState(false);
+  const [completionState, setCompletionState] = useState<SelectedCompletionState>({
+    phase: "idle",
+    message: "",
+  });
   const [hoverTarget, setHoverTarget] = useState<DetectedTarget | null>(null);
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
@@ -80,6 +90,9 @@ export function App(): React.JSX.Element {
   const pendingSelection = useRef<Rect | null>(null);
   const selectionFrameRequest = useRef<number | null>(null);
   const activationState = useRef<"idle" | "preparing" | "active">("idle");
+  const completionInFlight = useRef(false);
+  const sessionGeneration = useRef(0);
+  const activeSessionId = useRef<string | null>(null);
   const settingsRef = useRef(settings);
 
   useEffect(() => {
@@ -100,19 +113,40 @@ export function App(): React.JSX.Element {
       });
   }, [session, settings.detection.uiRegions]);
 
+  function clearCaptureUi(): void {
+    activationState.current = "idle";
+    activeSessionId.current = null;
+    completionInFlight.current = false;
+    setSession(null);
+    setSelection(null);
+    setTargets([]);
+    setHoverTarget(null);
+    setIsDraftingSelection(false);
+    setScrollingCapture(null);
+    setBusy(false);
+    setCompletionState({ phase: "idle", message: "" });
+    dispatchScene({ type: "reset" });
+  }
+
   const startSession = useCallback(async (): Promise<void> => {
     if (activationState.current !== "idle") return;
     activationState.current = "preparing";
+    sessionGeneration.current += 1;
+    completionInFlight.current = false;
+    activeSessionId.current = null;
     let preparedSession: CaptureSession | null = null;
     try {
       const next = await requestCapture();
       preparedSession = next;
       flushSync(() => {
         setSession(next);
+        activeSessionId.current = next.id;
         setSelection(null);
         setHoverTarget(null);
         setTargets([]);
         setIsDraftingSelection(false);
+        setBusy(false);
+        setCompletionState({ phase: "idle", message: "" });
         setActiveTool("select");
         setScrollingCapture(null);
         setStyle({
@@ -243,6 +277,8 @@ export function App(): React.JSX.Element {
     const target = event.target;
     if (
       busy ||
+      completionInFlight.current ||
+      completionState.phase !== "idle" ||
       event.button !== 0 ||
       (target instanceof Element && target.closest('[data-capture-interactive="true"]') !== null)
     ) {
@@ -259,7 +295,14 @@ export function App(): React.JSX.Element {
   }
 
   function handleMoveStart(event: React.PointerEvent<HTMLDivElement>): void {
-    if (activeTool !== "select" || selection === null || busy || event.button !== 0) return;
+    if (
+      activeTool !== "select"
+      || selection === null
+      || busy
+      || completionInFlight.current
+      || completionState.phase !== "idle"
+      || event.button !== 0
+    ) return;
     event.stopPropagation();
     interaction.current = { kind: "move", start: pointer(event), initial: selection };
     if ("setPointerCapture" in event.currentTarget) {
@@ -271,7 +314,13 @@ export function App(): React.JSX.Element {
     handle: ResizeHandle,
     event: React.PointerEvent<HTMLButtonElement>,
   ): void {
-    if (selection === null || busy || event.button !== 0) return;
+    if (
+      selection === null
+      || busy
+      || completionInFlight.current
+      || completionState.phase !== "idle"
+      || event.button !== 0
+    ) return;
     event.stopPropagation();
     interaction.current = { kind: "resize", start: pointer(event), initial: selection, handle };
     if ("setPointerCapture" in event.currentTarget) {
@@ -372,6 +421,7 @@ export function App(): React.JSX.Element {
   }
 
   function startScrollingCapture(): void {
+    if (completionState.phase !== "idle" || completionInFlight.current) return;
     setActiveTool("select");
     const mode = settingsRef.current.scrolling.defaultMode;
     if (mode === "choose") {
@@ -421,6 +471,7 @@ export function App(): React.JSX.Element {
   }
 
   const handleCancel = useCallback(async (): Promise<void> => {
+    sessionGeneration.current += 1;
     try {
       if (session !== null) {
         await cancelManualScrolling(session.id).catch(() => undefined);
@@ -432,44 +483,132 @@ export function App(): React.JSX.Element {
       console.error("SH-CAPTURE-UI-002", error);
     } finally {
       clearScheduledSelection();
-      activationState.current = "idle";
-      setSession(null);
-      setSelection(null);
-      setTargets([]);
-      setHoverTarget(null);
-      setIsDraftingSelection(false);
-      setScrollingCapture(null);
-      dispatchScene({ type: "reset" });
+      clearCaptureUi();
     }
   }, [session]);
 
   const handleComplete = useCallback(
     async (action: CompletionAction): Promise<void> => {
-      if (session === null || selection === null || busy) return;
-      setBusy(true);
-      setMessage(`${action === "copy" ? "Copying" : action === "pin" ? "Pinning" : "Saving"}…`);
+      if (
+        session === null
+        || selection === null
+        || busy
+        || scrollingCapture !== null
+        || completionState.phase !== "idle"
+        || completionInFlight.current
+      ) return;
+      const sessionId = session.id;
+      const generation = sessionGeneration.current;
+      const pendingMessage = action === "copy-and-save"
+        ? "Copying & saving…"
+        : action === "copy"
+          ? "Copying…"
+          : action === "pin"
+            ? "Pinning…"
+            : "Saving…";
+      completionInFlight.current = true;
+      setCompletionState({ phase: "working", message: pendingMessage });
+      setMessage(pendingMessage);
       try {
-        const result = await completeCapture(action, session.id, selection, history.present);
-        setMessage(
-          result.outputPath === null ? "Capture complete" : `Saved to ${result.outputPath}`,
+        const result = await completeCapture(
+          action,
+          sessionId,
+          selection,
+          history.present,
         );
-        // The native surface is already hidden when completion resolves. Tear
-        // down the React capture state immediately so the next shortcut cannot
-        // be swallowed by a completion animation.
-        activationState.current = "idle";
-        setSession(null);
-        setSelection(null);
-        setTargets([]);
-        setHoverTarget(null);
-        setIsDraftingSelection(false);
-        setBusy(false);
+        if (
+          activeSessionId.current !== sessionId
+          || sessionGeneration.current !== generation
+        ) return;
+        if (result.status === "save-pending") {
+          setCompletionState({
+            phase: "save-pending",
+            diagnostic: result.diagnostic,
+          });
+          setMessage("Copied, but could not save. Retry save or press Esc to cancel.");
+          return;
+        }
+        const successMessage = result.outputPath === null
+          ? "Capture complete"
+          : `Saved to ${result.outputPath}`;
+        setMessage(
+          result.cleanupWarning === null
+            ? successMessage
+            : `${successMessage} · ${result.cleanupWarning}`,
+        );
+        clearCaptureUi();
       } catch (error: unknown) {
-        setBusy(false);
-        setMessage(error instanceof Error ? error.message : "Capture could not be completed");
+        if (
+          activeSessionId.current === sessionId
+          && sessionGeneration.current === generation
+        ) {
+          const errorMessagePrefix = action === "save" || action === "save-as"
+            ? "Could not save this capture. Try again."
+            : action === "pin"
+              ? "Could not pin this capture. Try again."
+              : "Could not copy this capture. Try again.";
+          const errorMessage = `${errorMessagePrefix} ${describeInvokeError(error, "The native capture service did not return a diagnostic")}`;
+          setCompletionState({ phase: "idle", message: errorMessage });
+          setMessage(errorMessage);
+        }
+      } finally {
+        if (sessionGeneration.current === generation) {
+          completionInFlight.current = false;
+        }
       }
     },
-    [busy, history.present, selection, session],
+    [busy, completionState.phase, history.present, scrollingCapture, selection, session],
   );
+
+  const handleRetrySave = useCallback(async (): Promise<void> => {
+    if (
+      session === null
+      || completionState.phase !== "save-pending"
+      || completionInFlight.current
+    ) return;
+    const sessionId = session.id;
+    const generation = sessionGeneration.current;
+    completionInFlight.current = true;
+    setCompletionState({ phase: "working", message: "Saving…" });
+    setMessage("Saving…");
+    try {
+      const result = await retryCaptureSave(sessionId);
+      if (
+        activeSessionId.current !== sessionId
+        || sessionGeneration.current !== generation
+      ) return;
+      if (result.status === "save-pending") {
+        setCompletionState({
+          phase: "save-pending",
+          diagnostic: result.diagnostic,
+        });
+        setMessage("Copied, but could not save. Retry save or press Esc to cancel.");
+        return;
+      }
+      setMessage(
+        result.cleanupWarning === null
+          ? "Capture copied and saved"
+          : `Capture copied and saved · ${result.cleanupWarning}`,
+      );
+      clearCaptureUi();
+    } catch (error: unknown) {
+      if (
+        activeSessionId.current === sessionId
+        && sessionGeneration.current === generation
+      ) {
+        const diagnostic = describeInvokeError(
+          error,
+          "The native capture service did not return a diagnostic",
+        );
+        setCompletionState({ phase: "save-pending", diagnostic });
+        setMessage("Copied, but could not save. Retry save or press Esc to cancel.");
+      }
+    } finally {
+      if (sessionGeneration.current === generation) {
+        completionInFlight.current = false;
+      }
+    }
+  }, [completionState.phase, session]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -489,16 +628,48 @@ export function App(): React.JSX.Element {
 
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
-      if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeCopy.toUpperCase()) {
+      const hasNoModifiers = !event.ctrlKey
+        && !event.altKey
+        && !event.shiftKey
+        && !event.metaKey;
+      const selectedCompletionReady = selection !== null
+        && isUsableSelection(selection)
+        && !isDraftingSelection
+        && scrollingCapture === null
+        && !busy
+        && completionState.phase === "idle";
+      const key = event.key.toUpperCase();
+      if (
+        selectedCompletionReady
+        && hasNoModifiers
+        && key === settingsRef.current.shortcuts.captureModeCopy
+      ) {
         event.preventDefault();
         void handleComplete("copy");
-      } else if (selection !== null && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toUpperCase() === settingsRef.current.shortcuts.captureModeSave.toUpperCase()) {
+      } else if (
+        selectedCompletionReady
+        && hasNoModifiers
+        && key === settingsRef.current.shortcuts.captureModeCopyAndSave
+      ) {
+        event.preventDefault();
+        void handleComplete("copy-and-save");
+      } else if (
+        selectedCompletionReady
+        && hasNoModifiers
+        && key === settingsRef.current.shortcuts.captureModeSave
+      ) {
         event.preventDefault();
         void handleComplete("save");
-      } else if (event.key === "Enter" && selection !== null) {
+      } else if (selectedCompletionReady && event.key === "Enter") {
         event.preventDefault();
         void handleComplete("copy");
-      } else if (event.ctrlKey && event.key.toLowerCase() === "z") {
+      } else if (
+        event.ctrlKey
+        && !busy
+        && completionState.phase === "idle"
+        && scrollingCapture === null
+        && event.key.toLowerCase() === "z"
+      ) {
         event.preventDefault();
         dispatchScene({ type: event.shiftKey ? "redo" : "undo" });
       }
@@ -508,7 +679,15 @@ export function App(): React.JSX.Element {
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
     }
     return cleanupKeyboardListener;
-  }, [handleCancel, handleComplete, scrollingCapture, selection]);
+  }, [
+    busy,
+    completionState.phase,
+    handleCancel,
+    handleComplete,
+    isDraftingSelection,
+    scrollingCapture,
+    selection,
+  ]);
 
   if (session === null) {
     return <div aria-hidden="true" className="h-screen w-screen bg-transparent" />;
@@ -532,11 +711,12 @@ export function App(): React.JSX.Element {
   const actionRailY =
     selection === null
       ? 10
-      : Math.max(10, Math.min(selection.y, window.innerHeight - 150));
+      : Math.max(10, Math.min(selection.y, window.innerHeight - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
 
   return (
     <main
+      aria-busy={busy || completionState.phase === "working"}
       className="relative h-screen w-screen overflow-hidden bg-[#111310] text-stone-100 select-none"
       style={{ cursor: activeCaptureCursor }}
       onPointerDown={handleBackdropDown}
@@ -597,16 +777,23 @@ export function App(): React.JSX.Element {
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
           />
+          {completionState.phase === "idle" ? null : (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 z-20 cursor-wait bg-transparent"
+            />
+          )}
         </SelectionFrame>
       )}
 
       {selection === null || isDraftingSelection ? null : (
         <>
-          <div
-            className="absolute z-30 [&_button]:!cursor-[inherit]"
-            data-capture-interactive="true"
-            style={{ left: toolBarX, top: toolBarY }}
-          >
+          {completionState.phase === "idle" ? (
+            <div
+              className="absolute z-30 [&_button]:!cursor-[inherit]"
+              data-capture-interactive="true"
+              style={{ left: toolBarX, top: toolBarY }}
+            >
             <AnnotationToolbar
               activeTool={activeTool}
               style={style}
@@ -619,20 +806,28 @@ export function App(): React.JSX.Element {
               onStyleChange={setStyle}
               onToolChange={setActiveTool}
               onUndo={() => dispatchScene({ type: "undo" })}
-            />
-          </div>
-          <div
-            className="absolute z-30 [&_button]:!cursor-[inherit]"
-            data-capture-interactive="true"
-            style={{ left: actionRailX, top: actionRailY }}
-          >
-            <CompletionToolbar
-              busy={busy}
-              copyShortcut={settings.shortcuts.captureModeCopy}
-              saveShortcut={settings.shortcuts.captureModeSave}
-              onComplete={(action) => void handleComplete(action)}
-            />
-          </div>
+              />
+            </div>
+          ) : null}
+          {scrollingCapture === null ? (
+            <div
+              className="absolute z-30 [&_button]:!cursor-[inherit]"
+              data-capture-interactive="true"
+              style={{ left: actionRailX, top: actionRailY }}
+            >
+              <CompletionToolbar
+                copyAndSaveShortcut={settings.shortcuts.captureModeCopyAndSave}
+                copyShortcut={settings.shortcuts.captureModeCopy}
+                diagnostic={completionState.phase === "save-pending" ? completionState.diagnostic : undefined}
+                saveShortcut={settings.shortcuts.captureModeSave}
+                state={completionState.phase}
+                statusMessage={completionState.phase === "working" ? completionState.message : completionState.phase === "idle" ? completionState.message : ""}
+                statusSide={actionRailX < window.innerWidth / 2 ? "right" : "left"}
+                onComplete={(action) => void handleComplete(action)}
+                onRetrySave={() => void handleRetrySave()}
+              />
+            </div>
+          ) : null}
         </>
       )}
 

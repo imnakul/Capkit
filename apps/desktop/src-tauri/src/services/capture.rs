@@ -3,11 +3,15 @@ use std::{
     collections::HashMap,
     fs,
     hash::{DefaultHasher, Hash, Hasher},
+    mem,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Condvar, Mutex, OnceLock},
     thread,
     time::Duration,
 };
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ab_glyph::FontArc;
 use chrono::{DateTime, Local, Utc};
@@ -24,8 +28,8 @@ use uuid::Uuid;
 use crate::{
     domain::{
         Annotation, AnnotationScene, CaptureSessionDto, CompletionAction, CompletionRequest,
-        CompletionResult, DetectedTargetDto, DisplayDto, Point, Rect, SavedCaptureDto,
-        ScrollingCaptureRequest, ScrollingCaptureResult,
+        CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto, Point, Rect,
+        SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
     },
     error::SnaphubError,
     platform::{
@@ -36,16 +40,45 @@ use crate::{
 
 use super::scrolling::{frames_are_unchanged, stitch_vertical_with_metadata};
 
+enum SessionOutputState {
+    Idle,
+    Busy,
+    SavePending { image: RgbaImage },
+    Cancelling { operation_finished: bool },
+}
+
+struct SessionOutput {
+    state: Mutex<SessionOutputState>,
+    boundary: Condvar,
+}
+
+impl SessionOutput {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(SessionOutputState::Idle),
+            boundary: Condvar::new(),
+        }
+    }
+}
+
 struct CaptureAsset {
     display: DisplayDto,
     image: RgbaImage,
     scale_factor: f64,
     snapshot_path: PathBuf,
+    output: Arc<SessionOutput>,
 }
 
 struct ManualScrollingAsset {
     frames: Vec<RgbaImage>,
     output_path: Option<PathBuf>,
+}
+
+struct CompletionWork {
+    image: RgbaImage,
+    scale_factor: f64,
+    output: Arc<SessionOutput>,
+    pending_image: bool,
 }
 
 pub struct CaptureService {
@@ -58,6 +91,11 @@ pub struct CaptureService {
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
+    save_output_lock: Mutex<()>,
+    #[cfg(test)]
+    render_count: AtomicUsize,
+    #[cfg(test)]
+    operation_log: Mutex<Vec<&'static str>>,
 }
 
 impl CaptureService {
@@ -71,7 +109,19 @@ impl CaptureService {
             + PinnedWindowBackend
             + 'static,
     {
-        let save_directory = load_save_directory();
+        Self::with_save_directory(backend, load_save_directory())
+    }
+
+    fn with_save_directory<T>(backend: Arc<T>, save_directory: PathBuf) -> Self
+    where
+        T: CaptureBackend
+            + ClipboardBackend
+            + TargetDetectionBackend
+            + PermissionBackend
+            + ScrollingCaptureBackend
+            + PinnedWindowBackend
+            + 'static,
+    {
         let _ = fs::create_dir_all(&save_directory);
         Self {
             capture: backend.clone(),
@@ -83,6 +133,11 @@ impl CaptureService {
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
             save_directory: Mutex::new(save_directory),
+            save_output_lock: Mutex::new(()),
+            #[cfg(test)]
+            render_count: AtomicUsize::new(0),
+            #[cfg(test)]
+            operation_log: Mutex::new(Vec::new()),
         }
     }
 
@@ -127,6 +182,7 @@ impl CaptureService {
                 image: captured.image,
                 scale_factor,
                 snapshot_path,
+                output: Arc::new(SessionOutput::new()),
             },
         );
         Ok(dto)
@@ -148,78 +204,284 @@ impl CaptureService {
                 self.clipboard.copy_image(&captured.image)?;
                 Ok(None)
             }
-            CompletionAction::Save => {
-                let destination = self.next_save_path()?;
-                save_atomic(&captured.image, &destination)?;
-                Ok(Some(destination))
+            CompletionAction::Save => Ok(Some(self.save_new_image(&captured.image)?)),
+            CompletionAction::CopyAndSave | CompletionAction::SaveAs | CompletionAction::Pin => {
+                Err(SnaphubError::Capture(
+                    "This completion action requires the capture surface".into(),
+                ))
             }
-            CompletionAction::SaveAs | CompletionAction::Pin => Err(SnaphubError::Capture(
-                "This completion action requires the capture surface".into(),
-            )),
         }
     }
 
     pub fn complete(&self, request: &CompletionRequest) -> Result<CompletionResult, SnaphubError> {
-        let id = Uuid::parse_str(&request.session_id)
-            .map_err(|_| SnaphubError::Session("Invalid capture session".into()))?;
-        if request.scene.version != 1 {
-            return Err(SnaphubError::Session(format!(
-                "Unsupported annotation scene version {}",
-                request.scene.version
-            )));
+        let id = parse_session_id(&request.session_id)?;
+        let work = self.begin_completion(id, false)?;
+        if let Err(error) = validate_completion_request(request) {
+            self.finish_operation(&work.output, SessionOutputState::Idle);
+            return Err(error);
         }
-
-        let output = {
-            let sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
-            let asset = sessions
-                .get(&id)
-                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
-            render_output(
-                &asset.image,
+        let output = if work.pending_image {
+            work.image
+        } else {
+            match self.render_capture_output(
+                &work.image,
                 request.selection,
-                asset.scale_factor,
+                work.scale_factor,
                 &request.scene,
-            )?
+            ) {
+                Ok(output) => output,
+                Err(error) => {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
+                    return Err(error);
+                }
+            }
         };
 
         let output_path = match request.action {
             CompletionAction::Copy => {
-                self.clipboard.copy_image(&output)?;
+                self.record_operation("clipboard");
+                if let Err(error) = self.clipboard.copy_image(&output) {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
+                    return Err(error);
+                }
                 None
             }
+            CompletionAction::CopyAndSave => {
+                self.record_operation("clipboard");
+                if let Err(error) = self.clipboard.copy_image(&output) {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
+                    return Err(error);
+                }
+                match self.save_new_image(&output) {
+                    Ok(path) => Some(path.to_string_lossy().into_owned()),
+                    Err(error) => {
+                        self.finish_operation(
+                            &work.output,
+                            SessionOutputState::SavePending { image: output },
+                        );
+                        return Ok(CompletionResult {
+                            action: request.action,
+                            output_path: None,
+                            status: CompletionStatus::SavePending,
+                            diagnostic: Some(error.to_string()),
+                            cleanup_warning: None,
+                        });
+                    }
+                }
+            }
             CompletionAction::Save | CompletionAction::SaveAs => {
-                let path = self.next_save_path()?;
-                save_atomic(&output, &path)?;
-                Some(path.to_string_lossy().into_owned())
+                match self.save_new_image(&output) {
+                    Ok(path) => Some(path.to_string_lossy().into_owned()),
+                    Err(error) => {
+                        self.finish_operation(&work.output, SessionOutputState::Idle);
+                        return Err(error);
+                    }
+                }
             }
             CompletionAction::Pin => {
                 if !self.pinning.is_supported() {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
                     return Err(SnaphubError::Window(
                         "Pinned windows are unavailable".into(),
                     ));
                 }
                 let pin_directory = session_directory().join("pins");
-                fs::create_dir_all(&pin_directory).map_err(SnaphubError::export)?;
+                if let Err(error) = fs::create_dir_all(&pin_directory) {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
+                    return Err(SnaphubError::export(error));
+                }
                 let path = pin_directory.join(format!("{}.png", request.session_id));
-                output.save(&path).map_err(SnaphubError::export)?;
+                if let Err(error) = output.save(&path) {
+                    self.finish_operation(&work.output, SessionOutputState::Idle);
+                    return Err(SnaphubError::export(error));
+                }
                 Some(path.to_string_lossy().into_owned())
             }
         };
 
-        self.remove_session(id)?;
+        self.mark_committed(&work.output);
         Ok(CompletionResult {
             action: request.action,
             output_path,
+            status: CompletionStatus::Completed,
+            diagnostic: None,
+            cleanup_warning: None,
         })
     }
 
-    pub fn cancel(&self, session_id: &str) -> Result<(), SnaphubError> {
-        let id = Uuid::parse_str(session_id)
-            .map_err(|_| SnaphubError::Session("Invalid capture session".into()))?;
+    pub fn retry_save(&self, session_id: &str) -> Result<CompletionResult, SnaphubError> {
+        let id = parse_session_id(session_id)?;
+        let work = self.begin_completion(id, true)?;
+        match self.save_new_image(&work.image) {
+            Ok(path) => {
+                self.mark_committed(&work.output);
+                Ok(CompletionResult {
+                    action: CompletionAction::CopyAndSave,
+                    output_path: Some(path.to_string_lossy().into_owned()),
+                    status: CompletionStatus::Completed,
+                    diagnostic: None,
+                    cleanup_warning: None,
+                })
+            }
+            Err(error) => {
+                self.finish_operation(
+                    &work.output,
+                    SessionOutputState::SavePending { image: work.image },
+                );
+                Ok(CompletionResult {
+                    action: CompletionAction::CopyAndSave,
+                    output_path: None,
+                    status: CompletionStatus::SavePending,
+                    diagnostic: Some(error.to_string()),
+                    cleanup_warning: None,
+                })
+            }
+        }
+    }
+
+    pub fn finalize_committed(&self, session_id: &str) -> Result<(), SnaphubError> {
+        let id = parse_session_id(session_id)?;
         self.remove_session(id)
+    }
+
+    pub fn cancel(&self, session_id: &str) -> Result<(), SnaphubError> {
+        let id = parse_session_id(session_id)?;
+        let output = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+            sessions
+                .get(&id)
+                .map(|asset| asset.output.clone())
+                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?
+        };
+        let mut state = output
+            .state
+            .lock()
+            .map_err(|_| SnaphubError::Session("Capture output state is unavailable".into()))?;
+        loop {
+            match &*state {
+                SessionOutputState::Cancelling { operation_finished } if *operation_finished => {
+                    break;
+                }
+                SessionOutputState::Cancelling { .. } => {
+                    state = output.boundary.wait(state).map_err(|_| {
+                        SnaphubError::Session("Capture output state is unavailable".into())
+                    })?;
+                }
+                SessionOutputState::Idle | SessionOutputState::SavePending { .. } => {
+                    *state = SessionOutputState::Cancelling {
+                        operation_finished: true,
+                    };
+                    break;
+                }
+                SessionOutputState::Busy => {
+                    *state = SessionOutputState::Cancelling {
+                        operation_finished: false,
+                    };
+                    state = output.boundary.wait(state).map_err(|_| {
+                        SnaphubError::Session("Capture output state is unavailable".into())
+                    })?;
+                }
+            }
+        }
+        drop(state);
+        self.remove_session(id)
+    }
+
+    fn begin_completion(&self, id: Uuid, retry: bool) -> Result<CompletionWork, SnaphubError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+        let asset = sessions
+            .get(&id)
+            .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
+        let output = asset.output.clone();
+        let scale_factor = asset.scale_factor;
+        let mut state = output
+            .state
+            .lock()
+            .map_err(|_| SnaphubError::Session("Capture output state is unavailable".into()))?;
+        let image = if retry {
+            match mem::replace(&mut *state, SessionOutputState::Busy) {
+                SessionOutputState::SavePending { image } => image,
+                previous => {
+                    *state = previous;
+                    return Err(SnaphubError::Session(
+                        "This capture has no copied output waiting to save".into(),
+                    ));
+                }
+            }
+        } else {
+            if !matches!(&*state, SessionOutputState::Idle) {
+                return Err(SnaphubError::Session(
+                    "Capture completion is already in progress".into(),
+                ));
+            }
+            *state = SessionOutputState::Busy;
+            asset.image.clone()
+        };
+        drop(state);
+        drop(sessions);
+        Ok(CompletionWork {
+            image,
+            scale_factor,
+            output,
+            pending_image: retry,
+        })
+    }
+
+    fn finish_operation(&self, output: &SessionOutput, next: SessionOutputState) {
+        if let Ok(mut state) = output.state.lock() {
+            *state = match &*state {
+                SessionOutputState::Cancelling { .. } => SessionOutputState::Cancelling {
+                    operation_finished: true,
+                },
+                _ => next,
+            };
+            output.boundary.notify_all();
+        }
+    }
+
+    fn mark_committed(&self, output: &SessionOutput) {
+        if let Ok(mut state) = output.state.lock()
+            && !matches!(&*state, SessionOutputState::Cancelling { .. })
+        {
+            *state = SessionOutputState::Busy;
+        }
+    }
+
+    fn render_capture_output(
+        &self,
+        source: &RgbaImage,
+        selection: Rect,
+        scale_factor: f64,
+        scene: &AnnotationScene,
+    ) -> Result<RgbaImage, SnaphubError> {
+        #[cfg(test)]
+        self.render_count.fetch_add(1, Ordering::SeqCst);
+        self.record_operation("render");
+        render_output(source, selection, scale_factor, scene)
+    }
+
+    fn record_operation(&self, _operation: &'static str) {
+        #[cfg(test)]
+        if let Ok(mut operations) = self.operation_log.lock() {
+            operations.push(_operation);
+        }
+    }
+
+    fn save_new_image(&self, image: &RgbaImage) -> Result<PathBuf, SnaphubError> {
+        let _guard = self
+            .save_output_lock
+            .lock()
+            .map_err(|_| SnaphubError::Export("Save location is unavailable".into()))?;
+        self.record_operation("save");
+        let destination = self.next_save_path()?;
+        save_atomic(image, &destination)?;
+        Ok(destination)
     }
 
     pub fn detect_targets(
@@ -358,9 +620,7 @@ impl CaptureService {
         let image = image::open(path)
             .map_err(SnaphubError::export)?
             .into_rgba8();
-        let destination = self.next_save_path()?;
-        save_atomic(&image, &destination)?;
-        Ok(destination)
+        self.save_new_image(&image)
     }
 
     pub fn save_directory(&self) -> Result<PathBuf, SnaphubError> {
@@ -473,10 +733,22 @@ impl CaptureService {
     fn next_save_path(&self) -> Result<PathBuf, SnaphubError> {
         let directory = self.save_directory()?;
         fs::create_dir_all(&directory).map_err(SnaphubError::export)?;
-        Ok(directory.join(format!(
-            "CapKit_{}.png",
-            Local::now().format("%Y-%m-%d_%H-%M-%S-%3f")
-        )))
+        let stem = format!("CapKit_{}", Local::now().format("%Y-%m-%d_%H-%M-%S-%3f"));
+        for suffix in 0..10_000_u32 {
+            let file_name = if suffix == 0 {
+                format!("{stem}.png")
+            } else {
+                format!("{stem}-{suffix}.png")
+            };
+            let candidate = directory.join(file_name);
+            let partial = candidate.with_extension("png.partial");
+            if !candidate.exists() && !partial.exists() {
+                return Ok(candidate);
+            }
+        }
+        Err(SnaphubError::Export(
+            "A unique capture filename could not be allocated".into(),
+        ))
     }
 
     fn remove_session(&self, id: Uuid) -> Result<(), SnaphubError> {
@@ -490,10 +762,14 @@ impl CaptureService {
             .lock()
             .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?
             .remove(&id);
-        if let Some(asset) = asset
-            && let Some(directory) = asset.snapshot_path.parent()
-        {
-            let _ = fs::remove_dir_all(directory);
+        if let Some(asset) = asset {
+            if let Ok(mut state) = asset.output.state.lock() {
+                *state = SessionOutputState::Idle;
+                asset.output.boundary.notify_all();
+            }
+            if let Some(directory) = asset.snapshot_path.parent() {
+                let _ = fs::remove_dir_all(directory);
+            }
         }
         Ok(())
     }
@@ -559,12 +835,55 @@ impl CaptureService {
     }
 }
 
+impl Drop for CaptureService {
+    fn drop(&mut self) {
+        if let Ok(manual) = self.manual_scrolling.get_mut() {
+            for (_, asset) in manual.drain() {
+                if let Some(path) = asset.output_path {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+        if let Ok(sessions) = self.sessions.get_mut() {
+            for (_, asset) in sessions.drain() {
+                if let Some(directory) = asset.snapshot_path.parent() {
+                    let _ = fs::remove_dir_all(directory);
+                }
+            }
+        }
+    }
+}
+
 fn target_area(target: &DetectedTargetDto) -> f64 {
     target.bounds.width * target.bounds.height
 }
 
 fn parse_session_id(session_id: &str) -> Result<Uuid, SnaphubError> {
     Uuid::parse_str(session_id).map_err(|_| SnaphubError::Session("Invalid capture session".into()))
+}
+
+fn validate_completion_request(request: &CompletionRequest) -> Result<(), SnaphubError> {
+    if request.scene.version != 1 {
+        return Err(SnaphubError::Session(format!(
+            "Unsupported annotation scene version {}",
+            request.scene.version
+        )));
+    }
+    let selection = request.selection;
+    if !selection.x.is_finite()
+        || !selection.y.is_finite()
+        || !selection.width.is_finite()
+        || !selection.height.is_finite()
+        || selection.x < 0.0
+        || selection.y < 0.0
+        || selection.width <= 0.0
+        || selection.height <= 0.0
+    {
+        return Err(SnaphubError::Session(
+            "A positive selection inside the display is required".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn render_output(
@@ -945,10 +1264,14 @@ fn previous_default_save_directory() -> PathBuf {
 
 fn save_atomic(image: &RgbaImage, destination: &Path) -> Result<(), SnaphubError> {
     let temporary = destination.with_extension("png.partial");
-    image
+    let result = image
         .save_with_format(&temporary, image::ImageFormat::Png)
-        .map_err(SnaphubError::export)?;
-    fs::rename(&temporary, destination).map_err(SnaphubError::export)
+        .map_err(SnaphubError::export)
+        .and_then(|()| fs::rename(&temporary, destination).map_err(SnaphubError::export));
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
 fn session_directory() -> PathBuf {
@@ -1011,7 +1334,195 @@ fn non_negative_i32(value: f64) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+
     use super::*;
+    use crate::platform::CapturedDisplay;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("capkit-{label}-{}", Uuid::new_v4()));
+            fs::create_dir_all(&path).expect("test directory should be created");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct FakeBackend {
+        source: RgbaImage,
+        copied: Mutex<Option<RgbaImage>>,
+        clipboard_calls: AtomicUsize,
+        fail_clipboard: AtomicBool,
+        clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
+        clipboard_release: Mutex<Option<mpsc::Receiver<()>>>,
+    }
+
+    impl FakeBackend {
+        fn new() -> Self {
+            Self {
+                source: RgbaImage::from_pixel(20, 20, Rgba([240, 241, 237, 255])),
+                copied: Mutex::new(None),
+                clipboard_calls: AtomicUsize::new(0),
+                fail_clipboard: AtomicBool::new(false),
+                clipboard_entered: Mutex::new(None),
+                clipboard_release: Mutex::new(None),
+            }
+        }
+
+        fn block_next_clipboard(&self, entered: mpsc::Sender<()>, release: mpsc::Receiver<()>) {
+            *self.clipboard_entered.lock().unwrap() = Some(entered);
+            *self.clipboard_release.lock().unwrap() = Some(release);
+        }
+    }
+
+    impl CaptureBackend for FakeBackend {
+        fn capture_display_at_point(&self, _point: Point) -> Result<CapturedDisplay, SnaphubError> {
+            Ok(CapturedDisplay {
+                display: DisplayDto {
+                    id: "fake-display".into(),
+                    name: "Fake display".into(),
+                    bounds: Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 10.0,
+                        height: 10.0,
+                    },
+                    scale_factor: 2.0,
+                    is_primary: true,
+                },
+                image: self.source.clone(),
+                color_space: "srgb",
+            })
+        }
+    }
+
+    impl ClipboardBackend for FakeBackend {
+        fn copy_image(&self, image: &RgbaImage) -> Result<(), SnaphubError> {
+            self.clipboard_calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(entered) = self.clipboard_entered.lock().unwrap().take() {
+                let _ = entered.send(());
+            }
+            if let Some(release) = self.clipboard_release.lock().unwrap().take() {
+                let _ = release.recv();
+            }
+            if self.fail_clipboard.load(Ordering::SeqCst) {
+                return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
+            }
+            *self.copied.lock().unwrap() = Some(image.clone());
+            Ok(())
+        }
+    }
+
+    impl TargetDetectionBackend for FakeBackend {
+        fn begin_session(&self) -> Result<(), SnaphubError> {
+            Ok(())
+        }
+
+        fn targets(&self) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
+            Ok(Vec::new())
+        }
+
+        fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
+            Ok(None)
+        }
+    }
+
+    impl PermissionBackend for FakeBackend {
+        fn can_capture(&self) -> Result<bool, SnaphubError> {
+            Ok(true)
+        }
+    }
+
+    impl ScrollingCaptureBackend for FakeBackend {
+        fn is_supported(&self) -> bool {
+            false
+        }
+
+        fn scroll_vertical(&self, _point: Point, _wheel_steps: i32) -> Result<(), SnaphubError> {
+            Ok(())
+        }
+    }
+
+    impl PinnedWindowBackend for FakeBackend {
+        fn is_supported(&self) -> bool {
+            false
+        }
+    }
+
+    fn request_for(session_id: &str) -> CompletionRequest {
+        CompletionRequest {
+            action: CompletionAction::CopyAndSave,
+            session_id: session_id.into(),
+            selection: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 5.0,
+                height: 5.0,
+            },
+            scene: AnnotationScene {
+                version: 1,
+                elements: vec![Annotation::Blackout {
+                    id: "redaction".into(),
+                    opacity: 1.0,
+                    bounds: Rect {
+                        x: 2.0,
+                        y: 2.0,
+                        width: 2.0,
+                        height: 2.0,
+                    },
+                    intensity: 1.0,
+                }],
+            },
+        }
+    }
+
+    fn begin_session(service: &CaptureService) -> String {
+        service
+            .begin(Point { x: 5.0, y: 5.0 })
+            .expect("capture should begin")
+            .id
+    }
+
+    fn set_test_save_directory(service: &CaptureService, path: &Path) {
+        *service.save_directory.lock().unwrap() = path.to_path_buf();
+    }
+
+    fn operation_log(service: &CaptureService) -> Vec<&'static str> {
+        service.operation_log.lock().unwrap().clone()
+    }
+
+    fn png_files(directory: &Path) -> Vec<PathBuf> {
+        fs::read_dir(directory)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| path.extension().is_some_and(|value| value == "png"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn has_partial_file(directory: &Path) -> bool {
+        fs::read_dir(directory).is_ok_and(|entries| {
+            entries.filter_map(Result::ok).any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".png.partial")
+            })
+        })
+    }
 
     #[test]
     fn default_save_directory_uses_capkit_folder() {
@@ -1072,5 +1583,263 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn copy_and_save_renders_once_and_saves_clipboard_pixels() {
+        let directory = TestDirectory::new("copy-save");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let result = service
+            .complete(&request_for(&session_id))
+            .expect("combined completion should succeed");
+        assert!(matches!(result.status, CompletionStatus::Completed));
+        assert!(matches!(result.action, CompletionAction::CopyAndSave));
+        let output_path = PathBuf::from(
+            result
+                .output_path
+                .expect("combined completion saves a file"),
+        );
+        let saved = image::open(&output_path)
+            .expect("saved PNG should decode")
+            .into_rgba8();
+        let clipboard = backend
+            .copied
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("clipboard should contain the rendered image");
+        assert_eq!(saved, clipboard);
+        assert_eq!(saved.dimensions(), (10, 10));
+        assert_eq!(saved.get_pixel(4, 4), &Rgba([8, 9, 8, 255]));
+        assert_eq!(service.render_count.load(Ordering::SeqCst), 1);
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(operation_log(&service), ["render", "clipboard", "save"]);
+        assert!(!has_partial_file(&directory.0));
+        service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn save_failure_retries_only_the_retained_raster() {
+        let directory = TestDirectory::new("save-retry");
+        let blocked = directory.0.join("blocked");
+        fs::write(&blocked, b"not a directory").unwrap();
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), blocked.clone());
+        let session_id = begin_session(&service);
+        let first = service
+            .complete(&request_for(&session_id))
+            .expect("copy should succeed before save failure");
+        assert!(matches!(first.status, CompletionStatus::SavePending));
+        assert!(first.output_path.is_none());
+        assert!(
+            first
+                .diagnostic
+                .is_some_and(|value| value.contains("SH-EXPORT-001"))
+        );
+        assert!(png_files(&blocked).is_empty());
+        assert!(!has_partial_file(&blocked));
+
+        let repeated = service
+            .retry_save(&session_id)
+            .expect("a failed retry returns a typed partial result");
+        assert!(matches!(repeated.status, CompletionStatus::SavePending));
+        assert_eq!(service.render_count.load(Ordering::SeqCst), 1);
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 1);
+
+        set_test_save_directory(&service, &directory.0);
+        let retried = service
+            .retry_save(&session_id)
+            .expect("save retry should succeed");
+        assert!(matches!(retried.status, CompletionStatus::Completed));
+        assert_eq!(service.render_count.load(Ordering::SeqCst), 1);
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            operation_log(&service),
+            ["render", "clipboard", "save", "save", "save"]
+        );
+        let output_path = PathBuf::from(retried.output_path.unwrap());
+        let saved = image::open(&output_path).unwrap().into_rgba8();
+        assert_eq!(saved, backend.copied.lock().unwrap().clone().unwrap());
+        assert_eq!(png_files(&directory.0).len(), 1);
+        assert!(!has_partial_file(&directory.0));
+        service.finalize_committed(&session_id).unwrap();
+        assert!(service.retry_save(&Uuid::new_v4().to_string()).is_err());
+    }
+
+    #[test]
+    fn clipboard_failure_preserves_a_retryable_session_without_saving() {
+        let directory = TestDirectory::new("clipboard-failure");
+        let backend = Arc::new(FakeBackend::new());
+        backend.fail_clipboard.store(true, Ordering::SeqCst);
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let request = request_for(&session_id);
+        let error = service.complete(&request).unwrap_err();
+        assert!(error.to_string().contains("SH-CLIPBOARD-001"));
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(operation_log(&service), ["render", "clipboard"]);
+        assert!(png_files(&directory.0).is_empty());
+        backend.fail_clipboard.store(false, Ordering::SeqCst);
+        service
+            .complete(&request)
+            .expect("session remains retryable");
+        service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn render_failure_causes_no_clipboard_or_save_side_effect() {
+        let directory = TestDirectory::new("render-failure");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let mut invalid = request_for(&session_id);
+        invalid.selection.width = 20.0;
+        let error = service.complete(&invalid).unwrap_err();
+        assert!(error.to_string().contains("SH-EXPORT-001"));
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(operation_log(&service), ["render"]);
+        assert!(png_files(&directory.0).is_empty());
+        service.complete(&request_for(&session_id)).unwrap();
+        service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn concurrent_duplicate_completion_is_rejected_by_the_session_guard() {
+        let directory = TestDirectory::new("duplicate");
+        let backend = Arc::new(FakeBackend::new());
+        let (entered_sender, entered_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        backend.block_next_clipboard(entered_sender, release_receiver);
+        let service = Arc::new(CaptureService::with_save_directory(
+            backend.clone(),
+            directory.0.clone(),
+        ));
+        let session_id = begin_session(&service);
+        let request = request_for(&session_id);
+        let worker_service = service.clone();
+        let worker_request = request.clone();
+        let first = thread::spawn(move || worker_service.complete(&worker_request));
+        entered_receiver.recv().unwrap();
+        assert!(service.complete(&request).is_err());
+        release_sender.send(()).unwrap();
+        assert!(matches!(
+            first.join().unwrap().unwrap().status,
+            CompletionStatus::Completed
+        ));
+        service.finalize_committed(&session_id).unwrap();
+        assert_eq!(service.render_count.load(Ordering::SeqCst), 1);
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(png_files(&directory.0).len(), 1);
+    }
+
+    #[test]
+    fn cancellation_waits_for_a_committed_output_and_keeps_the_file() {
+        let directory = TestDirectory::new("cancel-commit");
+        let backend = Arc::new(FakeBackend::new());
+        let (entered_sender, entered_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        backend.block_next_clipboard(entered_sender, release_receiver);
+        let service = Arc::new(CaptureService::with_save_directory(
+            backend.clone(),
+            directory.0.clone(),
+        ));
+        let session_id = begin_session(&service);
+        let request = request_for(&session_id);
+        let completion_service = service.clone();
+        let completion_request = request.clone();
+        let completion = thread::spawn(move || completion_service.complete(&completion_request));
+        entered_receiver.recv().unwrap();
+        let output = service
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&Uuid::parse_str(&session_id).unwrap())
+            .unwrap()
+            .output
+            .clone();
+        let cancel_service = service.clone();
+        let cancel_session = session_id.clone();
+        let (cancelled_sender, cancelled_receiver) = mpsc::channel();
+        let cancellation = thread::spawn(move || {
+            cancel_service.cancel(&cancel_session).unwrap();
+            cancelled_sender.send(()).unwrap();
+        });
+        for _ in 0..100 {
+            if matches!(
+                &*output.state.lock().unwrap(),
+                SessionOutputState::Cancelling { .. }
+            ) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(matches!(
+            &*output.state.lock().unwrap(),
+            SessionOutputState::Cancelling { .. }
+        ));
+        assert!(
+            cancelled_receiver
+                .recv_timeout(Duration::from_millis(20))
+                .is_err()
+        );
+        release_sender.send(()).unwrap();
+        assert!(matches!(
+            completion.join().unwrap().unwrap().status,
+            CompletionStatus::Completed
+        ));
+        service.finalize_committed(&session_id).unwrap();
+        cancelled_receiver.recv().unwrap();
+        cancellation.join().unwrap();
+        assert!(
+            !service
+                .sessions
+                .lock()
+                .unwrap()
+                .contains_key(&Uuid::parse_str(&session_id).unwrap())
+        );
+        assert_eq!(png_files(&directory.0).len(), 1);
+    }
+
+    #[test]
+    fn atomic_save_removes_partial_output_when_rename_fails() {
+        let directory = TestDirectory::new("partial-cleanup");
+        let destination = directory.0.join("blocked.png");
+        fs::create_dir(&destination).unwrap();
+        let result = save_atomic(
+            &RgbaImage::from_pixel(2, 2, Rgba([1, 2, 3, 255])),
+            &destination,
+        );
+        assert!(result.is_err());
+        assert!(!directory.0.join("blocked.png.partial").exists());
+    }
+
+    #[test]
+    fn concurrent_saves_allocate_distinct_filenames() {
+        let directory = TestDirectory::new("filename-collision");
+        let backend = Arc::new(FakeBackend::new());
+        let service = Arc::new(CaptureService::with_save_directory(
+            backend.clone(),
+            directory.0.clone(),
+        ));
+        let first_session = begin_session(&service);
+        let second_session = begin_session(&service);
+        let mut first = request_for(&first_session);
+        let mut second = request_for(&second_session);
+        first.action = CompletionAction::Save;
+        second.action = CompletionAction::Save;
+        let first_service = service.clone();
+        let first_request = first.clone();
+        let first_worker = thread::spawn(move || first_service.complete(&first_request));
+        let second_service = service.clone();
+        let second_request = second.clone();
+        let second_worker = thread::spawn(move || second_service.complete(&second_request));
+        first_worker.join().unwrap().unwrap();
+        second_worker.join().unwrap().unwrap();
+        service.finalize_committed(&first_session).unwrap();
+        service.finalize_committed(&second_session).unwrap();
+        assert_eq!(png_files(&directory.0).len(), 2);
+        assert!(!has_partial_file(&directory.0));
     }
 }

@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-25 - Selected-region Copy & Save owns one raster and a save-only retry
+
+- **Confirmed:** Copy & Save is available only in the standard selected-region overlay. It renders the immutable capture and current scene once, copies that `RgbaImage` first, then atomically saves the same raster as PNG in the configured folder.
+- **Confirmed:** The native session owns a per-session in-flight state and a transient save-pending raster. A post-copy file failure cannot roll back the clipboard, so the UI reports that exact partial outcome and retries only the file write from the retained raster.
+- **Confirmed:** A committed PNG emits `snaphub://capture-saved` exactly once after rename. A post-commit hide or cleanup failure is returned as a warning on the completed result and cannot expose a duplicate-saving retry.
+- **Confirmed:** Frontend and native synchronous guards reject pointer/click duplication, repeated shortcuts, and concurrent IPC. Escape serializes at the native boundary, while stale renderer responses are ignored by session generation.
+- **Provisional:** Physical mixed-DPI, screen-reader, real clipboard, unwritable-folder, and packaged-window acceptance remain manual validation; deterministic service and component tests cover the same state and ordering contracts without OS side effects.
+
 ## 2026-07-27 - Studio ships as a Canvas2D compositor, not a second export path
 
 - **Confirmed:** `src/domain/scene.ts` adds a structured `BackgroundPaint` form (solid/linear/radial/layers/image) alongside Showcase's CSS-string `backgroundValue`, so the same background can be rendered on the DOM (Showcase) and on a canvas (Studio) without a second implementation drifting from the first. `paintToCss` round-trips every built-in preset byte-for-byte, verified against `showcase.test.ts`'s existing string assertions.

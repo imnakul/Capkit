@@ -2,7 +2,7 @@
 
 CapKit is the lightweight desktop toolkit to capture, record, and showcase. It is Windows-first, designed for cross-platform rollout, and built around one uninterrupted workflow:
 
-`Shortcut -> select on a frozen screen -> edit in place -> copy, save, or pin -> return to work`
+`Shortcut -> select on a frozen screen -> edit in place -> copy, save, copy and save, or pin -> return to work`
 
 The product is intentionally narrower and calmer than automation-heavy capture suites. Phase 1 focuses on fast capture, contextual quick editing, pinning, and scrolling capture without opening a conventional editor window.
 

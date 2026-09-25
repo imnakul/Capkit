@@ -97,6 +97,7 @@ describe("DashboardPanel", () => {
     expect(screen.getByRole("button", { name: "Reset Start capture shortcut" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset Capture & copy shortcut" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset Capture & save shortcut" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reset Copy & Save selection shortcut" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reset Toggle on-screen toolbar shortcut" })).toBeDisabled();
   });
 
@@ -194,6 +195,48 @@ describe("DashboardPanel", () => {
 
     expect(configureShortcut).toHaveTextContent("Alt+Shift+S");
     expect(configureShortcut).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("records and resets the Copy & Save selection shortcut", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const configure = screen.getByRole("button", { name: "Configure Copy & Save selection" });
+    expect(configure).toHaveTextContent("A");
+    fireEvent.click(configure);
+    fireEvent.keyDown(window, { key: "d" });
+    expect(configure).toHaveTextContent("D");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset Copy & Save selection shortcut" }));
+    expect(configure).toHaveTextContent("A");
+  });
+
+  it("rejects a completion shortcut collision and preserves prior values", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const configure = screen.getByRole("button", { name: "Configure Copy & Save selection" });
+    fireEvent.click(configure);
+    fireEvent.keyDown(window, { key: "c" });
+
+    expect(configure).toHaveTextContent("A");
+    expect(configure).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByText("That key is already used by Copy selection. Choose another key."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Configure Copy selection" })).toHaveTextContent("C");
+  });
+
+  it("keeps recording a completion shortcut while a modifier is held", () => {
+    render(<DashboardPanel />);
+    openSettings();
+
+    const configure = screen.getByRole("button", { name: "Configure Copy & Save selection" });
+    fireEvent.click(configure);
+    fireEvent.keyDown(window, { key: "a", ctrlKey: true });
+
+    expect(configure).toHaveTextContent("Press shortcut…");
+    expect(configure).toHaveAttribute("aria-pressed", "true");
   });
 });
 

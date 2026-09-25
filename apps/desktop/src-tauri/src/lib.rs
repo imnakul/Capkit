@@ -13,9 +13,9 @@ use std::{
 
 use domain::{
     AudioDeviceDto, CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult,
-    DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto, OnScreenSessionDto, Point,
-    RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect,
-    SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+    CompletionStatus, DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto,
+    OnScreenSessionDto, Point, RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto,
+    RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
 };
 use error::SnaphubError;
 use platform::xcap_backend::XcapPlatformBackend;
@@ -23,7 +23,8 @@ use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -238,36 +239,99 @@ fn dismiss_on_screen(app: AppHandle) -> Result<(), SnaphubError> {
 
 #[tauri::command]
 async fn complete_capture(
+    window: WebviewWindow,
     app: AppHandle,
-    service: tauri::State<'_, CaptureService>,
     request: CompletionRequest,
 ) -> Result<CompletionResult, SnaphubError> {
-    let result = service.complete(&request)?;
-    // The modal capture surface must always disappear before a pin window is attempted. A pin
-    // construction error must never strand an input-blocking fullscreen overlay.
-    hide_capture_window(&app)?;
-    if matches!(request.action, domain::CompletionAction::Pin)
-        && let Some(path) = result.output_path.as_deref()
-    {
-        create_pin_window(&app, path)?;
+    ensure_capture_window(&window)?;
+    let session_id = request.session_id.clone();
+    let action = request.action;
+    let worker_app = app.clone();
+    let mut result = tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<CaptureService>().complete(&request)
+    })
+    .await
+    .map_err(|error| {
+        SnaphubError::Capture(format!("Capture completion worker failed: {error}"))
+    })??;
+    if matches!(result.status, CompletionStatus::SavePending) {
+        return Ok(result);
     }
     if matches!(
-        request.action,
-        domain::CompletionAction::Save | domain::CompletionAction::SaveAs
+        action,
+        CompletionAction::Save | CompletionAction::SaveAs | CompletionAction::CopyAndSave
     ) && let Some(path) = result.output_path.as_deref()
     {
         emit_capture_saved(&app, path);
     }
+    let hide_warning = hide_capture_window_with_recovery(&app);
+    let pin_result = if matches!(action, CompletionAction::Pin)
+        && let Some(path) = result.output_path.as_deref()
+    {
+        create_pin_window(&app, path)
+    } else {
+        Ok(())
+    };
+    apply_post_commit_cleanup(
+        &mut result,
+        hide_warning,
+        app.state::<CaptureService>()
+            .finalize_committed(&session_id),
+    );
+    pin_result?;
     Ok(result)
 }
 
 #[tauri::command]
-fn cancel_capture(
+async fn retry_capture_save(
+    window: WebviewWindow,
     app: AppHandle,
-    service: tauri::State<'_, CaptureService>,
+    session_id: String,
+) -> Result<CompletionResult, SnaphubError> {
+    ensure_capture_window(&window)?;
+    let worker_app = app.clone();
+    let worker_session_id = session_id.clone();
+    let mut result = tauri::async_runtime::spawn_blocking(move || {
+        worker_app
+            .state::<CaptureService>()
+            .retry_save(&worker_session_id)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(format!("Capture save worker failed: {error}")))??;
+    if matches!(result.status, CompletionStatus::SavePending) {
+        return Ok(result);
+    }
+    if let Some(path) = result.output_path.as_deref() {
+        emit_capture_saved(&app, path);
+    }
+    let hide_warning = hide_capture_window_with_recovery(&app);
+    apply_post_commit_cleanup(
+        &mut result,
+        hide_warning,
+        app.state::<CaptureService>()
+            .finalize_committed(&session_id),
+    );
+    Ok(result)
+}
+
+// Cancellation can wait for completion cleanup, which must run on the main thread.
+#[tauri::command]
+async fn cancel_capture(
+    window: WebviewWindow,
+    app: AppHandle,
     session_id: String,
 ) -> Result<(), SnaphubError> {
-    let cleanup_result = service.cancel(&session_id);
+    ensure_capture_window(&window)?;
+    let worker_app = app.clone();
+    let worker_session_id = session_id.clone();
+    let cleanup_result = tauri::async_runtime::spawn_blocking(move || {
+        worker_app
+            .state::<CaptureService>()
+            .cancel(&worker_session_id)
+    })
+    .await
+    .map_err(|error| SnaphubError::Session(format!("Capture cancellation worker failed: {error}")))
+    .and_then(|result| result);
     let hide_result = hide_capture_window(&app);
     hide_result.and(cleanup_result)
 }
@@ -598,6 +662,11 @@ async fn complete_scrolling_capture(
                 .to_string_lossy()
                 .into_owned(),
         ),
+        CompletionAction::CopyAndSave => {
+            return Err(SnaphubError::Capture(
+                "Copy & Save is available only for a selected region".into(),
+            ));
+        }
         CompletionAction::Pin => {
             let image = image::open(&source)
                 .map_err(SnaphubError::export)?
@@ -624,6 +693,9 @@ async fn complete_scrolling_capture(
     Ok(CompletionResult {
         action,
         output_path: result_path,
+        status: CompletionStatus::Completed,
+        diagnostic: None,
+        cleanup_warning: None,
     })
 }
 
@@ -766,6 +838,60 @@ fn run_quick_capture(app: &AppHandle, action: CompletionAction) {
 
 fn emit_capture_saved(app: &AppHandle, path: &str) {
     let _ = app.emit("snaphub://capture-saved", path);
+}
+
+fn ensure_capture_window(window: &WebviewWindow) -> Result<(), SnaphubError> {
+    if window.label() == "capture" {
+        Ok(())
+    } else {
+        Err(SnaphubError::Session(
+            "Only the active capture window can complete this session".into(),
+        ))
+    }
+}
+
+fn apply_post_commit_cleanup(
+    result: &mut CompletionResult,
+    hide_warning: Option<String>,
+    finalize_result: Result<(), SnaphubError>,
+) {
+    if let Some(warning) = merge_cleanup_warning(result.cleanup_warning.take(), hide_warning) {
+        result.cleanup_warning = Some(warning);
+    }
+    if let Err(error) = finalize_result
+        && let Some(warning) =
+            merge_cleanup_warning(result.cleanup_warning.take(), Some(error.to_string()))
+    {
+        result.cleanup_warning = Some(warning);
+    }
+}
+
+fn merge_cleanup_warning(current: Option<String>, next: Option<String>) -> Option<String> {
+    match (current, next) {
+        (Some(current), Some(next)) => Some(format!("{current}; {next}")),
+        (Some(current), None) => Some(current),
+        (None, Some(next)) => Some(next),
+        (None, None) => None,
+    }
+}
+
+fn hide_capture_window_with_recovery(app: &AppHandle) -> Option<String> {
+    match hide_capture_window(app) {
+        Ok(()) => None,
+        Err(primary) => {
+            let recovered = if let Some(window) = app.get_webview_window("capture") {
+                window
+                    .hide()
+                    .map_err(|error| SnaphubError::Window(error.to_string()))
+            } else {
+                Err(SnaphubError::Window("Capture window is unavailable".into()))
+            };
+            match recovered {
+                Ok(()) => Some(primary.to_string()),
+                Err(force) => Some(format!("{primary}; forced hide failed: {force}")),
+            }
+        }
+    }
 }
 
 fn hide_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
@@ -1510,6 +1636,7 @@ pub fn run() {
             on_screen_ready,
             dismiss_on_screen,
             complete_capture,
+            retry_capture_save,
             cancel_capture,
             dismiss_capture,
             pinned_capture_path,
@@ -1744,5 +1871,35 @@ mod shortcut_tests {
             parsed.action_for(&parsed.on_screen_toggle),
             Some(ShortcutAction::OnScreen)
         ));
+    }
+
+    #[test]
+    fn post_commit_cleanup_never_reclassifies_a_committed_save() {
+        let mut result = CompletionResult {
+            action: CompletionAction::CopyAndSave,
+            output_path: Some("C:/Captures/CapKit.png".into()),
+            status: CompletionStatus::Completed,
+            diagnostic: None,
+            cleanup_warning: None,
+        };
+
+        apply_post_commit_cleanup(
+            &mut result,
+            Some("SH-WINDOW-001: animated hide failed".into()),
+            Err(SnaphubError::Session(
+                "SH-SESSION-001: cleanup failed".into(),
+            )),
+        );
+
+        assert!(matches!(result.status, CompletionStatus::Completed));
+        assert_eq!(
+            result.output_path.as_deref(),
+            Some("C:/Captures/CapKit.png")
+        );
+        assert!(
+            result
+                .cleanup_warning
+                .is_some_and(|warning| warning.contains("SH-WINDOW-001"))
+        );
     }
 }
