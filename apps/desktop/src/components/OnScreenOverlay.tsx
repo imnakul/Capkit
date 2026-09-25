@@ -633,6 +633,9 @@ export function OnScreenOverlay(): React.JSX.Element {
     return error === null ? <div className="size-full bg-transparent" /> : <div className="size-full bg-transparent" role="alert">{error}</div>;
   }
 
+  const displayWidth = session.display.bounds.width;
+  const displayHeight = session.display.bounds.height;
+
   return (
     <div
       aria-label="On-screen annotation surface"
@@ -649,17 +652,32 @@ export function OnScreenOverlay(): React.JSX.Element {
       {backgroundMode === "frozen" && snapshotUrl !== null ? (
         <img
           alt=""
-          className="pointer-events-none fixed inset-0 size-full select-none object-fill"
+          className="pointer-events-none fixed select-none object-fill"
           data-testid="on-screen-frozen-background"
           draggable={false}
           src={snapshotUrl}
+          style={{ height: displayHeight, left: 0, top: 0, width: displayWidth }}
         />
       ) : null}
       {activeTool === "spotlight" ? (
         <Spotlight cursor={cursorPoint} radius={settings.onScreen.spotlightSize} />
       ) : null}
-      <BlurLayer objects={blurObjects} snapshotUrl={snapshotUrl} />
-      {draft?.kind === "blur" && snapshotUrl !== null ? <BlurRegion draft key={draft.id} object={draft} snapshotUrl={snapshotUrl} /> : null}
+      <BlurLayer
+        displayHeight={displayHeight}
+        displayWidth={displayWidth}
+        objects={blurObjects}
+        snapshotUrl={snapshotUrl}
+      />
+      {draft?.kind === "blur" && snapshotUrl !== null ? (
+        <BlurRegion
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
+          draft
+          key={draft.id}
+          object={draft}
+          snapshotUrl={snapshotUrl}
+        />
+      ) : null}
       <AnnotationLayer
         objects={history.present}
         draft={draft}
@@ -675,7 +693,14 @@ export function OnScreenOverlay(): React.JSX.Element {
         onFadeEnd={removeFadingTrail}
         pointerHeld={pointerHeld}
       />
-      {activeTool === "magnifier" && snapshotUrl !== null ? <Magnifier cursor={cursorPoint} snapshotUrl={snapshotUrl} /> : null}
+      {activeTool === "magnifier" && snapshotUrl !== null ? (
+        <Magnifier
+          cursor={cursorPoint}
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
+          snapshotUrl={snapshotUrl}
+        />
+      ) : null}
       {activeTool === "text" && textEditor === null ? (
         <div
           className="pointer-events-none fixed bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-md border border-white/12 bg-[#171815]/98 px-3 py-1.5 text-[12px] font-semibold text-stone-200 shadow-xl"
@@ -995,9 +1020,13 @@ function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.El
 }
 
 const BlurLayer = memo(function BlurLayer({
+  displayHeight,
+  displayWidth,
   objects,
   snapshotUrl,
 }: {
+  displayHeight: number;
+  displayWidth: number;
   objects: readonly OnScreenShapeObject[];
   snapshotUrl: string | null;
 }): React.JSX.Element | null {
@@ -1006,6 +1035,8 @@ const BlurLayer = memo(function BlurLayer({
     <>
       {objects.map((object) => (
         <BlurRegion
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
           key={object.id}
           object={object}
           snapshotUrl={snapshotUrl}
@@ -1015,19 +1046,60 @@ const BlurLayer = memo(function BlurLayer({
   );
 });
 
-function BlurRegion({ object, snapshotUrl, draft = false }: { object: OnScreenShapeObject; snapshotUrl: string; draft?: boolean }): React.JSX.Element {
+function BlurRegion({
+  displayHeight,
+  displayWidth,
+  object,
+  snapshotUrl,
+  draft = false,
+}: {
+  displayHeight: number;
+  displayWidth: number;
+  object: OnScreenShapeObject;
+  snapshotUrl: string;
+  draft?: boolean;
+}): React.JSX.Element {
   const rect = normalizedObjectRect(object);
-  return <div aria-hidden="true" className={`pointer-events-none fixed z-10 overflow-hidden ${draft ? "border-2 border-dashed border-white/85" : "border border-white/25"}`} style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}><img alt="" className="pointer-events-none absolute max-w-none object-fill" src={snapshotUrl} style={{ filter: "blur(13px)", height: window.innerHeight, left: -rect.x, top: -rect.y, width: window.innerWidth }} /></div>;
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none fixed z-10 overflow-hidden ${draft ? "border-2 border-dashed border-white/85" : "border border-white/25"}`}
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    >
+      <img
+        alt=""
+        className="pointer-events-none absolute max-w-none object-fill"
+        src={snapshotUrl}
+        style={{
+          filter: "blur(13px)",
+          height: displayHeight,
+          left: -rect.x,
+          top: -rect.y,
+          width: displayWidth,
+        }}
+      />
+    </div>
+  );
 }
 
 function Spotlight({ cursor, radius }: { cursor: Point; radius: number }): React.JSX.Element {
   return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-10 rounded-full shadow-[0_0_0_9999px_rgba(0,0,0,0.68)] will-change-transform" data-testid="on-screen-spotlight" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }} />;
 }
 
-function Magnifier({ cursor, snapshotUrl }: { cursor: Point; snapshotUrl: string }): React.JSX.Element {
+function Magnifier({
+  cursor,
+  displayHeight,
+  displayWidth,
+  snapshotUrl,
+}: {
+  cursor: Point;
+  displayHeight: number;
+  displayWidth: number;
+  snapshotUrl: string;
+}): React.JSX.Element {
   const radius = 92;
   const zoom = 1.85;
-  return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-30 overflow-hidden rounded-full border-4 border-white/90 bg-black shadow-[0_16px_52px_rgba(0,0,0,0.48)] ring-2 ring-black/45 will-change-transform" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }}><img alt="" className="pointer-events-none absolute left-0 top-0 max-w-none object-fill will-change-transform" src={snapshotUrl} style={{ height: window.innerHeight * zoom, transform: `translate3d(${String(radius - cursor.x * zoom)}px, ${String(radius - cursor.y * zoom)}px, 0)`, width: window.innerWidth * zoom }} /><span className="absolute bottom-2 right-3 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-white">1.85×</span></div>;
+  return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-30 overflow-hidden rounded-full border-4 border-white/90 bg-black shadow-[0_16px_52px_rgba(0,0,0,0.48)] ring-2 ring-black/45 will-change-transform" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }}><img alt="" className="pointer-events-none absolute left-0 top-0 max-w-none object-fill will-change-transform" src={snapshotUrl} style={{ height: displayHeight * zoom, transform: `translate3d(${String(radius - cursor.x * zoom)}px, ${String(radius - cursor.y * zoom)}px, 0)`, width: displayWidth * zoom }} /><span className="absolute bottom-2 right-3 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-white">1.85×</span></div>;
 }
 
 const OnScreenDock = memo(function OnScreenDock({

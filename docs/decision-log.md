@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-26 - Monitor-sized overlays avoid full-screen treatment
+
+- **Confirmed:** Windows treats a borderless overlay whose physical rectangle exactly matches a monitor as a full-screen application; on the user's 120 Hz display this capped the capture cursor at 60 Hz. The `a49f689` release build became smooth when its height was extended one physical pixel, with the frozen snapshot still aligned.
+- **Confirmed:** Add one physical pixel at the bottom when that edge is free; if another monitor touches the bottom, use the right edge when free; when both edges touch another monitor, keep the exact size.
+- **Rejected:** Re-enabling the undecorated shadow, because Windows insets the client area and shifts the frozen image; extending the top or left edge, because that changes the window origin and coordinate alignment.
+- **Known limitation:** If adjacent monitors occupy both the bottom and right edges, the overlay remains exact-size and can still receive full-screen treatment.
+- **Rationale:** The extra pixel keeps the original monitor origin and leaves the snapshot and selection content at the exact display bounds while avoiding Windows' exact-monitor-size classification where an edge is available.
+
 ## 2026-09-26 - Capture exits hide instantly and reveal in 90 ms
 
 - **Confirmed:** Capture cancellation hides the surface before native session cleanup, avoiding a fade and keeping deletion or in-flight output work off the visible path.

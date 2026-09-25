@@ -153,6 +153,13 @@ describe("OnScreenOverlay", () => {
       "src",
       "asset://on-screen.bmp",
     );
+    expect(screen.getByTestId("on-screen-frozen-background")).toHaveStyle({
+      height: "720px",
+      left: "0px",
+      top: "0px",
+      width: "1280px",
+    });
+    expect(screen.getByTestId("on-screen-frozen-background")).not.toHaveClass("size-full");
     expect(requestOnScreenSnapshot).toHaveBeenCalledWith(false);
   });
 

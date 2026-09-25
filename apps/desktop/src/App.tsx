@@ -66,11 +66,11 @@ function isPreparingCaptureSession(
   );
 }
 
-const viewportBounds = (): Rect => ({
+const viewportBounds = (display: CaptureSession["display"] | null): Rect => ({
   x: 0,
   y: 0,
-  width: window.innerWidth,
-  height: window.innerHeight,
+  width: display?.bounds.width ?? window.innerWidth,
+  height: display?.bounds.height ?? window.innerHeight,
 });
 
 export function App(): React.JSX.Element {
@@ -273,8 +273,11 @@ export function App(): React.JSX.Element {
   }, [startSession]);
 
   const toolbarPlacement = useMemo(
-    () => (selection === null ? null : chooseToolbarPlacement(selection, viewportBounds())),
-    [selection],
+    () =>
+      selection === null
+        ? null
+        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null)),
+    [selection, session?.display],
   );
 
   function pointer(event: React.PointerEvent): Point {
@@ -437,12 +440,20 @@ export function App(): React.JSX.Element {
               x: current.initial.x + nextPoint.x - current.start.x,
               y: current.initial.y + nextPoint.y - current.start.y,
             },
-            viewportBounds(),
+            viewportBounds(session?.display ?? null),
           ),
         );
         break;
       case "resize":
-        scheduleSelection(resizeRect(current.initial, current.start, nextPoint, current.handle));
+        scheduleSelection(
+          resizeRect(
+            current.initial,
+            current.start,
+            nextPoint,
+            current.handle,
+            viewportBounds(session?.display ?? null),
+          ),
+        );
         break;
     }
   }
@@ -459,13 +470,16 @@ export function App(): React.JSX.Element {
         if (completedInteraction.kind === "select" && completedInteraction.candidate !== null) {
           setHoverTarget(null);
           setMessage("Window selected");
-          return clampRect(completedInteraction.candidate, viewportBounds());
+          return clampRect(
+            completedInteraction.candidate,
+            viewportBounds(session?.display ?? null),
+          );
         }
         setMessage("Selection is too small · drag a larger area");
         return null;
       }
       setMessage("Selection ready");
-      return clampRect(finalSelection, viewportBounds());
+      return clampRect(finalSelection, viewportBounds(session?.display ?? null));
     });
   }
 
@@ -769,25 +783,26 @@ export function App(): React.JSX.Element {
     return <div aria-hidden="true" className="h-screen w-screen bg-transparent" />;
   }
 
-  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, window.innerWidth - 430));
+  const viewport = viewportBounds(session.display);
+  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, viewport.width - 430));
   const toolBarY =
     selection === null || toolbarPlacement === null
-      ? window.innerHeight - 68
+      ? viewport.height - 68
         : toolbarPlacement.tools === "bottom"
-          ? Math.min(window.innerHeight - 64, selection.y + selection.height + 10)
+          ? Math.min(viewport.height - 64, selection.y + selection.height + 10)
           : Math.max(10, selection.y - 62);
   const actionsOnLeft =
-    selection !== null && selection.x + selection.width + 62 > window.innerWidth;
+    selection !== null && selection.x + selection.width + 62 > viewport.width;
   const actionRailX =
     selection === null
-      ? window.innerWidth - 58
+      ? viewport.width - 58
       : actionsOnLeft
         ? Math.max(10, selection.x - 58)
-        : Math.min(window.innerWidth - 54, selection.x + selection.width + 10);
+        : Math.min(viewport.width - 54, selection.x + selection.width + 10);
   const actionRailY =
     selection === null
       ? 10
-      : Math.max(10, Math.min(selection.y, window.innerHeight - 190));
+      : Math.max(10, Math.min(selection.y, viewport.height - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
 
   return (
@@ -800,7 +815,12 @@ export function App(): React.JSX.Element {
       onPointerCancel={handlePointerUp}
       onPointerUp={handlePointerUp}
     >
-      <CaptureBackdrop onReady={handleBackdropReady} snapshotUrl={session.snapshotUrl} />
+      <CaptureBackdrop
+        height={session.display.bounds.height}
+        onReady={handleBackdropReady}
+        snapshotUrl={session.snapshotUrl}
+        width={session.display.bounds.width}
+      />
 
       {selection === null && hoverTarget !== null ? (
         <div
@@ -898,7 +918,7 @@ export function App(): React.JSX.Element {
                 saveShortcut={settings.shortcuts.captureModeSave}
                 state={completionState.phase}
                 statusMessage={completionState.phase === "working" ? completionState.message : completionState.phase === "idle" ? completionState.message : ""}
-                statusSide={actionRailX < window.innerWidth / 2 ? "right" : "left"}
+                statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
               />
@@ -926,7 +946,13 @@ export function App(): React.JSX.Element {
   );
 }
 
-function resizeRect(initial: Rect, start: Point, current: Point, handle: ResizeHandle): Rect {
+function resizeRect(
+  initial: Rect,
+  start: Point,
+  current: Point,
+  handle: ResizeHandle,
+  viewport: Rect,
+): Rect {
   const dx = current.x - start.x;
   const dy = current.y - start.y;
   let left = initial.x;
@@ -946,7 +972,7 @@ function resizeRect(initial: Rect, start: Point, current: Point, handle: ResizeH
       width: Math.max(8, normalized.width),
       height: Math.max(8, normalized.height),
     },
-    viewportBounds(),
+    viewport,
   );
 }
 

@@ -78,6 +78,25 @@ function createCaptureSession(snapshotUrl = ""): CaptureSession {
   };
 }
 
+function overrideWindowViewport(width: number, height: number): () => void {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  const originalHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+  return (): void => {
+    if (originalWidth === undefined) {
+      Reflect.deleteProperty(window, "innerWidth");
+    } else {
+      Object.defineProperty(window, "innerWidth", originalWidth);
+    }
+    if (originalHeight === undefined) {
+      Reflect.deleteProperty(window, "innerHeight");
+    } else {
+      Object.defineProperty(window, "innerHeight", originalHeight);
+    }
+  };
+}
+
 let originalImageDecode: PropertyDescriptor | undefined;
 
 function mockImageDecode(decode: () => Promise<void>): ReturnType<typeof vi.fn> {
@@ -194,6 +213,49 @@ describe("App", () => {
     frames.flushNext();
 
     await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
+  });
+
+  it("clamps selection and sizes the backdrop to display bounds when the window is one pixel taller", async () => {
+    const restoreViewport = overrideWindowViewport(1280, 721);
+    mockImageDecode(() => Promise.resolve());
+    captureMocks.requestCapture.mockResolvedValueOnce(
+      createCaptureSession("asset://capture.bmp"),
+    );
+
+    try {
+      render(<App />);
+      const surface = await screen.findByRole("main");
+      const backdrop = surface.querySelector("img");
+      if (backdrop === null) throw new Error("The capture backdrop image is missing");
+      expect(backdrop).toHaveStyle({
+        height: "720px",
+        left: "0px",
+        top: "0px",
+        width: "1280px",
+      });
+
+      fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 1 });
+      fireEvent.pointerMove(surface, {
+        buttons: 1,
+        clientX: 600,
+        clientY: 721,
+        pointerId: 1,
+      });
+      fireEvent.pointerUp(surface, {
+        buttons: 0,
+        clientX: 600,
+        clientY: 721,
+        pointerId: 1,
+      });
+
+      const selection = surface.querySelector<HTMLElement>(".capture-selection-mask");
+      if (selection === null) throw new Error("The capture selection is missing");
+      const selectionBottom =
+        Number.parseFloat(selection.style.top) + Number.parseFloat(selection.style.height);
+      expect(selectionBottom).toBe(720);
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("reveals after 1500 ms when the backdrop decode never settles", async () => {

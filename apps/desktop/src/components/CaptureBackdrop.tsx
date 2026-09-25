@@ -1,11 +1,18 @@
 import { useEffect, useRef } from "react";
 
 type CaptureBackdropProps = {
+  height: number;
   onReady?: () => void;
   snapshotUrl: string;
+  width: number;
 };
 
-export function CaptureBackdrop({ onReady, snapshotUrl }: CaptureBackdropProps): React.JSX.Element {
+export function CaptureBackdrop({
+  height,
+  onReady,
+  snapshotUrl,
+  width,
+}: CaptureBackdropProps): React.JSX.Element {
   const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
@@ -46,7 +53,15 @@ export function CaptureBackdrop({ onReady, snapshotUrl }: CaptureBackdropProps):
   }, [onReady, snapshotUrl]);
 
   if (snapshotUrl !== "") {
-    return <img alt="" className="pointer-events-none absolute inset-0 size-full select-none object-fill" ref={imageRef} src={snapshotUrl} />;
+    return (
+      <img
+        alt=""
+        className="pointer-events-none absolute select-none object-fill"
+        ref={imageRef}
+        src={snapshotUrl}
+        style={{ height, left: 0, top: 0, width }}
+      />
+    );
   }
 
   return (

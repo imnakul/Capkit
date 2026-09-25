@@ -138,11 +138,9 @@ async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError
             (session.display.bounds.y * scale).round() as i32,
         ))
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let overlay_size = overlay_window_size_for_display(&app, &session.display);
     window
-        .set_size(PhysicalSize::new(
-            (session.display.bounds.width * scale).round() as u32,
-            (session.display.bounds.height * scale).round() as u32,
-        ))
+        .set_size(PhysicalSize::new(overlay_size.0, overlay_size.1))
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     Ok(session)
 }
@@ -1033,17 +1031,13 @@ fn prepare_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
     };
 
     let scale = display.scale_factor;
+    let overlay_size = overlay_window_size_for_display(app, &display);
     let positioning = window
         .set_position(PhysicalPosition::new(
             (display.bounds.x * scale).round() as i32,
             (display.bounds.y * scale).round() as i32,
         ))
-        .and_then(|_| {
-            window.set_size(PhysicalSize::new(
-                (display.bounds.width * scale).round() as u32,
-                (display.bounds.height * scale).round() as u32,
-            ))
-        });
+        .and_then(|_| window.set_size(PhysicalSize::new(overlay_size.0, overlay_size.1)));
     if let Err(error) = positioning {
         let _ = window.destroy();
         let _ = close_on_screen_mode(app);
@@ -1160,6 +1154,81 @@ fn display_center_point(display: &DisplayDto) -> Point {
         x: (display.bounds.x + display.bounds.width / 2.0) * scale,
         y: (display.bounds.y + display.bounds.height / 2.0) * scale,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PhysicalRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn physical_display_rect(display: &DisplayDto) -> PhysicalRect {
+    let scale = display.scale_factor;
+    PhysicalRect {
+        x: (display.bounds.x * scale).round() as i32,
+        y: (display.bounds.y * scale).round() as i32,
+        width: (display.bounds.width * scale).round() as u32,
+        height: (display.bounds.height * scale).round() as u32,
+    }
+}
+
+fn overlay_window_size_for_display(app: &AppHandle, display: &DisplayDto) -> (u32, u32) {
+    let monitor = physical_display_rect(display);
+    let exact_size = (monitor.width, monitor.height);
+    let Ok(monitors) = app.available_monitors() else {
+        return exact_size;
+    };
+    let monitor_rectangles = monitors
+        .iter()
+        .map(|available| PhysicalRect {
+            x: available.position().x,
+            y: available.position().y,
+            width: available.size().width,
+            height: available.size().height,
+        })
+        .collect::<Vec<_>>();
+    let Some(target_index) = monitor_rectangles
+        .iter()
+        .position(|available| *available == monitor)
+    else {
+        return exact_size;
+    };
+    let others = monitor_rectangles
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, available)| (index != target_index).then_some(available))
+        .collect::<Vec<_>>();
+    overlay_window_size(monitor, &others)
+}
+
+fn overlay_window_size(monitor: PhysicalRect, others: &[PhysicalRect]) -> (u32, u32) {
+    let monitor_left = i64::from(monitor.x);
+    let monitor_top = i64::from(monitor.y);
+    let monitor_right = monitor_left + i64::from(monitor.width);
+    let monitor_bottom = monitor_top + i64::from(monitor.height);
+    let touches_bottom = others.iter().any(|other| {
+        let other_left = i64::from(other.x);
+        let other_right = other_left + i64::from(other.width);
+        let overlaps_horizontally = monitor_left.max(other_left) < monitor_right.min(other_right);
+        i64::from(other.y) == monitor_bottom && overlaps_horizontally
+    });
+    if !touches_bottom {
+        return (monitor.width, monitor.height.saturating_add(1));
+    }
+
+    let touches_right = others.iter().any(|other| {
+        let other_top = i64::from(other.y);
+        let other_bottom = other_top + i64::from(other.height);
+        let overlaps_vertically = monitor_top.max(other_top) < monitor_bottom.min(other_bottom);
+        i64::from(other.x) == monitor_right && overlaps_vertically
+    });
+    if !touches_right {
+        return (monitor.width.saturating_add(1), monitor.height);
+    }
+
+    (monitor.width, monitor.height)
 }
 
 fn close_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
@@ -1940,6 +2009,96 @@ mod shortcut_tests {
                 y: 540.0
             }
         );
+    }
+
+    #[test]
+    fn overlay_size_extends_the_bottom_of_an_isolated_monitor() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[]), (100, 81));
+    }
+
+    #[test]
+    fn overlay_size_extends_right_when_a_monitor_is_directly_below() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let below = PhysicalRect {
+            x: 0,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[below]), (101, 80));
+    }
+
+    #[test]
+    fn overlay_size_stays_exact_when_monitors_are_below_and_right() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let below = PhysicalRect {
+            x: 0,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+        let right = PhysicalRect {
+            x: 100,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[below, right]), (100, 80));
+    }
+
+    #[test]
+    fn overlay_size_ignores_a_diagonal_monitor_below() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let diagonal = PhysicalRect {
+            x: 100,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[diagonal]), (100, 81));
+    }
+
+    #[test]
+    fn overlay_size_extends_down_when_only_a_monitor_to_the_left_touches() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let left = PhysicalRect {
+            x: -100,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[left]), (100, 81));
     }
 
     #[test]
