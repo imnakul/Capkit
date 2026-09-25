@@ -279,9 +279,12 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "Escape" });
 
     await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
-    expect(captureMocks.cancelCapture.mock.invocationCallOrder[0]).toBeLessThan(
-      captureMocks.cancelManualScrolling.mock.invocationCallOrder[0],
-    );
+    const captureCancelOrder = captureMocks.cancelCapture.mock.invocationCallOrder[0];
+    const scrollingCancelOrder = captureMocks.cancelManualScrolling.mock.invocationCallOrder[0];
+    if (captureCancelOrder === undefined || scrollingCancelOrder === undefined) {
+      throw new Error("Escape cancellation call order was not recorded");
+    }
+    expect(captureCancelOrder).toBeLessThan(scrollingCancelOrder);
   });
 
   it("creates an in-place selection and reveals quick actions", async () => {
