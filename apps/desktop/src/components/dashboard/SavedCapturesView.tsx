@@ -1,5 +1,4 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { Clock3, CloudUpload, Eye, FolderOpen, HardDrive, Images, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SavedCapture } from "../../domain/capture";
 import {
@@ -11,6 +10,15 @@ import {
   openSaveDirectory,
   openSavedCapture,
 } from "../../lib/tauri";
+import {
+  Clock as Clock3,
+  Delete as Trash2,
+  FolderOpen,
+  HardDrive,
+  Image as Images,
+  Refresh as RefreshCw,
+  View as Eye,
+} from "../icons";
 
 type LibraryState =
   | { status: "loading"; captures: readonly SavedCapture[] }
@@ -20,11 +28,10 @@ type LibraryState =
 type CaptureMenu = { capture: SavedCapture; left: number; top: number };
 
 type SavedCapturesViewProps = {
-  cloudConfigured: boolean;
-  onShowcase: () => void;
+  onShowcase: (capture?: SavedCapture) => void;
 };
 
-export function SavedCapturesView({ cloudConfigured, onShowcase }: SavedCapturesViewProps): React.JSX.Element {
+export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React.JSX.Element {
   const [directory, setDirectory] = useState("Loading save location…");
   const [library, setLibrary] = useState<LibraryState>({ status: "loading", captures: [] });
   const [menu, setMenu] = useState<CaptureMenu | null>(null);
@@ -128,9 +135,9 @@ export function SavedCapturesView({ cloudConfigured, onShowcase }: SavedCaptures
     <section aria-labelledby="saved-captures-title" className="mx-auto max-w-[1120px] px-7 pb-12 pt-7">
       <header className="flex items-end justify-between gap-6 border-b border-stone-300/80 pb-5 dark:border-white/10">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Local workspace</p>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Local workspace</p>
           <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100" id="saved-captures-title">Saved captures</h1>
-          <p className="mt-1.5 text-xs leading-5 text-stone-500 dark:text-stone-400">Only images explicitly saved by CapKit appear here. Clipboard-only captures stay private and unindexed.</p>
+          <p className="mt-1.5 text-xs leading-5 text-stone-500 dark:text-stone-400">Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.</p>
         </div>
         <button
           aria-label="Refresh saved captures"
@@ -146,15 +153,15 @@ export function SavedCapturesView({ cloudConfigured, onShowcase }: SavedCaptures
       <div className="mt-5 flex min-h-12 items-center gap-3 rounded-lg border border-stone-300/80 bg-white/65 px-3.5 dark:border-white/9 dark:bg-[#2b2c29]">
         <span className="grid size-7 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={14} /></span>
         <div className="min-w-0 flex-1">
-          <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">Saving to</p>
-          <p className="mt-0.5 truncate font-mono text-[10px] text-stone-700 dark:text-stone-300" title={directory}>{directory}</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">Saving to</p>
+          <p className="mt-0.5 truncate font-mono text-[12px] text-stone-700 dark:text-stone-300" title={directory}>{directory}</p>
         </div>
-        <span className="shrink-0 font-mono text-[10px] text-stone-400">{library.captures.length} files</span>
-        <button aria-label="Open save folder" className="flex shrink-0 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-stone-600 outline-none transition hover:border-stone-400 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={() => void openFolder()}><FolderOpen aria-hidden="true" size={12} />Open folder</button>
+        <span className="shrink-0 font-mono text-[12px] text-stone-400">{library.captures.length} files</span>
+        <button aria-label="Open save folder" className="flex shrink-0 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-400 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={() => void openFolder()}><FolderOpen aria-hidden="true" size={12} />Open folder</button>
       </div>
 
-      {library.status === "error" ? <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[11px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{library.message}</div> : null}
-      {actionError === null ? null : <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[11px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{actionError}</div>}
+      {library.status === "error" ? <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{library.message}</div> : null}
+      {actionError === null ? null : <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{actionError}</div>}
 
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
@@ -166,8 +173,7 @@ export function SavedCapturesView({ cloudConfigured, onShowcase }: SavedCaptures
       {menu === null ? null : (
         <div className="fixed z-50 w-[196px] overflow-hidden rounded-lg border border-stone-300 bg-[#f7f7f4] p-1.5 text-stone-700 shadow-[0_18px_48px_rgba(0,0,0,0.28)] dark:border-white/12 dark:bg-[#2b2c29] dark:text-stone-200" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top }}>
           <ContextAction icon={Eye} label="View" onClick={() => void viewCapture(menu.capture)} />
-          <ContextAction disabled={!cloudConfigured} icon={CloudUpload} label="Upload to Cloud" title={cloudConfigured ? "Upload this capture" : "Connect Cloud before uploading"} onClick={() => undefined} />
-          <ContextAction icon={Images} label="Showcase" onClick={() => { setMenu(null); onShowcase(); }} />
+          <ContextAction icon={Images} label="Showcase" onClick={() => { setMenu(null); onShowcase(menu.capture); }} />
           <div className="my-1 border-t border-stone-300/80 dark:border-white/9" />
           <ContextAction destructive icon={Trash2} label="Delete" onClick={() => void deleteCapture(menu.capture)} />
         </div>
@@ -189,12 +195,12 @@ function CaptureCard({ capture, onView, onContextMenu }: CaptureCardProps): Reac
         <img alt={`Saved capture ${capture.fileName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015]" loading="lazy" src={capture.thumbnailUrl} />
       </div>
       <div className="border-t border-stone-200 px-3 py-2.5 dark:border-white/8">
-        <p className="truncate text-[11px] font-semibold text-stone-800 dark:text-stone-200" title={capture.fileName}>{capture.fileName}</p>
-        <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[9px] text-stone-400 dark:text-stone-500">
+        <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-200" title={capture.fileName}>{capture.fileName}</p>
+        <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[11px] text-stone-400 dark:text-stone-500">
           <span>{capture.width} × {capture.height}</span>
           <span>{formatBytes(capture.sizeBytes)}</span>
         </div>
-        <p className="mt-1.5 flex items-center gap-1 text-[9px] text-stone-400 dark:text-stone-500"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
       </div>
     </button>
   );
@@ -202,7 +208,7 @@ function CaptureCard({ capture, onView, onContextMenu }: CaptureCardProps): Reac
 
 type ContextActionProps = { icon: typeof Eye; label: string; onClick: () => void; disabled?: boolean; destructive?: boolean; title?: string };
 function ContextAction({ icon: Icon, label, onClick, disabled = false, destructive = false, title }: ContextActionProps): React.JSX.Element {
-  return <button aria-label={label} className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[10px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-35 ${destructive ? "text-red-600 hover:bg-red-500/8 dark:text-red-300" : "hover:bg-black/5 dark:hover:bg-white/7"}`} disabled={disabled} role="menuitem" title={title} type="button" onClick={onClick}><Icon aria-hidden="true" size={13} />{label}</button>;
+  return <button aria-label={label} className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-35 ${destructive ? "text-red-600 hover:bg-red-500/8 dark:text-red-300" : "hover:bg-black/5 dark:hover:bg-white/7"}`} disabled={disabled} role="menuitem" title={title} type="button" onClick={onClick}><Icon aria-hidden="true" size={13} />{label}</button>;
 }
 
 function LoadingGrid(): React.JSX.Element {
@@ -210,7 +216,7 @@ function LoadingGrid(): React.JSX.Element {
 }
 
 function EmptyLibrary(): React.JSX.Element {
-  return <div className="mt-5 grid min-h-72 place-items-center rounded-lg border border-dashed border-stone-300 bg-white/35 text-center dark:border-white/10 dark:bg-white/[0.015]"><div><span className="mx-auto grid size-10 place-items-center rounded-lg border border-stone-300 bg-white text-stone-400 dark:border-white/10 dark:bg-[#2b2c29]"><HardDrive aria-hidden="true" size={17} /></span><h2 className="mt-3 text-sm font-semibold">No saved captures yet</h2><p className="mx-auto mt-1 max-w-xs text-[11px] leading-5 text-stone-500 dark:text-stone-400">Use Save in the capture toolbar or your Capture &amp; save shortcut. Copied screenshots will not appear here.</p></div></div>;
+  return <div className="mt-5 grid min-h-72 place-items-center rounded-lg border border-dashed border-stone-300 bg-white/35 text-center dark:border-white/10 dark:bg-white/[0.015]"><div><span className="mx-auto grid size-10 place-items-center rounded-lg border border-stone-300 bg-white text-stone-400 dark:border-white/10 dark:bg-[#2b2c29]"><HardDrive aria-hidden="true" size={17} /></span><h2 className="mt-3 text-sm font-semibold">No saved captures yet</h2><p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-stone-500 dark:text-stone-400">Use Save in the capture toolbar or your Capture &amp; save shortcut. Copied screenshots will not appear here.</p></div></div>;
 }
 
 function formatBytes(bytes: number): string {

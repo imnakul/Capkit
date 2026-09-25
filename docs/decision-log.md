@@ -1,5 +1,123 @@
 # Decision Log
 
+## 2026-09-25 - Selected-region Copy & Save owns one raster and a save-only retry
+
+- **Confirmed:** Copy & Save is available only in the standard selected-region overlay. It renders the immutable capture and current scene once, copies that `RgbaImage` first, then atomically saves the same raster as PNG in the configured folder.
+- **Confirmed:** The native session owns a per-session in-flight state and a transient save-pending raster. A post-copy file failure cannot roll back the clipboard, so the UI reports that exact partial outcome and retries only the file write from the retained raster.
+- **Confirmed:** A committed PNG emits `snaphub://capture-saved` exactly once after rename. A post-commit hide or cleanup failure is returned as a warning on the completed result and cannot expose a duplicate-saving retry.
+- **Confirmed:** Frontend and native synchronous guards reject pointer/click duplication, repeated shortcuts, and concurrent IPC. Escape serializes at the native boundary, while stale renderer responses are ignored by session generation.
+- **Provisional:** Physical mixed-DPI, screen-reader, real clipboard, unwritable-folder, and packaged-window acceptance remain manual validation; deterministic service and component tests cover the same state and ordering contracts without OS side effects.
+
+## 2026-07-27 - Studio ships as a Canvas2D compositor, not a second export path
+
+- **Confirmed:** `src/domain/scene.ts` adds a structured `BackgroundPaint` form (solid/linear/radial/layers/image) alongside Showcase's CSS-string `backgroundValue`, so the same background can be rendered on the DOM (Showcase) and on a canvas (Studio) without a second implementation drifting from the first. `paintToCss` round-trips every built-in preset byte-for-byte, verified against `showcase.test.ts`'s existing string assertions.
+- **Confirmed:** `src/lib/videoCompositor.ts`'s `paintFrame` is the *only* renderer for video: the live preview calls it every animation frame and the exporter calls it once per encoded frame. This is deliberate — a second renderer for export is exactly how "the export doesn't match the preview" bugs happen.
+- **Confirmed:** MP4 export renders through `VideoEncoder` (WebCodecs) into `mp4-muxer` (~13 KB, the only new dependency), by seeking the source `<video>` element frame-by-frame rather than playing it in real time. A long export is bounded by encode speed, not the recording's own duration, and no frame can be skipped because the machine was briefly busy.
+- **Confirmed:** GIF export uses a hand-written ~180-line GIF89a/LZW writer rather than a dependency, capped at 12 fps and 640px wide. A screen recording exported at full rate and resolution produces a file far too large to be the shareable artefact anyone asking for a GIF actually wants.
+- **Confirmed:** Zoom-on-click keyframes hold the zoom and pan between two click clusters inside 1.5 s of each other, rather than pulling out and back in. Popping in and out between nearby actions was identified as the most amateur-looking artefact an automatic zoom can produce.
+- **Confirmed:** Recording pause/resume omits paused time from the output entirely — the pacer keeps its schedule but writes nothing — rather than freezing a duplicated frame into the file.
+- **Confirmed:** The webcam preview window is excluded from screen capture the same way the recorder dock is. Without that, the camera would appear twice in an export: once live in the screen recording, once again as its own track.
+- **Measured:** Release executable grew from 10.48 MB to 10.51 MB adding pause/resume and the camera window; the full recorder-to-Studio feature set now costs 0.26 MB total against the 10.25 MB post-M0 baseline.
+- **Unresolved:** End-to-end MP4/GIF export was verified through the GIF byte format (signature, trailer, NETSCAPE2.0 loop block) and the compositor's draw logic (background-before-media ordering, cursor/camera gating), both runnable in the existing jsdom test suite. Encoding a real recording through `VideoEncoder` inside the packaged app's WebView2 has not been done — the sandboxed browser used for earlier spikes cannot dynamically import arbitrary app modules (confirmed: even already-shipped, previously-working modules fail identically), so this needs a manual pass in the built app.
+- **Rationale:** Every one of these is a case where the visually obvious approach (a second renderer, a real-time GIF, popping the zoom, freezing a duplicate frame, letting the camera preview get recorded) produces something worse than the alternative, so each is recorded rather than left implicit in the code.
+
+## 2026-07-27 - Recording lands as capture, encode, cursor, and audio
+
+- **Confirmed:** Capture uses a Windows Graphics Capture frame pool created with `CreateFreeThreaded`. The plain constructor requires a `DispatcherQueue` on the calling thread, which a worker thread does not have, and that mismatch is the usual way this integration fails.
+- **Confirmed:** A fixed-rate pacer drives the encoder rather than frame arrival. The frame pool only delivers when the screen changes, so an arrival-driven loop produces a file with no frames in it whenever the desktop is still. Repeated frames are counted and reported as a health signal, not an error.
+- **Confirmed:** The encoder declares `MFVideoFormat_ARGB32` input to match the BGRA capture texture and lets the pipeline insert a GPU video processor for the conversion to NV12. Declaring NV12 directly caused the sink writer to reject every sample.
+- **Confirmed:** A DXGI-backed media buffer reports a current length of zero until it is set from `IMF2DBuffer::GetContiguousLength`, and the sink writer rejects a zero-length sample. This is set on every frame.
+- **Confirmed:** Cursor positions are polled at 250 Hz with `GetAsyncKeyState` for button transitions. `SetWindowsHookEx(WH_MOUSE_LL)` is rejected: it runs inside every process's input path and Windows silently unhooks it on timeout, which is the usual cause of a recorder making the pointer feel laggy. No real click is short enough to be missed at 250 Hz.
+- **Confirmed:** The cursor track is recorded on every recording regardless of which editor features are enabled, because it cannot be reconstructed afterwards. The hardware cursor is excluded from the video for the same reason.
+- **Confirmed:** System audio and microphone are written as separate AAC sidecars rather than extra tracks in the MP4. Most players surface only the first audio track, and the editor has to balance the two independently. Loopback silence is zero-filled from the elapsed clock, because a loopback endpoint delivers no packets at all while the machine is quiet and the track would otherwise end short and drift.
+- **Measured:** 121 frames encoded with 0 dropped at 2560x1440; a 640x480 crop honoured exactly; 1157 cursor samples over five seconds; 82 KB of AAC for five seconds of system audio; `WDA_EXCLUDEFROMCAPTURE` accepted on a live window.
+- **Measured:** Release executable grew from 10.25 MB to 10.48 MB. The entire recorder costs 0.23 MB, against the 12-40 MB a bundled encoder would have added.
+- **Unresolved:** The dock's absence from a real recording has been verified only at the API level. A frame-by-frame check against a recording made from the shipped application is still outstanding.
+- **Rationale:** Every one of these is a case where the obvious implementation silently produces a broken file rather than an error, so each is recorded as a decision rather than left as a comment.
+
+## 2026-07-27 - Cloud is removed and the shell makes room for recording
+
+- **Confirmed:** The dashboard navigation is Dashboard, Record, Showcase, Studio, and Settings. Showcase stays image-only; Studio is the video editor, so video-specific controls have somewhere to live without diluting the image panels.
+- **Confirmed:** Record and Studio render the shared placeholder section until their milestones land.
+- **Superseded:** The 2026-07-22 navigation decision that fixed the sections as Dashboard, Cloud, Showcase, and Settings with Cloud held at `Coming Soon...`.
+- **Rejected:** Keeping an inert Cloud entry as a roadmap signal. It was a label and one permanently disabled context action with no implementation behind it, and it occupied the slot recording needs now.
+- **Rationale:** Cloud sharing remains a Phase 4 intention, but advertising it in the shell for a release it cannot appear in costs a navigation slot and sets an expectation the build does not meet.
+
+## 2026-07-27 - Recording encodes through OS codecs, not a bundled encoder
+
+- **Confirmed:** Capture runs in Rust through Windows Graphics Capture into a Media Foundation `IMFSinkWriter` with `MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS`, keeping frames on the GPU from capture to encode with no CPU-side copy.
+- **Confirmed:** Editing and export run in the frontend through WebCodecs and a Canvas2D compositor, so preview and export share one `paintFrame` implementation and cannot diverge.
+- **Confirmed:** Recording sits behind a `ScreenRecordingBackend` trait alongside the existing platform traits, so a non-Windows backend can be added without touching the editor or the UI.
+- **Rejected:** Bundling FFmpeg. Its 12-40 MB lands against the same installed-size gate that `technical-architecture.md` invokes when it requires colour and region work "without adding OpenCV-sized resident or package overhead", and x264's GPL terms attach a licence audit to a paid Store product. The OS already ships the codecs.
+- **Rejected:** MediaRecorder to WebM as a primary format. It does not open in Windows Photos, PowerPoint, or Premiere without transcoding, and offers no keyframe control or frame-accurate seeking.
+- **Confirmed:** Measured 2026-07-27 in a Chromium 148 pane: H.264 High encodes at 113 fps at 1080p, and the Canvas2D compositor exceeds 120 fps at both 1080p and 4K. The projected 1.5 MB of added install size proved pessimistic; the shipped recorder cost 0.23 MB.
+- **Unresolved:** The same WebCodecs measurement has not yet been repeated inside the app's WebView2 runtime. If `VideoEncoder` is unavailable there, export falls back to shipping composited frames over IPC into the same sink writer used for recording.
+- **Rationale:** The choice that keeps the install small is also the fastest one, because the hardware encoder and the capture surface are already in the operating system; bundling an encoder would pay tens of megabytes to be slower.
+
+## 2026-07-27 - Release builds are optimised for size
+
+- **Confirmed:** `[profile.release]` sets `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, and `strip = "symbols"`. `imageproc` drops its default `fft` and `rayon` features; only `drawing` and `rect` are used.
+- **Confirmed:** The release executable falls from 17.70 MB to 10.25 MB, and `rustfft` with its `nalgebra`/`num-complex` weight leaves the graph.
+- **Superseded in part:** The 2026-07-18 checkpoint reported a 30.36 MB executable without recording that this was a debug build; it was subsequently read as the release size. `performance-quality.md` now separates the two.
+- **Confirmed:** `image`'s `default-features = false` is still defeated by unification, but the remaining cause is `xcap`'s `image` feature, which cannot be dropped without losing `Monitor::capture_image`.
+- **Rationale:** The recorder must be designed against a truthful size baseline, and reclaiming 7.45 MB before adding a feature is cheaper than arguing about codecs afterwards.
+
+## 2026-07-25 - Presentation laser follows press-and-hold semantics
+
+- **Confirmed:** The complete presentation-laser trail remains visible while the primary pointer button is held and clears immediately as one transient layer on release or cancellation.
+- **Confirmed:** Laser samples never enter persistent drawing history and do not use per-point or expiry timers.
+- **Rationale:** A presenter expects the laser gesture to remain readable for the duration of the gesture; time-decaying segments made deliberate pointing disappear before the gesture was complete.
+
+## 2026-07-25 - Screen Draw text reliability and pointer performance
+
+- **Confirmed:** Selecting Text visibly arms placement with a “Click anywhere to type” status. The next canvas click opens a clamped, focused in-place editor; its pointer and focus events cannot re-enter the drawing surface, and each value commits at most once.
+- **Confirmed:** Raw pointer movement is coalesced to one cursor or draft render per animation frame. Near-identical presentation-pointer samples are discarded, and static annotations plus the dock are memoized away from transient cursor updates. Spotlight and Magnifier move through compositor transforms; pointer glow uses layered strokes instead of SVG filters, and the live dock avoids backdrop filtering. The original cleanup-timer decision is superseded by the press-and-hold semantics above.
+- **Rationale:** Screen Draw must make its two-step text interaction discoverable and must not reconcile the full scene for every high-frequency pointer event.
+
+## 2026-07-25 - Screen Draw background mode
+
+- **Confirmed:** Screen Draw defaults to a live transparent desktop so animations, video, progress, and application updates continue beneath annotations.
+- **Confirmed:** Settings can switch Screen Draw to a frozen frame for teaching or markup that requires a stable background.
+- **Confirmed:** Live mode keeps snapshot work out of entry. Magnifier and Blur acquire one snapshot only when first selected; frozen mode captures and preloads one frame before the overlay becomes visible and reuses it for those tools.
+- **Confirmed:** If frozen-frame acquisition fails, Screen Draw recovers to the live desktop and reports the fallback instead of leaving an opaque or unrecoverable surface.
+- **Rationale:** Presentations usually need live context, while careful annotation sometimes needs stability. Making the modes explicit preserves the fast default and gives both workflows predictable semantics.
+
+## 2026-07-25 - Hugeicons is the CapKit interface icon system
+
+- **Confirmed:** CapKit uses the free Hugeicons Stroke Rounded pack through `@hugeicons/react` and `@hugeicons/core-free-icons`; Lucide is no longer a runtime dependency.
+- **Confirmed:** Product controls resolve icons through one typed CapKit adapter with a consistent default stroke and current-color behavior.
+- **Confirmed:** Distinct actions use distinct symbols. Blur, pixelate, blackout, spotlight, curved arrow, scrolling capture, magnifier, presentation pointer, selection, and pinned-window click-through may not reuse an ambiguous generic icon.
+- **Rationale:** The larger free catalog gives compact capture and presentation toolbars more precise semantics while the central adapter preserves visual consistency and keeps icon-library details out of feature components.
+
+## 2026-07-25 - Presentation Pointer is the Screen Draw default
+
+- **Confirmed:** Screen Draw opens with Presentation Pointer selected and returns to it after Clear or recovery from a snapshot-tool failure.
+- **Rationale:** A temporary pointer is the safest presentation-first default because the initial gesture disappears automatically instead of leaving an accidental permanent annotation.
+
+## 2026-07-25 - Screen Draw toggle latency and continuity
+
+- **Confirmed:** The Screen Draw window is created on demand and revealed without first capturing or encoding the monitor.
+- **Confirmed:** Magnifier and Blur lazily acquire their shared snapshot on first use; other tools have no capture dependency.
+- **Confirmed:** Settings offers optional annotation persistence across toggle cycles. Persisted scenes are runtime-validated before rendering.
+- **Confirmed:** Undo and Redo execute on their first click, and a shared moving highlight provides continuity while hovering between tools.
+- **Rationale:** Presentation drawing is primarily a live overlay. Making every invocation pay for snapshot-only tools harmed its defining instant-toggle behavior.
+
+## 2026-07-25 - Presentation appearance belongs in Settings
+
+- **Confirmed:** The on-screen dock shows tools and history actions only; drawing color and size controls do not appear during presentation.
+- **Confirmed:** Settings persists one drawing color, stroke width, and independent spotlight radius for every on-screen session.
+- **Superseded:** The dock remains larger and lifted above the bottom system edge, but the original roughly 360 ms trail decay is replaced by the press-and-hold semantics recorded above.
+- **Rationale:** Presenters need a stable, glanceable tool dock. Appearance is deliberate setup rather than a repeated in-session decision, while spotlight radius has different semantics from annotation stroke width.
+
+## 2026-07-25 - On-screen presentation mode
+
+- **Confirmed:** On-screen drawing is a separate on-demand overlay, not a capture-editor state and not a resident dashboard feature.
+- **Confirmed:** One configurable global shortcut toggles the mode. `Escape` remains a mandatory recovery path.
+- **Confirmed:** The toolbar is a compact bottom-center dock; unique optional number keys select tools and are shown on their icons.
+- **Superseded in part:** Spotlight keeps the desktop visible under a dim veil and Clear remains undoable. Automatic pointer decay is replaced by release-triggered clearing as recorded above.
+- **Confirmed:** Magnifier and blur reuse one entry snapshot instead of continuously recapturing or polling the desktop. The overlay WebView and temporary snapshot are destroyed on exit.
+- **Rationale:** This provides a useful teaching and presentation workflow without adding a continuous screen-reading worker or weight to the resident tray process and without changing the screenshot fast path.
+
 ## 2026-07-19 - Microsoft Store packaging
 
 - **Confirmed:** The Microsoft Store product uses the immutable Partner Center identity `JagatBandhu.SnapHub`, publisher `CN=8A6295E4-CFC2-4019-B7E3-C5FE35587B52`, package family `JagatBandhu.SnapHub_s98vdgsmvcg9t`, and publisher display name `JagatBandhu`; the visible product name is now `CapKit`.
@@ -15,6 +133,13 @@
 - **Confirmed:** User-facing titles, save folders, generated filenames, installer labels, and documentation use CapKit.
 - **Confirmed:** The immutable Microsoft Store identity and internal migration/protocol identifiers remain unchanged to preserve installed-app continuity.
 - **Rationale:** CapKit communicates the broader capture, recording, and showcase toolkit while avoiding a split identity between the product UI and its launch messaging.
+
+## 2026-07-23 - Showcase first slice
+
+- **Confirmed:** Showcase opens as an on-demand three-column scene builder: saved captures on the left, a live composition stage in the center, and compact inspector tabs on the right.
+- **Confirmed:** The first slice supports solid/gradient/wallpaper/custom backgrounds, padding, corner radius, browser/glass/mobile/laptop/desktop frames, zoom, X/Y movement, tilt, depth, shadow, clean/soft/mono/grain effects, title/note layers, and local preset save/reset.
+- **Provisional:** Raster export, non-destructive scene persistence, reusable mockup assets, and richer annotation layers will follow in the Studio implementation.
+- **Rationale:** This gives people a useful visual enhancement workflow immediately without loading the full editor into the resident capture path or pretending that a CSS preview is already a final export pipeline.
 
 ## 2026-07-19 - Product renamed during early development
 
@@ -99,7 +224,7 @@
 - Tauri 2, Rust, React, strict TypeScript, Vite, and Tailwind CSS are the implementation stack.
 - Windows is the reference implementation; macOS, Ubuntu, and Fedora remain targets.
 - Canonical project documentation is Markdown optimized for agent handoff.
-- The app dashboard is a separate, normal desktop window and is never loaded into the capture fast path. Its initial navigation is Dashboard, Cloud, Showcase, and Settings; Dashboard and Settings are populated in Phase 1, while Cloud and Showcase show explicit `Coming Soon...` placeholders.
+- The app dashboard is a separate, normal desktop window and is never loaded into the capture fast path. Its initial navigation is Dashboard, Cloud, Showcase, and Settings; Dashboard and Settings are populated in Phase 1, Cloud remains `Coming Soon...`, and Showcase now opens the first Studio scene builder.
 - Phase 1 settings are local-only and cover capture palette, annotation defaults, accent color, toolbar slots, shortcuts, target detection, overlay tint, startup behavior, and capture cursor preferences.
 - Startup launch is quiet: when enabled, CapKit starts into the resident tray state rather than interrupting login with the dashboard.
 - Dashboard appearance supports persistent light and dark modes. Both use the same compact, flat industrial hierarchy with small typography and restrained corner radii.

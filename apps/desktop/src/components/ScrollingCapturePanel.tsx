@@ -1,13 +1,13 @@
 import {
-  Check,
+  Cancel,
   Clipboard,
   Download,
-  GalleryVerticalEnd,
   Hand,
   Pin,
-  RefreshCw,
-  X,
-} from "lucide-react";
+  Refresh,
+  Tick,
+  VerticalScroll,
+} from "./icons";
 import type { CompletionAction, Rect, ScrollingCaptureResult } from "../domain/capture";
 
 export type ScrollingCaptureState =
@@ -46,7 +46,7 @@ export function ScrollingCapturePanel({
     >
       <header className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-lime-300 text-stone-950">
-          <GalleryVerticalEnd aria-hidden="true" size={16} strokeWidth={2.3} />
+          <VerticalScroll aria-hidden="true" size={16} strokeWidth={2.3} />
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="text-xs font-semibold">{state.phase === "setup" ? "Choose how to scroll" : "Scrolling capture"}</h2>
@@ -59,7 +59,7 @@ export function ScrollingCapturePanel({
           type="button"
           onClick={onClose}
         >
-          <X aria-hidden="true" size={15} />
+          <Cancel aria-hidden="true" size={15} />
         </button>
       </header>
 
@@ -71,7 +71,7 @@ export function ScrollingCapturePanel({
             type="button"
             onClick={onAutomatic}
           >
-            <GalleryVerticalEnd aria-hidden="true" className="mt-0.5 text-lime-300" size={16} />
+            <VerticalScroll aria-hidden="true" className="mt-0.5 text-lime-300" size={16} />
             <span><span className="block text-xs font-semibold">Automatic</span><span className="mt-1 block text-[10px] leading-4 text-stone-400">CapKit scrolls, detects the end, removes repeated headers, and stitches.</span></span>
           </button>
           <button
@@ -90,7 +90,7 @@ export function ScrollingCapturePanel({
       {state.phase === "running" ? (
         <div className="grid min-h-48 place-items-center px-6 py-8 text-center" role="status">
           <div>
-            <RefreshCw aria-hidden="true" className="mx-auto animate-spin text-lime-300" size={20} />
+            <Refresh aria-hidden="true" className="mx-auto animate-spin text-lime-300" size={20} />
             <p className="mt-3 text-xs font-semibold">
               {state.mode === "automatic" ? "Scrolling and matching frames" : state.mode === "manual-add" ? "Scroll the page now" : "Capturing the first frame"}
             </p>
@@ -105,7 +105,7 @@ export function ScrollingCapturePanel({
         <div className="space-y-3 p-4">
           <div className="rounded-lg border border-red-300/20 bg-red-300/7 p-3 text-[10px] leading-4 text-red-100">{state.message}</div>
           <div className="flex gap-2">
-            <ActionButton icon={RefreshCw} label="Retry automatic" onClick={onAutomatic} />
+            <ActionButton icon={Refresh} label="Retry automatic" onClick={onAutomatic} />
             <ActionButton icon={Hand} label="Use manual" onClick={onManualStart} />
           </div>
         </div>
@@ -119,7 +119,7 @@ export function ScrollingCapturePanel({
           </div>
           <div className="p-3">
             <div className="mb-3 flex items-center justify-between text-[9px] text-stone-400">
-              <span className="flex items-center gap-1.5"><Check aria-hidden="true" className="text-lime-300" size={11} />{state.result.frameCount} frames stitched</span>
+              <span className="flex items-center gap-1.5"><Tick aria-hidden="true" className="text-lime-300" size={11} />{state.result.frameCount} frames stitched</span>
               <span>{statusLabel(state.result)}</span>
             </div>
             {state.mode === "manual" ? (
@@ -136,7 +136,7 @@ export function ScrollingCapturePanel({
               </div>
             ) : null}
             <div className="grid grid-cols-4 gap-1.5">
-              <ActionButton icon={RefreshCw} label="Retry" onClick={onAutomatic} />
+              <ActionButton icon={Refresh} label="Retry" onClick={onAutomatic} />
               <ActionButton icon={Clipboard} label="Copy" onClick={() => onComplete("copy")} />
               <ActionButton icon={Download} label="Save" onClick={() => onComplete("save")} />
               <ActionButton icon={Pin} label="Pin" onClick={() => onComplete("pin")} />
@@ -148,7 +148,7 @@ export function ScrollingCapturePanel({
   );
 }
 
-type ActionButtonProps = { icon: typeof RefreshCw; label: string; onClick: () => void };
+type ActionButtonProps = { icon: typeof Refresh; label: string; onClick: () => void };
 function ActionButton({ icon: Icon, label, onClick }: ActionButtonProps): React.JSX.Element {
   return <button aria-label={label} className="flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 px-2 text-[9px] font-semibold text-stone-300 outline-none hover:border-white/20 hover:bg-white/7 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={onClick}><Icon aria-hidden="true" size={12} />{label}</button>;
 }

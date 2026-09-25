@@ -28,7 +28,7 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 ## Adaptive toolbars
 
 - Default to an annotation bar and a completion bar on separate available edges.
-- Copy, Save, and Pin form a vertical rail attached to the nearest free side of the selection; Escape replaces a visible cancel button.
+- Copy, Copy & Save, Save, and Pin form a vertical rail attached to the nearest free side of the selection; Escape replaces a visible cancel button.
 - The capture toolbar supports two persisted layouts. **Individual** renders each enabled tool as its own slot. **Group** renders each non-empty Settings row as one slot; tools in rows are enabled, unassigned tools are disabled, row order is submenu order, and the first tool is both the visible icon and default click action.
 - Select is always the first fixed recovery tool and cannot be configured away. Group rows may be added or removed, and tool pills can be reordered within or across rows. Settings also provides keyboard alternatives for reorder, cross-row movement, enable, and disable.
 - Hovering a group morphs a compact popover beside its icon; clicking is not required to discover variants. It opens below by default, flips above when bottom space is insufficient, and horizontally clamps to the capture viewport. Tool variants always appear before the separator, with colors, size, and other contextual properties afterward. A short pointer bridge delay keeps the menu stable across the gap; both the hover indicator and the complete contextual rail glide horizontally between slots instead of jumping or remounting.
@@ -49,6 +49,24 @@ The primary flow is `Shortcut -> select -> edit in place -> complete`. Phase 1 m
 - Enabling startup launches CapKit quietly into the tray rather than opening a dashboard during login.
 - Dashboard panels provide persistent light and dark appearances with compact typography and controls; the choice does not alter frozen-screen capture fidelity.
 
+## On-screen presentation toolbar
+
+- **Confirmed:** A configurable global shortcut toggles a separate on-screen annotation mode over the display under the pointer. Pressing the same shortcut again exits immediately; `Escape` is the safety exit.
+- **Confirmed:** The mode is independent from screenshot capture and never changes the underlying application. Its transparent, always-on-top surface is created on demand and destroyed on exit.
+- **Confirmed:** Settings optionally persists annotations across toggle cycles. When disabled, every Screen Draw session starts clean; when enabled, the runtime-validated scene is restored without retaining pointer trails or transient tool state.
+- **Confirmed:** Screen Draw defaults to a live transparent desktop. Settings can choose a frozen frame instead; that mode captures and preloads the current monitor before revealing the overlay. A capture failure falls back to the live desktop with a recoverable status message.
+- A comfortably sized dock floats above the bottom-center system edge and exposes Pencil, Rectangle, Ellipse, Arrow, Text, Spotlight, Magnifier, Presentation Pointer, Eraser, Blur, Undo, Redo, and a visually distinct Clear action.
+- Presentation Pointer is the default active tool when Screen Draw opens and after Clear. This avoids leaving permanent marks from the first presentation gesture; Pencil remains one click or its assigned number away.
+- Spotlight follows the pointer, uses its persisted radius, and dims the surrounding desktop without hiding it. Magnifier follows the pointer and shows a 1.85x lens. Presentation Pointer shows its complete luminous trail for exactly as long as the primary pointer button remains held, then removes the whole transient trail immediately on release or cancellation.
+- Pencil, shapes, arrows, text, and blur remain until individually erased, cleared, undone, or the mode exits. Clear participates in history so Undo can restore the previous overlay.
+- Selecting Text shows a compact placement instruction. Clicking outside the dock opens a focused in-place editor at a viewport-clamped position; clicking inside that editor cannot create another text object. Losing focus commits the editor once, `Escape` cancels it, and `Ctrl+Enter` commits explicitly.
+- Settings assigns unique optional `0`-`9` shortcuts to tools. Assigned numbers are visible on the dock; conflicts move the number to the newly assigned tool.
+- Settings also owns the toggle shortcut, persistent drawing color, stroke width, spotlight radius, plus Ring, Laser, Precision, and Crosshair cursors in Small, Medium, and Large sizes. Color and size controls are deliberately omitted from the live dock.
+- In live mode, Blur and Magnifier request a validated snapshot only when first selected. Snapshot work is excluded from the default toggle-to-toolbar path so Pencil, Shapes, Spotlight, Pointer, Text, Eraser, Undo, and Redo become available as soon as the on-demand WebView is ready. Frozen mode reuses its entry snapshot.
+- Undo and Redo are immediate commands, never selectable drawing modes. The first click after completing an annotation changes history.
+- A single accent surface glides between hovered tools instead of remounting or flashing separate button backgrounds.
+- Pointer coordinates and live drafts are coalesced to one visual update per display frame. Static annotations and the dock do not rerender for cursor-only movement. Presentation-pointer samples are distance- and time-throttled while held, with no expiry timers or persistent scene writes.
+
 ## Quick tools
 
 Annotations are non-destructive scene objects until export. Tool defaults remember the last safe choice without changing the global behavior unexpectedly.
@@ -60,11 +78,13 @@ Annotations are non-destructive scene objects until export. Tool defaults rememb
 - Counter increments automatically and allows an explicit starting value.
 - Blur and pixelation render live against the frozen source while drawing; blackout remains visibly opaque. Final export still performs permanent Rust-side rasterization, and the UI must clearly distinguish secure pixelation/blackout from visual blur.
 - Undo/redo covers annotations, transforms, selection changes, and properties.
-- While a region is selected, configurable single-key actions (default `C` to copy and `S` to save) complete the capture and return to the tray. Text fields consume those keys normally.
+- While a region is selected, configurable unmodified single-key actions (default `C` to copy, `A` to copy and save, and `S` to save) complete the capture and return to the tray. The three keys remain distinct case-insensitively; text fields consume them normally, and scrolling capture does not run selected-region completion shortcuts.
 
 ## Completion
 
 - `Copy` rasterizes and writes the image to the clipboard.
+- `Copy & Save` rasterizes once, writes that same raster to the clipboard first, then atomically saves it to the configured folder. It applies only to the standard selected-region overlay.
+- If Copy & Save reaches the clipboard but not the file, the overlay keeps the selected scene and rendered raster, explains the partial success, and offers a save-only retry that cannot rewrite the clipboard.
 - `Save` writes atomically to the configured folder using the naming policy.
 - `Save As` invokes the native picker.
 - `Pin` creates an always-on-top image and closes capture mode.
@@ -110,6 +130,6 @@ Target hover uses cached windows and optional Windows UI Automation rectangles. 
 - The window may only become visible after the frozen snapshot has been validated, preloaded, and committed to the overlay.
 - No fullscreen idle, loading, preview, or error screen is permitted.
 - `Esc` from any screenshot state must discard the temporary capture, force-hide the entire surface, and immediately return CapKit to its normal tray-only mode, even when session creation is incomplete or failed.
-- Export, scrolling stitch, and permission failures retain recoverable session state.
-- Retrying does not duplicate saves or clipboard writes.
+- Export, scrolling stitch, and permission failures retain recoverable session state. A Copy & Save file failure after a successful clipboard write is explicitly a save-pending state and retains only the raster needed for save-only retry.
+- Retrying does not duplicate saves or clipboard writes. Cancellation serializes with native output work, and responses from a closed or replaced capture session cannot mutate newer UI state.
 - Errors contain a human action and a diagnostic code suitable for logs.

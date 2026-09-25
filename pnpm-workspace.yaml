@@ -3,8 +3,6 @@ packages:
 allowBuilds:
   sharp: true
   unrs-resolver: true
-minimumReleaseAgeExclude:
-  - lucide-react@1.25.0
 onlyBuiltDependencies:
   - sharp
   - unrs-resolver

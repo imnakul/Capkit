@@ -1,14 +1,21 @@
 use image::RgbaImage;
 
 use crate::{
-    domain::{DetectedTargetDto, DisplayDto, Point},
+    domain::{
+        AudioDeviceDto, DetectedTargetDto, DisplayDto, Point, RecordingArtifactsDto,
+        RecordingRequestDto, RecordingSourceDto, RecordingStatsDto,
+    },
     error::SnaphubError,
 };
 
 #[cfg(target_os = "windows")]
+pub(crate) mod windows_display;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_recorder;
+#[cfg(target_os = "windows")]
 pub mod windows_shell;
 #[cfg(target_os = "windows")]
-mod windows_ui;
+pub(crate) mod windows_ui;
 pub mod xcap_backend;
 
 pub struct CapturedDisplay {
@@ -42,4 +49,38 @@ pub trait ScrollingCaptureBackend: Send + Sync {
 
 pub trait PinnedWindowBackend: Send + Sync {
     fn is_supported(&self) -> bool;
+}
+
+/// Screen recording.
+///
+/// Kept separate from `CaptureBackend` so the screenshot path and its tests
+/// stay unaware of recording; the implementation is registered as its own
+/// service rather than widening `CaptureService`'s trait bounds.
+pub trait ScreenRecordingBackend: Send + Sync {
+    fn is_supported(&self) -> bool;
+    fn sources(&self) -> Result<Vec<RecordingSourceDto>, SnaphubError>;
+    fn start(
+        &self,
+        request: &RecordingRequestDto,
+        directory: &std::path::Path,
+    ) -> Result<Box<dyn RecordingSession>, SnaphubError>;
+}
+
+/// A recording in flight. Dropping one without `stop` abandons its output.
+pub trait RecordingSession: Send {
+    fn set_paused(&self, paused: bool);
+    fn is_paused(&self) -> bool;
+    fn stats(&self) -> RecordingStatsDto;
+    fn stop(self: Box<Self>) -> Result<RecordingArtifactsDto, SnaphubError>;
+    fn cancel(self: Box<Self>);
+}
+
+pub trait AudioDeviceBackend: Send + Sync {
+    fn capture_devices(&self) -> Result<Vec<AudioDeviceDto>, SnaphubError>;
+}
+
+/// Marks a window invisible to every screen-capture path, so the recorder's
+/// own dock never lands in the video.
+pub trait WindowCaptureExclusionBackend: Send + Sync {
+    fn set_excluded(&self, hwnd: isize, excluded: bool) -> Result<(), SnaphubError>;
 }

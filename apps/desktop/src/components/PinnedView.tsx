@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Check, Copy, Lock, MousePointer2, RotateCw, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Cancel, Copy, Lock, PointerOff, RotateClockwise, Save, Tick } from "./icons";
 import { ToolButton } from "./ToolButton";
 
 type PinnedViewProps = { path: string; windowLabel?: string };
@@ -118,11 +118,11 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
         onLoad={() => setImageReady(true)}
       />
       <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#161815]/95 p-1.5 opacity-0 shadow-2xl backdrop-blur-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <ToolButton icon={RotateCw} label="Rotate" onClick={() => setRotation((value) => value + 90)} />
+        <ToolButton icon={RotateClockwise} label="Rotate" onClick={() => setRotation((value) => value + 90)} />
         <ToolButton active={locked} icon={Lock} label="Lock size" onClick={() => void toggleLocked()} />
         <ToolButton disabled={windowLabel === undefined} icon={Copy} label="Copy image" onClick={() => void copy()} />
         <ToolButton disabled={windowLabel === undefined} icon={Save} label="Save image" onClick={() => void save()} />
-        <ToolButton disabled={windowLabel === undefined} icon={MousePointer2} label="Click through" onClick={() => void enableClickThrough()} />
+        <ToolButton disabled={windowLabel === undefined} icon={PointerOff} label="Click through" onClick={() => void enableClickThrough()} />
         <label className="flex items-center px-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
           Opacity
           <input
@@ -136,11 +136,11 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
             onChange={(event) => setOpacity(Number(event.currentTarget.value))}
           />
         </label>
-        <ToolButton icon={X} label="Close" onClick={() => void close()} />
+        <ToolButton icon={Cancel} label="Close" onClick={() => void close()} />
       </div>
       {message !== null ? (
         <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-md border border-white/10 bg-[#161815]/95 px-2.5 py-1.5 text-[10px] font-semibold text-stone-200 shadow-xl" role="status">
-          <Check aria-hidden="true" className="text-lime-300" size={12} />
+          <Tick aria-hidden="true" className="text-lime-300" size={12} />
           {message}
         </div>
       ) : null}

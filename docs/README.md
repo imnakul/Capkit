@@ -6,6 +6,7 @@ This directory is the canonical handoff for product, design, engineering, brand,
 | --- | --- |
 | [Product brief](product-brief.md) | Audience, problem, positioning, principles, success |
 | [Feature roadmap](feature-roadmap.md) | Phase boundaries and complete feature inventory |
+| [Local feature inventory](local-features.md) | User-facing inventory of everything currently available locally |
 | [Capture UX specification](capture-ux-spec.md) | Phase 1 interaction and state specification |
 | [Technical architecture](technical-architecture.md) | Runtime, adapters, data flow, security, rollout |
 | [Microsoft Store release](microsoft-store-release.md) | Partner identity, MSIX build pipeline, submission, acceptance |

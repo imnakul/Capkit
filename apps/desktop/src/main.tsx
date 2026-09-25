@@ -27,10 +27,35 @@ const DashboardPanel = lazy(async () => {
   return { default: module.DashboardPanel };
 });
 
+const OnScreenOverlay = lazy(async () => {
+  const module = await import("./components/OnScreenOverlay");
+  return { default: module.OnScreenOverlay };
+});
+
+const RecorderDock = lazy(async () => {
+  const module = await import("./components/RecorderDock");
+  return { default: module.RecorderDock };
+});
+
+const RecordRegion = lazy(async () => {
+  const module = await import("./components/RecordRegion");
+  return { default: module.RecordRegion };
+});
+
+const CameraPreview = lazy(async () => {
+  const module = await import("./components/CameraPreview");
+  return { default: module.CameraPreview };
+});
+
+const RecordingBorder = lazy(async () => {
+  const module = await import("./components/RecordingBorder");
+  return { default: module.RecordingBorder };
+});
+
 const rootElement = document.getElementById("root");
 
 if (rootElement === null) {
-  throw new Error("CapKit root element was not found.");
+  throw new Error("Capkit root element was not found.");
 }
 
 const searchParams = new URLSearchParams(window.location.search);
@@ -44,7 +69,7 @@ const currentWindowLabel = isTauri()
 
 createRoot(rootElement).render(
   <StrictMode>
-    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing CapKit" />}>
+    <Suspense fallback={<div className="h-screen w-screen bg-transparent" role="status" aria-label="Preparing Capkit" />}>
       {pinPath !== null ? (
         <PinnedCapture path={pinPath} />
       ) : pinWindowLabel !== null ? (
@@ -53,6 +78,16 @@ createRoot(rootElement).render(
         <PinnedCaptureEntry windowLabel={currentWindowLabel} />
       ) : currentWindowLabel === "dashboard" ? (
         <DashboardPanel />
+      ) : currentWindowLabel === "onscreen" ? (
+        <OnScreenOverlay />
+      ) : currentWindowLabel === "recorder" ? (
+        <RecorderDock />
+      ) : currentWindowLabel === "record-region" ? (
+        <RecordRegion />
+      ) : currentWindowLabel === "camera" ? (
+        <CameraPreview />
+      ) : currentWindowLabel === "recording-border" ? (
+        <RecordingBorder />
       ) : (
         <CaptureApp />
       )}

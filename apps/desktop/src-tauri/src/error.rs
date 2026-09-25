@@ -8,6 +8,12 @@ pub enum SnaphubError {
     Clipboard(String),
     #[error("SH-EXPORT-001: {0}")]
     Export(String),
+    #[error("SH-RECORD-001: {0}")]
+    Record(String),
+    #[error("SH-ENCODE-001: {0}")]
+    Encode(String),
+    #[error("SH-AUDIO-001: {0}")]
+    Audio(String),
     #[error("SH-SESSION-001: {0}")]
     Session(String),
     #[error("SH-SHORTCUT-001: {0}")]
@@ -27,6 +33,18 @@ impl SnaphubError {
 
     pub fn export(error: impl std::fmt::Display) -> Self {
         Self::Export(error.to_string())
+    }
+
+    pub fn record(error: impl std::fmt::Display) -> Self {
+        Self::Record(error.to_string())
+    }
+
+    pub fn encode(error: impl std::fmt::Display) -> Self {
+        Self::Encode(error.to_string())
+    }
+
+    pub fn audio(error: impl std::fmt::Display) -> Self {
+        Self::Audio(error.to_string())
     }
 }
 

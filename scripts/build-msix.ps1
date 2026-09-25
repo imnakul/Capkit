@@ -34,8 +34,8 @@ $stageRoot = Join-Path $storeRoot 'stage\x64'
 $uploadStage = Join-Path $storeRoot 'upload'
 $symbolStage = Join-Path $storeRoot 'symbols'
 $releaseRoot = Join-Path $tauriRoot 'target\release'
-$executablePath = Join-Path $releaseRoot 'snaphub-desktop.exe'
-$pdbPath = Join-Path $releaseRoot 'snaphub_desktop.pdb'
+$executablePath = Join-Path $releaseRoot 'capkit-desktop.exe'
+$pdbPath = Join-Path $releaseRoot 'capkit_desktop.pdb'
 $manifestTemplate = Join-Path $tauriRoot 'msix\AppxManifest.xml'
 $iconRoot = Join-Path $tauriRoot 'icons'
 $packageName = "CapKit_${PackageVersion}_x64"
@@ -84,7 +84,7 @@ if (Test-Path -LiteralPath $storeRoot) {
 
 $assetsRoot = Join-Path $stageRoot 'Assets'
 New-Item -ItemType Directory -Path $assetsRoot, $uploadStage, $symbolStage -Force | Out-Null
-Copy-Item -LiteralPath $executablePath -Destination (Join-Path $stageRoot 'snaphub-desktop.exe')
+Copy-Item -LiteralPath $executablePath -Destination (Join-Path $stageRoot 'capkit-desktop.exe')
 foreach ($asset in @('Square44x44Logo.png', 'Square150x150Logo.png', 'StoreLogo.png')) {
     Copy-Item -LiteralPath (Join-Path $iconRoot $asset) -Destination (Join-Path $assetsRoot $asset)
 }
@@ -102,7 +102,7 @@ Invoke-Checked -Command $makeAppx.FullName -Arguments @(
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (Test-Path -LiteralPath $pdbPath -PathType Leaf) {
-    Copy-Item -LiteralPath $pdbPath -Destination (Join-Path $symbolStage 'snaphub_desktop.pdb')
+    Copy-Item -LiteralPath $pdbPath -Destination (Join-Path $symbolStage 'capkit_desktop.pdb')
     [System.IO.Compression.ZipFile]::CreateFromDirectory($symbolStage, $symbolPath)
     Copy-Item -LiteralPath $symbolPath -Destination (Join-Path $uploadStage (Split-Path -Leaf $symbolPath))
 }

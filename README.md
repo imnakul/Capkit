@@ -2,7 +2,7 @@
 
 CapKit is the lightweight desktop toolkit to capture, record, and showcase. It is Windows-first, designed for cross-platform rollout, and built around one uninterrupted workflow:
 
-`Shortcut -> select on a frozen screen -> edit in place -> copy, save, or pin -> return to work`
+`Shortcut -> select on a frozen screen -> edit in place -> copy, save, copy and save, or pin -> return to work`
 
 The product is intentionally narrower and calmer than automation-heavy capture suites. Phase 1 focuses on fast capture, contextual quick editing, pinning, and scrolling capture without opening a conventional editor window.
 
@@ -12,14 +12,17 @@ The product is intentionally narrower and calmer than automation-heavy capture s
 - **Confirmed:** macOS, Ubuntu, and Fedora remain architectural targets.
 - **Confirmed:** Phase 1 is local-first and requires no account, cloud, telemetry, or library.
 - **In progress:** The first Windows capture-to-export vertical slice, tray lifecycle, pinning, and settings dashboard are operational; Phase 1 still needs native hardening and completion.
+- **Implemented, physical validation pending:** A configurable shortcut toggles a temporary on-screen presentation toolbar for drawing, spotlighting, magnification, pointer trails, and blur without entering screenshot capture. The desktop stays live by default; Settings can use a frozen frame when stable markup is preferable.
 - **Provisional:** Pricing, quotas, update entitlement, final brand clearance, and distribution channels.
 
 See [Current implementation status](docs/current-status.md) for the verified working surface, partial implementations, and remaining gaps.
+For a single user-facing inventory of current local capabilities, see [Local feature inventory](docs/local-features.md).
 
 ## Documentation
 
 - [Product brief](docs/product-brief.md)
 - [Current implementation status](docs/current-status.md)
+- [Local feature inventory](docs/local-features.md)
 - [Feature roadmap](docs/feature-roadmap.md)
 - [Capture UX specification](docs/capture-ux-spec.md)
 - [Technical architecture](docs/technical-architecture.md)
