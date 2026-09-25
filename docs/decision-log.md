@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-26 - Screen Draw saves the composited monitor
+
+- **Confirmed:** Save screen captures the active Screen Draw monitor with its committed annotations, background, blur, and spotlight visible. The dock, text editor, statuses, and transient laser layer are hidden for two animation frames before capture; the session and drawings remain open afterwards.
+- **Confirmed:** The native command only accepts the `onscreen` window, captures the active display center in physical pixels through the shared quick-save service, and emits the existing saved-capture event.
+- **Rejected:** Rendering every Screen Draw object again in Rust over a clean capture; a second renderer for ten object types could drift from the visible screen.
+- **Provisional:** xcap/WGC includes the transparent Screen Draw WebView in the monitor capture. Manual check D-M1 verifies this on Windows.
+- **Rationale:** Capturing the composed display keeps the PNG aligned with what the presenter saw and reuses the established collision-safe save path.
+
 ## 2026-09-25 - Monitor-sized overlays disable the undecorated shadow
 
 - **Confirmed:** Tauri defaults `shadow` to true; on Windows an undecorated shadow insets the WebView client area, offsetting and squeezing a monitor-sized frozen snapshot and drifting export coordinates.

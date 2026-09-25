@@ -1,6 +1,6 @@
 # Current Implementation Status
 
-**Checkpoint date:** 2026-09-25
+**Checkpoint date:** 2026-09-26
 
 **Overall state:** Phase 1 vertical slice in progress
 
@@ -56,8 +56,8 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** Locally persisted appearance and capture preferences validated at the TypeScript boundary.
 - **Implemented:** Light and dark dashboard themes, selectable accent, up to five quick colors plus custom colors, Individual/Group toolbar composition with WebView-safe pointer dragging and keyboard reordering, shortcut editing, overlay tint, startup behavior, and cursor settings.
 - **Implemented:** Cursor choices use the exact capture cursor while hovering their Settings cards, including the selected size and accent color.
-- **Implemented, physical validation pending:** A configurable global shortcut toggles an on-demand transparent on-screen presentation layer on the display under the pointer. Live desktop is the default; Settings can instead preload a frozen frame, with automatic recovery to live mode if capture fails. Its bottom dock includes pencil, text, rectangle, ellipse, arrow, spotlight, magnifier, a press-and-hold presentation laser, eraser, snapshot-backed blur, undo, redo, and undoable Clear. Settings owns unique optional number keys and Ring/Laser/Precision/Crosshair cursor presets. The same shortcut or `Escape` destroys the overlay and cleans its temporary snapshot.
-- **Implemented:** Screen Draw Text visibly arms placement, opens a focused in-place editor on the next canvas click, isolates editor events from the drawing surface, and commits once. Cursor/draft rendering is animation-frame coalesced; the complete laser trail remains only while the primary button is held and clears as one operation on release; static scene and dock layers avoid cursor-only rerenders.
+- **Implemented, physical validation pending:** A configurable global shortcut toggles an on-demand transparent on-screen presentation layer on the display under the pointer. Live desktop is the default; Settings can instead preload a frozen frame, with automatic recovery to live mode if capture fails. Its bottom dock includes pencil, text, rectangle, ellipse, arrow, spotlight, magnifier, a press-and-hold presentation laser, Save screen (`S`), eraser, snapshot-backed blur, undo, redo, and undoable Clear. Save screen captures the composed monitor with annotations while keeping the session open; its own controls are hidden briefly. Settings owns unique optional number keys and Ring/Laser/Precision/Crosshair cursor presets. The same shortcut or `Escape` destroys the overlay and cleans its temporary snapshot.
+- **Implemented:** Screen Draw Text visibly arms placement, opens a focused in-place editor on the next canvas click, isolates editor events from the drawing surface, and commits once. Cursor/draft rendering is animation-frame coalesced; the laser dot and trail update SVG elements without per-move React renders, and released trails fade out. Static scene and dock layers avoid cursor-only rerenders. Capture waits for its frozen backdrop to decode and paint before revealing the surface, with a bounded fallback.
 
 ### Quality coverage
 

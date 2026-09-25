@@ -238,6 +238,50 @@ fn dismiss_on_screen(app: AppHandle) -> Result<(), SnaphubError> {
 }
 
 #[tauri::command]
+async fn save_on_screen_capture(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<String, SnaphubError> {
+    if window.label() != "onscreen" {
+        return Err(SnaphubError::Session(
+            "Only the on-screen toolbar can save the screen".into(),
+        ));
+    }
+
+    let point = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        match &*state {
+            OnScreenModeState::Active(active) => display_center_point(&active.display),
+            OnScreenModeState::Idle | OnScreenModeState::Preparing => {
+                return Err(SnaphubError::Window("On-screen mode is not active".into()));
+            }
+        }
+    };
+
+    let worker_app = app.clone();
+    let saved_path = tauri::async_runtime::spawn_blocking(move || {
+        worker_app
+            .state::<CaptureService>()
+            .quick_capture(point, CompletionAction::Save)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(format!("Screen save worker failed: {error}")))??;
+
+    match saved_path {
+        Some(path) => {
+            let path_string = path.to_string_lossy().into_owned();
+            emit_capture_saved(&app, &path_string);
+            Ok(path_string)
+        }
+        None => Err(SnaphubError::Export("Screen save produced no file".into())),
+    }
+}
+
+#[tauri::command]
 async fn complete_capture(
     window: WebviewWindow,
     app: AppHandle,
@@ -1071,11 +1115,7 @@ fn prepare_on_screen_snapshot(
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     std::thread::sleep(Duration::from_millis(24));
 
-    let scale = display.scale_factor;
-    let capture_point = Point {
-        x: (display.bounds.x + display.bounds.width / 2.0) * scale,
-        y: (display.bounds.y + display.bounds.height / 2.0) * scale,
-    };
+    let capture_point = display_center_point(&display);
     let service = app.state::<CaptureService>();
     let capture_result = service.begin(capture_point);
 
@@ -1118,6 +1158,14 @@ fn prepare_on_screen_snapshot(
         let _ = window.set_focus();
     }
     Ok(session)
+}
+
+fn display_center_point(display: &DisplayDto) -> Point {
+    let scale = display.scale_factor;
+    Point {
+        x: (display.bounds.x + display.bounds.width / 2.0) * scale,
+        y: (display.bounds.y + display.bounds.height / 2.0) * scale,
+    }
 }
 
 fn close_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
@@ -1637,6 +1685,7 @@ pub fn run() {
             on_screen_snapshot,
             on_screen_ready,
             dismiss_on_screen,
+            save_on_screen_capture,
             complete_capture,
             retry_capture_save,
             cancel_capture,
@@ -1873,6 +1922,30 @@ mod shortcut_tests {
             parsed.action_for(&parsed.on_screen_toggle),
             Some(ShortcutAction::OnScreen)
         ));
+    }
+
+    #[test]
+    fn display_center_point_uses_physical_pixels() {
+        let display = DisplayDto {
+            id: "display-1".into(),
+            name: "Secondary display".into(),
+            bounds: Rect {
+                x: 1920.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            scale_factor: 1.5,
+            is_primary: false,
+        };
+
+        assert_eq!(
+            display_center_point(&display),
+            Point {
+                x: 3840.0,
+                y: 540.0
+            }
+        );
     }
 
     #[test]

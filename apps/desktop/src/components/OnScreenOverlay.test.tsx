@@ -1,12 +1,13 @@
-import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Profiler } from "react";
 import { defaultSnaphubSettings } from "../domain/settings";
-import { requestOnScreenSnapshot } from "../lib/tauri";
+import { requestOnScreenSnapshot, saveOnScreenCapture } from "../lib/tauri";
 import { OnScreenOverlay } from "./OnScreenOverlay";
 
 vi.mock("../lib/tauri", () => ({
-  describeInvokeError: (_error: unknown, fallback: string): string => fallback,
+  describeInvokeError: (error: unknown, fallback: string): string =>
+    typeof error === "string" ? error : fallback,
   dismissOnScreen: vi.fn(() => Promise.resolve()),
   requestOnScreenSession: vi.fn(() => Promise.resolve({
     id: "c241d954-503e-4b62-bff9-c9a40b5f895f",
@@ -23,6 +24,7 @@ vi.mock("../lib/tauri", () => ({
     createdAt: "2026-07-25T10:00:00+05:30",
   })),
   requestOnScreenSnapshot: vi.fn(() => Promise.resolve("asset://on-screen.bmp")),
+  saveOnScreenCapture: vi.fn(() => Promise.resolve("C:/Captures/CapKit.png")),
   showOnScreenSurface: vi.fn(() => Promise.resolve()),
 }));
 
@@ -63,6 +65,16 @@ function createMediaQueryList(matches: boolean, media: string): MediaQueryList {
   };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let settle: (value: T) => void = () => {
+    throw new Error("Deferred promise was not initialized");
+  };
+  const promise = new Promise<T>((resolvePromise) => {
+    settle = resolvePromise;
+  });
+  return { promise, resolve: (value) => settle(value) };
+}
+
 function drawLaserStroke(
   surface: HTMLElement,
   frames: ReturnType<typeof createAnimationFrameQueue>,
@@ -93,6 +105,7 @@ function drawLaserStroke(
 describe("OnScreenOverlay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(saveOnScreenCapture).mockResolvedValue("C:/Captures/CapKit.png");
     vi.stubGlobal("matchMedia", (media: string): MediaQueryList => createMediaQueryList(false, media));
     Object.defineProperties(HTMLElement.prototype, {
       setPointerCapture: { configurable: true, value: vi.fn() },
@@ -366,6 +379,193 @@ describe("OnScreenOverlay", () => {
     drawLaserStroke(surface, frames, 1);
 
     expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
+  });
+
+  it("hides Screen Draw controls for two frames, saves once, and keeps drawings visible", async () => {
+    const frames = createAnimationFrameQueue();
+    const savedPath = deferred<string>();
+    vi.mocked(saveOnScreenCapture).mockReturnValueOnce(savedPath.promise);
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 80,
+      clientY: 90,
+      pointerId: 20,
+    });
+    fireEvent.pointerMove(surface, {
+      clientX: 240,
+      clientY: 210,
+      pointerId: 20,
+    });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 20 });
+    const drawing = document.querySelector("[data-onscreen-object]");
+    expect(drawing).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
+
+    fireEvent.keyDown(window, { key: "s" });
+
+    const dock = screen.getByTestId("on-screen-dock");
+    expect(dock).toHaveStyle({ visibility: "hidden" });
+    expect(screen.getByTestId("on-screen-pointer-trail")).toHaveStyle({
+      visibility: "hidden",
+    });
+    expect(drawing).toBeInTheDocument();
+    expect(saveOnScreenCapture).not.toHaveBeenCalled();
+    frames.flushNextFrame();
+    expect(saveOnScreenCapture).not.toHaveBeenCalled();
+    frames.flushNextFrame();
+    await waitFor(() => expect(saveOnScreenCapture).toHaveBeenCalledTimes(1));
+    expect(dock).toHaveStyle({ visibility: "hidden" });
+
+    await act(async () => {
+      savedPath.resolve("C:\\Captures\\CapKit.png");
+      await savedPath.promise;
+    });
+
+    expect(screen.getByTestId("on-screen-save-status")).toHaveTextContent(
+      "Saved to CapKit.png",
+    );
+    expect(dock).toHaveStyle({ visibility: "visible" });
+    expect(drawing).toBeInTheDocument();
+  });
+
+  it("ignores repeated S presses until the first save settles", async () => {
+    const frames = createAnimationFrameQueue();
+    const savedPath = deferred<string>();
+    vi.mocked(saveOnScreenCapture).mockReturnValueOnce(savedPath.promise);
+    render(<OnScreenOverlay />);
+    await screen.findByRole("application", { name: "On-screen annotation surface" });
+
+    fireEvent.keyDown(window, { key: "S" });
+    fireEvent.keyDown(window, { key: "s" });
+    fireEvent.keyDown(window, { key: "S" });
+    frames.flushNextFrame();
+    frames.flushNextFrame();
+    await waitFor(() => expect(saveOnScreenCapture).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      savedPath.resolve("C:/Captures/CapKit.png");
+      await savedPath.promise;
+    });
+    expect(screen.getByTestId("on-screen-save-status")).toHaveTextContent(
+      "Saved to CapKit.png",
+    );
+  });
+
+  it("does not save when S is typed in the editor or pressed with Ctrl", async () => {
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 100,
+      clientY: 120,
+      pointerId: 21,
+    });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+
+    fireEvent.keyDown(editor, { key: "s" });
+    fireEvent.change(editor, { target: { value: "s" } });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    expect(editor).toHaveValue("s");
+    expect(saveOnScreenCapture).not.toHaveBeenCalled();
+  });
+
+  it("shows the save diagnostic and preserves drawings when native saving fails", async () => {
+    const frames = createAnimationFrameQueue();
+    vi.mocked(saveOnScreenCapture).mockRejectedValueOnce("native save diagnostic");
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 80,
+      clientY: 90,
+      pointerId: 22,
+    });
+    fireEvent.pointerMove(surface, {
+      clientX: 240,
+      clientY: 210,
+      pointerId: 22,
+    });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 22 });
+    const drawing = document.querySelector("[data-onscreen-object]");
+
+    fireEvent.keyDown(window, { key: "s" });
+    frames.flushNextFrame();
+    frames.flushNextFrame();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("on-screen-save-status")).toHaveTextContent(
+        "Could not save this screen. Try again. native save diagnostic",
+      );
+    });
+    expect(screen.getByTestId("on-screen-dock")).toHaveStyle({
+      visibility: "visible",
+    });
+    expect(drawing).toBeInTheDocument();
+  });
+
+  it("saves from the accessible dock button", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    await screen.findByRole("application", { name: "On-screen annotation surface" });
+    const saveButton = screen.getByRole("button", {
+      name: "Save screen, shortcut S",
+    });
+
+    expect(saveButton).toHaveAttribute("title", "Save screen (S)");
+    expect(saveButton).toHaveAttribute("aria-keyshortcuts", "S");
+    expect(saveButton).toHaveClass("focus-visible:ring-2");
+    saveButton.focus();
+    expect(saveButton).toHaveFocus();
+    fireEvent.click(saveButton);
+    expect(screen.getByTestId("on-screen-dock")).toHaveStyle({
+      visibility: "hidden",
+    });
+
+    frames.flushNextFrame();
+    frames.flushNextFrame();
+    await waitFor(() => expect(saveOnScreenCapture).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(screen.getByTestId("on-screen-save-status")).toHaveTextContent(
+        "Saved to CapKit.png",
+      );
+    });
+  });
+
+  it("does not show a save result after Escape dismisses Screen Draw", async () => {
+    const frames = createAnimationFrameQueue();
+    const savedPath = deferred<string>();
+    vi.mocked(saveOnScreenCapture).mockReturnValueOnce(savedPath.promise);
+    render(<OnScreenOverlay />);
+    await screen.findByRole("application", { name: "On-screen annotation surface" });
+
+    fireEvent.keyDown(window, { key: "s" });
+    frames.flushNextFrame();
+    frames.flushNextFrame();
+    await waitFor(() => expect(saveOnScreenCapture).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(async () => {
+      savedPath.resolve("C:/Captures/CapKit.png");
+      await savedPath.promise;
+    });
+
+    expect(screen.getByTestId("on-screen-save-status")).not.toHaveTextContent(
+      "Saved to CapKit.png",
+    );
   });
 
   it("creates and commits text in place after selecting the Text tool", async () => {

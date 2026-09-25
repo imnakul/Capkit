@@ -144,6 +144,12 @@ export async function dismissOnScreen(): Promise<void> {
   await invoke("dismiss_on_screen");
 }
 
+export async function saveOnScreenCapture(): Promise<string> {
+  if (!isTauri()) return "Demo/CapKit.png";
+  const raw: unknown = await invoke("save_on_screen_capture");
+  return z.string().min(1).parse(raw);
+}
+
 export async function dismissCapture(): Promise<void> {
   if (!isTauri()) return;
   await invoke("dismiss_capture");
