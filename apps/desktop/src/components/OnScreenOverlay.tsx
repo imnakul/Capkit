@@ -129,6 +129,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   const saveInFlight = useRef(false);
   const saveMessageTimer = useRef<number | null>(null);
   const textEditorRef = useRef<TextEditor | null>(null);
+  const textEditorOpenedAt = useRef<number | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   const cursor = useMemo(
@@ -240,6 +241,7 @@ export function OnScreenOverlay(): React.JSX.Element {
 
   const cancelText = useCallback((): void => {
     textEditorRef.current = null;
+    textEditorOpenedAt.current = null;
     setTextEditor(null);
   }, []);
 
@@ -252,6 +254,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       return;
     }
     textEditorRef.current = null;
+    textEditorOpenedAt.current = null;
     setTextEditor(null);
     const text = editor.value.trim();
     if (text === "") return;
@@ -271,6 +274,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   const openTextEditor = useCallback((position: Point): void => {
     const nextEditor = { id: crypto.randomUUID(), position, value: "" };
     textEditorRef.current = nextEditor;
+    textEditorOpenedAt.current = performance.now();
     setTextEditor(nextEditor);
   }, []);
 
@@ -423,7 +427,10 @@ export function OnScreenOverlay(): React.JSX.Element {
   }, [activeTool, session, snapshotUrl]);
 
   useEffect(() => {
-    if (textEditorOpen) textInputRef.current?.focus();
+    if (!textEditorOpen) return;
+    textInputRef.current?.focus();
+    const frame = requestAnimationFrame(() => textInputRef.current?.focus());
+    return (): void => cancelAnimationFrame(frame);
   }, [textEditorOpen]);
 
   useEffect(() => {
@@ -548,6 +555,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       return;
     }
     if (activeTool === "text") {
+      event.preventDefault();
       commitText();
       openTextEditor(point);
       return;
@@ -695,7 +703,24 @@ export function OnScreenOverlay(): React.JSX.Element {
             visibility: isCapturing ? "hidden" : undefined,
           }}
           value={textEditor.value}
-          onBlur={() => commitText(textEditor.id)}
+          onBlur={() => {
+            const currentEditor = textEditorRef.current;
+            const openedAt = textEditorOpenedAt.current;
+            if (
+              currentEditor?.id === textEditor.id &&
+              currentEditor.value.trim() === "" &&
+              openedAt !== null &&
+              performance.now() - openedAt < 100
+            ) {
+              requestAnimationFrame(() => {
+                if (textEditorRef.current?.id === textEditor.id) {
+                  textInputRef.current?.focus();
+                }
+              });
+              return;
+            }
+            commitText(textEditor.id);
+          }}
           onChange={(event) => {
             const nextEditor = {
               ...textEditor,

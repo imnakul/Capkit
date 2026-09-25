@@ -118,6 +118,7 @@ describe("OnScreenOverlay", () => {
     cleanup();
     window.localStorage.clear();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -591,6 +592,100 @@ describe("OnScreenOverlay", () => {
     fireEvent.blur(editor);
 
     expect(screen.getByText("Live note")).toBeInTheDocument();
+  });
+
+  it("prevents the placement pointer default and focuses the text editor", async () => {
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+
+    const pointerDown = fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 180,
+      clientY: 140,
+      pointerId: 3,
+    });
+
+    expect(pointerDown).toBe(false);
+    expect(screen.getByRole("textbox", { name: "On-screen text" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "On-screen text" })).toHaveFocus();
+  });
+
+  it("refocuses an empty editor after a blur within the opening grace period", async () => {
+    const frames = createAnimationFrameQueue();
+    const now = vi.spyOn(performance, "now").mockReturnValue(10);
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 180,
+      clientY: 140,
+      pointerId: 3,
+    });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+
+    frames.flushNextFrame();
+    fireEvent.blur(editor);
+
+    expect(screen.getByRole("textbox", { name: "On-screen text" })).toBeInTheDocument();
+    frames.flushNextFrame();
+    expect(editor).toHaveFocus();
+    now.mockRestore();
+  });
+
+  it("commits typed text when a later click moves focus elsewhere", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(10);
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 180,
+      clientY: 140,
+      pointerId: 3,
+    });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+    fireEvent.change(editor, { target: { value: "Live note" } });
+    now.mockReturnValue(120);
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 280,
+      clientY: 200,
+      pointerId: 4,
+    });
+
+    expect(screen.getByText("Live note")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "On-screen text" })).toBeInTheDocument();
+    now.mockRestore();
+  });
+
+  it("closes an empty editor after the opening grace period without adding an object", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(10);
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 180,
+      clientY: 140,
+      pointerId: 3,
+    });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+    now.mockReturnValue(120);
+    fireEvent.blur(editor);
+
+    expect(screen.queryByRole("textbox", { name: "On-screen text" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-onscreen-object]")).toBeNull();
+    now.mockRestore();
   });
 
   it("undoes a completed drawing with the first click", async () => {
