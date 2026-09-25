@@ -22,6 +22,8 @@ use platform::xcap_backend::XcapPlatformBackend;
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -30,13 +32,11 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{
-    AW_BLEND, AnimateWindow, SetForegroundWindow,
-};
+use windows::Win32::UI::WindowsAndMessaging::{AW_BLEND, AnimateWindow, SetForegroundWindow};
 
 // AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
 // has composited fresh content, which otherwise reads as a black flash on reveal.
-const CAPTURE_REVEAL_MS: u32 = 180;
+const CAPTURE_REVEAL_MS: u32 = 90;
 
 #[cfg(target_os = "windows")]
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
@@ -107,17 +107,27 @@ struct OnScreenActiveState {
 struct OnScreenModeRegistry(Mutex<OnScreenModeState>);
 
 #[tauri::command]
-fn begin_capture(
-    app: AppHandle,
-    service: tauri::State<'_, CaptureService>,
-) -> Result<CaptureSessionDto, SnaphubError> {
+async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError> {
+    #[cfg(debug_assertions)]
+    let request_started = Instant::now();
     let cursor = app
         .cursor_position()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
-    let session = service.begin(Point {
+    let point = Point {
         x: cursor.x,
         y: cursor.y,
-    })?;
+    };
+    let worker_app = app.clone();
+    let session = tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<CaptureService>().begin(point)
+    })
+    .await
+    .map_err(|error| SnaphubError::Capture(format!("Capture begin worker failed: {error}")))??;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[capture-timing] request_to_session={}ms",
+        request_started.elapsed().as_millis()
+    );
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
@@ -142,7 +152,14 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
+    #[cfg(debug_assertions)]
+    let reveal_started = Instant::now();
     reveal_window_smoothly(&window)?;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[capture-timing] reveal={}ms",
+        reveal_started.elapsed().as_millis()
+    );
     // The shortcut is a direct user gesture, so Windows normally allows this
     // process to promote its capture surface. Without foreground activation the
     // overlay is visible but Escape is still delivered to the previously active

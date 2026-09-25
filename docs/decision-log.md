@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-26 - Capture exits hide instantly and reveal in 90 ms
+
+- **Confirmed:** Capture cancellation hides the surface before native session cleanup, avoiding a fade and keeping deletion or in-flight output work off the visible path.
+- **Confirmed:** The 180 ms reveal is shortened to 90 ms, preserving the fade that masks a possible black WebView2 first frame while the frozen snapshot is decoded and painted.
+- **Think Later:** The first Windows Graphics Capture capture after launch measured about 218 ms; consider GDI or pre-warming only after the new debug timings are reviewed.
+- **Rejected:** Changing the capture backend or pre-warming it now; the first-capture measurement is isolated and needs repeatable application timings.
+
 ## 2026-09-26 - Screen Draw saves the composited monitor
 
 - **Confirmed:** Save screen captures the active Screen Draw monitor with its committed annotations, background, blur, and spotlight visible. The dock, text editor, statuses, and transient laser layer are hidden for two animation frames before capture; the session and drawings remain open afterwards.

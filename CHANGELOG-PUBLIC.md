@@ -2,6 +2,16 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 2026-09-26
+
+### Fixed
+
+- Text in Screen Draw now appears where you click.
+
+### Improved
+
+- Capture opens faster and closes instantly.
+
 ## 2026-09-25
 
 ### Added

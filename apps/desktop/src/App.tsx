@@ -163,6 +163,9 @@ export function App(): React.JSX.Element {
 
   const startSession = useCallback(async (): Promise<void> => {
     if (activationState.current !== "idle") return;
+    const timingStartedAt = import.meta.env.DEV ? performance.now() : null;
+    let timingAfterRequest: number | null = null;
+    let timingAfterReady: number | null = null;
     activationState.current = "preparing";
     sessionGeneration.current += 1;
     completionInFlight.current = false;
@@ -170,6 +173,7 @@ export function App(): React.JSX.Element {
     let preparedSession: CaptureSession | null = null;
     try {
       const next = await requestCapture();
+      if (timingStartedAt !== null) timingAfterRequest = performance.now();
       preparedSession = next;
       const backdropReady = new Promise<void>((resolve) => {
         backdropReadyResolver.current = { sessionId: next.id, resolve };
@@ -204,10 +208,24 @@ export function App(): React.JSX.Element {
       if (backdropReadyResolver.current?.sessionId === next.id) {
         backdropReadyResolver.current = null;
       }
+      if (timingStartedAt !== null) timingAfterReady = performance.now();
       if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
         return;
       }
       await showCaptureSurface();
+      if (
+        timingStartedAt !== null &&
+        timingAfterRequest !== null &&
+        timingAfterReady !== null
+      ) {
+        const timingAfterReveal = performance.now();
+        console.debug("[capture-timing]", {
+          request: timingAfterRequest - timingStartedAt,
+          ready: timingAfterReady - timingAfterRequest,
+          reveal: timingAfterReveal - timingAfterReady,
+          total: timingAfterReveal - timingStartedAt,
+        });
+      }
       if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
         return;
       }
