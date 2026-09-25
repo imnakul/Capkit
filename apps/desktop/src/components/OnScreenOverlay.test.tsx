@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Profiler } from "react";
 import { defaultSnaphubSettings } from "../domain/settings";
 import { requestOnScreenSnapshot } from "../lib/tauri";
 import { OnScreenOverlay } from "./OnScreenOverlay";
@@ -25,6 +26,30 @@ vi.mock("../lib/tauri", () => ({
   showOnScreenSurface: vi.fn(() => Promise.resolve()),
 }));
 
+function createAnimationFrameQueue(): {
+  flushNextFrame: () => void;
+  pendingFrames: () => number;
+} {
+  const callbacks: { callback: FrameRequestCallback; id: number }[] = [];
+  let nextId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback): number => {
+    nextId += 1;
+    callbacks.push({ callback, id: nextId });
+    return nextId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number): void => {
+    const index = callbacks.findIndex((frame) => frame.id === id);
+    if (index >= 0) callbacks.splice(index, 1);
+  });
+  return {
+    flushNextFrame: (): void => {
+      const frame = callbacks.shift();
+      if (frame !== undefined) frame.callback(0);
+    },
+    pendingFrames: (): number => callbacks.length,
+  };
+}
+
 describe("OnScreenOverlay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -38,6 +63,7 @@ describe("OnScreenOverlay", () => {
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it("shows every presentation tool in a bottom dock", async () => {
@@ -95,32 +121,101 @@ describe("OnScreenOverlay", () => {
     });
   });
 
-  it("keeps the complete presenter laser visible only while the pointer is held", async () => {
+  it("updates the pointer dot without React renders for pointer movement", async () => {
+    const frames = createAnimationFrameQueue();
+    const onRender = vi.fn();
+    render(
+      <Profiler id="on-screen-overlay" onRender={onRender}>
+        <OnScreenOverlay />
+      </Profiler>,
+    );
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    const initialRenderCount = onRender.mock.calls.length;
+    const dot = screen.getByTestId("on-screen-pointer-dot");
+
+    expect(dot).toHaveAttribute("visibility", "hidden");
+    for (let index = 0; index < 50; index += 1) {
+      fireEvent.pointerMove(surface, {
+        clientX: index * 2,
+        clientY: index * 3,
+        pointerId: 8,
+      });
+    }
+
+    expect(onRender).toHaveBeenCalledTimes(initialRenderCount);
+    expect(frames.pendingFrames()).toBe(1);
+    frames.flushNextFrame();
+
+    expect(dot).toHaveAttribute("cx", "98");
+    expect(dot).toHaveAttribute("cy", "147");
+    expect(dot).toHaveAttribute("visibility", "visible");
+    expect(onRender).toHaveBeenCalledTimes(initialRenderCount);
+  });
+
+  it("appends every coalesced pointer sample that passes the distance threshold", async () => {
+    const frames = createAnimationFrameQueue();
     render(<OnScreenOverlay />);
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
-
-    expect(screen.queryByTestId("on-screen-pointer-trail")).not.toBeInTheDocument();
-    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(100);
     fireEvent.pointerDown(surface, {
       button: 0,
       clientX: 120,
       clientY: 140,
       pointerId: 8,
     });
-    performanceNow.mockReturnValue(130);
+    const move = createEvent.pointerMove(surface, {
+      buttons: 1,
+      clientX: 150,
+      clientY: 170,
+      pointerId: 8,
+    });
+    Object.defineProperty(move, "getCoalescedEvents", {
+      configurable: true,
+      value: () => [
+        { clientX: 130, clientY: 150 },
+        { clientX: 140, clientY: 160 },
+        { clientX: 150, clientY: 170 },
+      ],
+    });
+    fireEvent(surface, move);
+    frames.flushNextFrame();
+
+    const path = screen.getByTestId("on-screen-pointer-core");
+    expect(path.getAttribute("d")).toContain("M 130 150");
+    expect(path.getAttribute("d")).toContain("L 140 160");
+    expect(path.getAttribute("d")).toContain("L 150 170");
+  });
+
+  it("keeps the pointer SVG mounted while selected and clears the live trail on release", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+    const pointerLayer = screen.getByTestId("on-screen-pointer-trail");
+    const corePath = screen.getByTestId("on-screen-pointer-core");
+
+    expect(pointerLayer).toBeInTheDocument();
+    expect(screen.getByTestId("on-screen-pointer-dot")).toHaveAttribute("visibility", "hidden");
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      clientX: 120,
+      clientY: 140,
+      pointerId: 8,
+    });
     fireEvent.pointerMove(surface, {
       buttons: 1,
       clientX: 260,
       clientY: 210,
       pointerId: 8,
     });
-    performanceNow.mockRestore();
+    frames.flushNextFrame();
 
-    expect(
-      screen.getByTestId("on-screen-pointer-trail").querySelectorAll("path"),
-    ).toHaveLength(2);
+    expect(pointerLayer.querySelectorAll("path")).toHaveLength(2);
+    expect(corePath.getAttribute("d")).toContain("M 260 210");
 
     fireEvent.pointerUp(surface, {
       button: 0,
@@ -130,7 +225,8 @@ describe("OnScreenOverlay", () => {
       pointerId: 8,
     });
 
-    expect(screen.queryByTestId("on-screen-pointer-trail")).not.toBeInTheDocument();
+    expect(screen.getByTestId("on-screen-pointer-trail")).toBeInTheDocument();
+    expect(corePath).toHaveAttribute("d", "");
 
     fireEvent.pointerDown(surface, {
       button: 0,
@@ -138,9 +234,9 @@ describe("OnScreenOverlay", () => {
       clientY: 240,
       pointerId: 9,
     });
-    expect(screen.getByTestId("on-screen-pointer-trail")).toBeVisible();
+    expect(corePath).toHaveAttribute("d", "");
     fireEvent.pointerCancel(surface, { pointerId: 9 });
-    expect(screen.queryByTestId("on-screen-pointer-trail")).not.toBeInTheDocument();
+    expect(screen.getByTestId("on-screen-pointer-trail")).toBeInTheDocument();
   });
 
   it("creates and commits text in place after selecting the Text tool", async () => {

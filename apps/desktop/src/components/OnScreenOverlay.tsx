@@ -52,7 +52,6 @@ import {
 type DrawingTool = "pencil" | "rectangle" | "ellipse" | "arrow" | "blur";
 type OnScreenBackgroundMode = "live" | "frozen";
 type TextEditor = { id: string; position: Point; value: string };
-type PointerTrailPoint = Point;
 const persistedSceneStorageKey = "capkit.onscreen.scene.v1";
 const defaultOnScreenTool: OnScreenToolId = "pointer";
 
@@ -97,7 +96,6 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [draft, setDraft] = useState<OnScreenObject | null>(null);
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
-  const [pointerTrail, setPointerTrail] = useState<readonly PointerTrailPoint[]>([]);
   const [pointerHeld, setPointerHeld] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const drawingPointer = useRef<number | null>(null);
@@ -107,11 +105,17 @@ export function OnScreenOverlay(): React.JSX.Element {
   const draftFrame = useRef<number | null>(null);
   const pendingCursorPoint = useRef<Point | null>(null);
   const cursorFrame = useRef<number | null>(null);
+  const pendingPointerPoint = useRef<Point | null>(null);
+  const pointerFrame = useRef<number | null>(null);
+  const pointerPathRef = useRef("");
+  const lastPointerPoint = useRef<Point | null>(null);
+  const pointerHeldRef = useRef(false);
+  const pointerDotRef = useRef<SVGCircleElement>(null);
+  const pointerGlowRef = useRef<SVGPathElement>(null);
+  const pointerCoreRef = useRef<SVGPathElement>(null);
   const snapshotRequest = useRef<Promise<string> | null>(null);
   const surfaceShown = useRef(false);
   const lifecycleToken = useRef(0);
-  const lastPointerSample = useRef(0);
-  const pointerTrailRef = useRef<readonly PointerTrailPoint[]>([]);
   const textEditorRef = useRef<TextEditor | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -124,6 +128,21 @@ export function OnScreenOverlay(): React.JSX.Element {
     [history.present],
   );
   const textEditorOpen = textEditor !== null;
+
+  const cancelPointerFrame = useCallback((): void => {
+    if (pointerFrame.current !== null) {
+      window.cancelAnimationFrame(pointerFrame.current);
+      pointerFrame.current = null;
+    }
+    pendingPointerPoint.current = null;
+  }, []);
+
+  const clearLivePointerPath = useCallback((): void => {
+    pointerPathRef.current = "";
+    lastPointerPoint.current = null;
+    pointerGlowRef.current?.setAttribute("d", "");
+    pointerCoreRef.current?.setAttribute("d", "");
+  }, []);
 
   const cancelText = useCallback((): void => {
     textEditorRef.current = null;
@@ -162,18 +181,20 @@ export function OnScreenOverlay(): React.JSX.Element {
   }, []);
 
   const clearAll = useCallback((): void => {
+    cancelPointerFrame();
     draftRef.current = null;
     pendingDraft.current = null;
     drawingPointer.current = null;
     drawingTool.current = null;
     setDraft(null);
     cancelText();
-    pointerTrailRef.current = [];
-    setPointerTrail([]);
+    pointerHeldRef.current = false;
+    clearLivePointerPath();
+    pointerDotRef.current?.setAttribute("visibility", "hidden");
     setPointerHeld(false);
     setActiveTool(defaultOnScreenTool);
     dispatch({ type: "clear" });
-  }, [cancelText]);
+  }, [cancelPointerFrame, cancelText, clearLivePointerPath]);
 
   const selectTool = useCallback(
     (tool: OnScreenToolId): void => {
@@ -233,8 +254,18 @@ export function OnScreenOverlay(): React.JSX.Element {
       if (draftFrame.current !== null) {
         window.cancelAnimationFrame(draftFrame.current);
       }
+      cancelPointerFrame();
     };
-  }, []);
+  }, [cancelPointerFrame]);
+
+  useEffect(() => {
+    if (activeTool === "pointer") return;
+    cancelPointerFrame();
+    pointerHeldRef.current = false;
+    clearLivePointerPath();
+    pointerDotRef.current?.setAttribute("visibility", "hidden");
+    setPointerHeld(false);
+  }, [activeTool, cancelPointerFrame, clearLivePointerPath]);
 
   useEffect(() => {
     if (
@@ -341,6 +372,46 @@ export function OnScreenOverlay(): React.JSX.Element {
     });
   }
 
+  function schedulePointerRender(points: readonly Point[]): void {
+    const latestPoint = points.at(-1);
+    if (latestPoint === undefined) return;
+
+    if (pointerHeldRef.current) {
+      for (const point of points) appendPointerPoint(point);
+    }
+    pendingPointerPoint.current = latestPoint;
+    if (pointerFrame.current !== null) return;
+    pointerFrame.current = window.requestAnimationFrame(() => {
+      pointerFrame.current = null;
+      const nextPoint = pendingPointerPoint.current;
+      pendingPointerPoint.current = null;
+      if (nextPoint === null) return;
+
+      pointerDotRef.current?.setAttribute("cx", String(nextPoint.x));
+      pointerDotRef.current?.setAttribute("cy", String(nextPoint.y));
+      pointerDotRef.current?.setAttribute("visibility", "visible");
+      if (pointerHeldRef.current) {
+        pointerGlowRef.current?.setAttribute("d", pointerPathRef.current);
+        pointerCoreRef.current?.setAttribute("d", pointerPathRef.current);
+      }
+    });
+  }
+
+  function appendPointerPoint(point: Point): void {
+    const previous = lastPointerPoint.current;
+    if (
+      previous !== null
+      && Math.hypot(point.x - previous.x, point.y - previous.y) < 1.5
+    ) {
+      return;
+    }
+
+    pointerPathRef.current = pointerPathRef.current === ""
+      ? `M ${String(point.x)} ${String(point.y)}`
+      : `${pointerPathRef.current} L ${String(point.x)} ${String(point.y)}`;
+    lastPointerPoint.current = point;
+  }
+
   function scheduleDraftRender(nextDraft: OnScreenObject | null): void {
     pendingDraft.current = nextDraft;
     if (draftFrame.current !== null) return;
@@ -369,11 +440,9 @@ export function OnScreenOverlay(): React.JSX.Element {
     drawingPointer.current = event.pointerId;
     drawingTool.current = activeTool;
     if (activeTool === "pointer") {
-      pointerTrailRef.current = [];
-      setPointerTrail([]);
+      clearLivePointerPath();
+      pointerHeldRef.current = true;
       setPointerHeld(true);
-      lastPointerSample.current = 0;
-      appendPointerTrail(point);
       return;
     }
     if (isDrawingTool(activeTool)) {
@@ -392,12 +461,16 @@ export function OnScreenOverlay(): React.JSX.Element {
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     if (isOnScreenControl(event.target)) return;
     const point = localPoint(event);
-    if (toolTracksCursor(activeTool)) scheduleCursorRender(point);
-    if (drawingPointer.current !== event.pointerId) return;
-    if (drawingTool.current === "pointer") {
-      appendPointerTrail(point);
+    if (activeTool === "pointer") {
+      const coalescedEvents = coalescedPointerEvents(event.nativeEvent);
+      const points = coalescedEvents.length === 0
+        ? [point]
+        : coalescedEvents.map((sample) => ({ x: sample.clientX, y: sample.clientY }));
+      schedulePointerRender(points);
       return;
     }
+    if (toolTracksCursor(activeTool)) scheduleCursorRender(point);
+    if (drawingPointer.current !== event.pointerId) return;
     const nextDraft = updateDraft(draftRef.current, point);
     draftRef.current = nextDraft;
     scheduleDraftRender(nextDraft);
@@ -413,8 +486,8 @@ export function OnScreenOverlay(): React.JSX.Element {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (completedTool === "pointer") {
-      pointerTrailRef.current = [];
-      setPointerTrail([]);
+      pointerHeldRef.current = false;
+      clearLivePointerPath();
       setPointerHeld(false);
       return;
     }
@@ -429,22 +502,6 @@ export function OnScreenOverlay(): React.JSX.Element {
     if (completedDraft !== null && isMeaningfulObject(completedDraft)) {
       dispatch({ type: "commit", object: completedDraft });
     }
-  }
-
-  function appendPointerTrail(point: Point): void {
-    const now = performance.now();
-    if (now - lastPointerSample.current < 24) return;
-    const previous = pointerTrailRef.current.at(-1);
-    if (
-      previous !== undefined &&
-      Math.hypot(point.x - previous.x, point.y - previous.y) < 1.5
-    ) {
-      return;
-    }
-    lastPointerSample.current = now;
-    const nextTrail = [...pointerTrailRef.current, point];
-    pointerTrailRef.current = nextTrail;
-    setPointerTrail(nextTrail);
   }
 
   if (session === null) {
@@ -483,10 +540,12 @@ export function OnScreenOverlay(): React.JSX.Element {
         draft={draft}
       />
       <PointerLayer
+        active={activeTool === "pointer"}
         accent={settings.onScreen.color}
-        cursorPoint={cursorPoint}
+        coreRef={pointerCoreRef}
+        dotRef={pointerDotRef}
+        glowRef={pointerGlowRef}
         pointerHeld={pointerHeld}
-        pointerTrail={pointerTrail}
       />
       {activeTool === "magnifier" && snapshotUrl !== null ? <Magnifier cursor={cursorPoint} snapshotUrl={snapshotUrl} /> : null}
       {activeTool === "text" && textEditor === null ? (
@@ -555,6 +614,11 @@ export function OnScreenOverlay(): React.JSX.Element {
   );
 }
 
+function coalescedPointerEvents(event: PointerEvent): PointerEvent[] {
+  const optionalCoalescedEventApi: { getCoalescedEvents?: () => PointerEvent[] } = event;
+  return optionalCoalescedEventApi.getCoalescedEvents?.() ?? [];
+}
+
 function createInitialHistory(persistDrawings: boolean): typeof initialOnScreenHistory {
   if (!persistDrawings) return initialOnScreenHistory;
   return {
@@ -605,8 +669,7 @@ function isOnScreenControl(target: EventTarget | null): boolean {
 function toolTracksCursor(tool: OnScreenToolId): boolean {
   return (
     tool === "spotlight" ||
-    tool === "magnifier" ||
-    tool === "pointer"
+    tool === "magnifier"
   );
 }
 
@@ -654,51 +717,55 @@ const AnnotationLayer = memo(function AnnotationLayer({
 });
 
 function PointerLayer({
-  pointerTrail,
+  active,
   pointerHeld,
-  cursorPoint,
   accent,
+  dotRef,
+  glowRef,
+  coreRef,
 }: {
-  pointerTrail: readonly PointerTrailPoint[];
+  active: boolean;
   pointerHeld: boolean;
-  cursorPoint: Point;
   accent: string;
+  dotRef: React.RefObject<SVGCircleElement | null>;
+  glowRef: React.RefObject<SVGPathElement | null>;
+  coreRef: React.RefObject<SVGPathElement | null>;
 }): React.JSX.Element | null {
-  if (!pointerHeld) return null;
+  if (!active) return null;
   return (
     <svg
       aria-hidden="true"
       className="pointer-events-none fixed inset-0 z-30 size-full overflow-visible"
       data-testid="on-screen-pointer-trail"
+      data-pointer-held={pointerHeld}
     >
-      {pointerTrail.length > 1 ? (
-        <>
-          <path
-            d={pointsToSvgPath(pointerTrail)}
-            fill="none"
-            opacity="0.24"
-            stroke={accent}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="12"
-          />
-          <path
-            d={pointsToSvgPath(pointerTrail)}
-            fill="none"
-            stroke={accent}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="5"
-          />
-        </>
-      ) : null}
+      <path
+        data-testid="on-screen-pointer-glow"
+        fill="none"
+        opacity="0.24"
+        ref={glowRef}
+        stroke={accent}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="12"
+      />
+      <path
+        data-testid="on-screen-pointer-core"
+        fill="none"
+        ref={coreRef}
+        stroke={accent}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="5"
+      />
       <circle
-        cx={cursorPoint.x}
-        cy={cursorPoint.y}
+        data-testid="on-screen-pointer-dot"
         fill={accent}
         r="7"
+        ref={dotRef}
         stroke="rgb(255 255 255 / 72%)"
         strokeWidth="2"
+        visibility="hidden"
       />
     </svg>
   );
