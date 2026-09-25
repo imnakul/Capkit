@@ -31,15 +31,12 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AW_BLEND, AW_HIDE, AnimateWindow, SetForegroundWindow,
+    AW_BLEND, AnimateWindow, SetForegroundWindow,
 };
 
-// A plain `.show()`/`.hide()` on the capture window pops the WebView2 surface in or
-// out instantly, which exposes the one or two frames before WebView2's swap chain has
-// actually composited fresh content (it reads as a black flash). AnimateWindow's
-// cross-fade masks that gap behind a deliberate reveal instead of an instant pop.
+// AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
+// has composited fresh content, which otherwise reads as a black flash on reveal.
 const CAPTURE_REVEAL_MS: u32 = 180;
-const CAPTURE_DISMISS_MS: u32 = 140;
 
 #[cfg(target_os = "windows")]
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
@@ -61,28 +58,6 @@ fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubEr
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
     window
         .show()
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
-#[cfg(target_os = "windows")]
-fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
-    // Same guarantee as reveal_window_smoothly: a silently failed animate-hide must never
-    // strand the capture overlay on screen (e.g. Escape appearing to do nothing).
-    if let Ok(hwnd) = window.hwnd() {
-        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
-        if unsafe { AnimateWindow(hwnd, CAPTURE_DISMISS_MS, AW_BLEND | AW_HIDE) }.is_ok() {
-            return Ok(());
-        }
-    }
-    window
-        .hide()
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
-    window
-        .hide()
         .map_err(|error| SnaphubError::Window(error.to_string()))
 }
 
@@ -358,7 +333,7 @@ async fn retry_capture_save(
     Ok(result)
 }
 
-// Cancellation can wait for completion cleanup, which must run on the main thread.
+// Hide first so Escape feels instant, then wait for cancellation off the main thread.
 #[tauri::command]
 async fn cancel_capture(
     window: WebviewWindow,
@@ -366,6 +341,7 @@ async fn cancel_capture(
     session_id: String,
 ) -> Result<(), SnaphubError> {
     ensure_capture_window(&window)?;
+    let hide_result = hide_capture_window(&app);
     let worker_app = app.clone();
     let worker_session_id = session_id.clone();
     let cleanup_result = tauri::async_runtime::spawn_blocking(move || {
@@ -376,7 +352,6 @@ async fn cancel_capture(
     .await
     .map_err(|error| SnaphubError::Session(format!("Capture cancellation worker failed: {error}")))
     .and_then(|result| result);
-    let hide_result = hide_capture_window(&app);
     hide_result.and(cleanup_result)
 }
 
@@ -940,7 +915,9 @@ fn hide_capture_window_with_recovery(app: &AppHandle) -> Option<String> {
 
 fn hide_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("capture") {
-        hide_window_smoothly(&window)?;
+        window
+            .hide()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
     }
     Ok(())
 }

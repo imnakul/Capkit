@@ -5,6 +5,8 @@ import type { CaptureSession, CompletionAction } from "./domain/capture";
 import type { CompletionResult } from "./lib/tauri";
 
 const captureMocks = vi.hoisted(() => ({
+  cancelCapture: vi.fn(),
+  cancelManualScrolling: vi.fn(),
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
   listeners: [] as (() => void)[],
@@ -17,6 +19,8 @@ vi.mock("./lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/tauri")>();
   return {
     ...actual,
+    cancelCapture: captureMocks.cancelCapture,
+    cancelManualScrolling: captureMocks.cancelManualScrolling,
     captureScrolling: captureMocks.captureScrolling,
     completeCapture: captureMocks.completeCapture,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
@@ -140,6 +144,8 @@ describe("App", () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     captureMocks.listeners.length = 0;
+    captureMocks.cancelCapture.mockResolvedValue(undefined);
+    captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
     captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
     captureMocks.showCaptureSurface.mockResolvedValue(undefined);
     captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
@@ -264,6 +270,18 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.queryByRole("main")).not.toBeInTheDocument();
     });
+  });
+
+  it("cancels the capture before manual scrolling when Escape follows a selection", async () => {
+    render(<App />);
+    await selectRegion();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("main")).not.toBeInTheDocument());
+    expect(captureMocks.cancelCapture.mock.invocationCallOrder[0]).toBeLessThan(
+      captureMocks.cancelManualScrolling.mock.invocationCallOrder[0],
+    );
   });
 
   it("creates an in-place selection and reveals quick actions", async () => {

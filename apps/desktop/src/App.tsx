@@ -532,8 +532,8 @@ export function App(): React.JSX.Element {
     sessionGeneration.current += 1;
     try {
       if (session !== null) {
-        await cancelManualScrolling(session.id).catch(() => undefined);
         await cancelCapture(session.id).catch(async () => dismissCapture());
+        await cancelManualScrolling(session.id).catch(() => undefined);
       } else {
         await dismissCapture();
       }
