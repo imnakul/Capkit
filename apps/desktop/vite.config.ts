@@ -1,8 +1,22 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execFileSync } from "node:child_process";
 import { defineConfig } from "vitest/config";
 
+function capkitCommit(): string {
+  const fromEnv = process.env.CAPKIT_COMMIT?.slice(0, 7);
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "dev";
+  }
+}
+
+const commit = capkitCommit();
+
 export default defineConfig({
+  define: { __CAPKIT_COMMIT__: JSON.stringify(commit) },
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: {

@@ -14,6 +14,8 @@
     "bundle": "pnpm --filter @snaphub/desktop bundle",
     "bundle:windows": "pnpm --filter @snaphub/desktop bundle:windows",
     "bundle:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-msix.ps1",
-    "test:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-msix.ps1"
+    "test:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-msix.ps1",
+    "version:bump": "node scripts/bump-version.ts",
+    "version:check": "node scripts/check-version.ts"
   }
 }

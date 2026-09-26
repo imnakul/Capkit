@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
@@ -34,7 +35,22 @@ export function DashboardPanel(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<DashboardTab>("dashboard");
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
   const [studioRecording, setStudioRecording] = useState<RecordingArtifacts | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
   const { settings, updateSettings } = useSnaphubSettings();
+
+  useEffect(() => {
+    let cancelled = false;
+    void getVersion()
+      .then((appVersion) => {
+        if (!cancelled) setVersion(appVersion);
+      })
+      .catch(() => {
+        if (!cancelled) setVersion(null);
+      });
+    return (): void => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -119,7 +135,7 @@ export function DashboardPanel(): React.JSX.Element {
             <span className="size-1.5 rounded-full bg-emerald-400" />
             Ready in the system tray
           </div>
-          <p className="mt-1 text-[11px] leading-4 text-stone-600">v0.1.1 · Preferences stay on this device</p>
+          <p className="mt-1 text-[11px] leading-4 text-stone-600">v{version ?? "—"} · {__CAPKIT_COMMIT__} · Preferences stay on this device</p>
         </div>
       </aside>
 

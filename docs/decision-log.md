@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-26 - Releases are version-triggered on master
+
+- **Confirmed:** `apps/desktop/src-tauri/tauri.conf.json` `version` is the single source of truth; `package.json`, `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` must always match it, enforced by `pnpm version:check` in CI.
+- **Confirmed:** Semantic versioning: a patch is a fix only, a minor adds features, and a major is reserved for a 1.0 launch. The first automated release is `0.2.0`.
+- **Confirmed:** A push to `master` whose version has no matching `v<version>` tag builds the Windows NSIS installer with the repo's own `pnpm bundle:windows` script and publishes it with `gh release create` (preinstalled on runners), with generated notes plus a `CHANGELOG-PUBLIC.md` link. A push without a version change only runs the quick skip. No third-party release actions.
+- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), the in-app auto-updater (`tauri-plugin-updater`), pre-release channels, and Store (MSIX) versioning.
+- **Rationale:** Raising the version once should be enough to ship an identifiable installer; every installed copy reports its version and commit in the sidebar.
+
 ## 2026-09-26 - Screen Draw defaults to Select
 
 - **Confirmed:** Screen Draw opens with the Select tool active, returns to Select after Clear, and recovers to Select after a snapshot-tool failure. This supersedes the 2026-07-25 Presentation Pointer default below; the pointer trail remains one click away for gesture-first presenting.

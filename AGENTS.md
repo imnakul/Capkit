@@ -66,7 +66,7 @@ Also verify affected components, multi-monitor/DPI-sensitive geometry, loading, 
 - Landing page: Next.js 16.2 App Router, React 19, TypeScript 5, Tailwind CSS 4, Framer Motion 12
 - Tooling: ESLint 9, Vitest 4, Testing Library, Cargo
 - Targets: Windows 11 supported; macOS, Ubuntu, and Fedora provisional
-- CI: no every-PR workflow is currently present; setup records the requested CI policy
+- CI: `ci.yml` on every PR to master; `release.yml` publishes a GitHub Release when the version changes on master
 
 ## Commands
 
@@ -89,6 +89,8 @@ Also verify affected components, multi-monitor/DPI-sensitive geometry, loading, 
 | Landing lint       | `pnpm.cmd --filter @snaphub/landing-page lint`                                                |
 | Store package      | `pnpm.cmd bundle:store`                                                                       |
 | Store package test | `pnpm.cmd test:store`                                                                         |
+| Version bump       | `pnpm.cmd version:bump minor`                                                                 |
+| Version check      | `pnpm.cmd version:check`                                                                      |
 
 ## Project docs
 
