@@ -3,6 +3,7 @@ import {
   Blur,
   CircleShape,
   Delete,
+  Download,
   Eraser,
   Focus,
   Magnifier as MagnifierIcon,
@@ -45,6 +46,7 @@ import {
   dismissOnScreen,
   requestOnScreenSession,
   requestOnScreenSnapshot,
+  saveOnScreenCapture,
   showOnScreenSurface,
   type OnScreenSession,
 } from "../lib/tauri";
@@ -52,7 +54,10 @@ import {
 type DrawingTool = "pencil" | "rectangle" | "ellipse" | "arrow" | "blur";
 type OnScreenBackgroundMode = "live" | "frozen";
 type TextEditor = { id: string; position: Point; value: string };
-type PointerTrailPoint = Point;
+type SaveState =
+  | { phase: "idle" }
+  | { phase: "capturing" }
+  | { phase: "message"; text: string; tone: "success" | "error" };
 const persistedSceneStorageKey = "capkit.onscreen.scene.v1";
 const defaultOnScreenTool: OnScreenToolId = "pointer";
 
@@ -97,8 +102,9 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [draft, setDraft] = useState<OnScreenObject | null>(null);
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
-  const [pointerTrail, setPointerTrail] = useState<readonly PointerTrailPoint[]>([]);
   const [pointerHeld, setPointerHeld] = useState(false);
+  const [fadingTrails, setFadingTrails] = useState<{ id: string; d: string }[]>([]);
+  const [saveState, setSaveState] = useState<SaveState>({ phase: "idle" });
   const [error, setError] = useState<string | null>(null);
   const drawingPointer = useRef<number | null>(null);
   const drawingTool = useRef<OnScreenToolId | null>(null);
@@ -107,12 +113,23 @@ export function OnScreenOverlay(): React.JSX.Element {
   const draftFrame = useRef<number | null>(null);
   const pendingCursorPoint = useRef<Point | null>(null);
   const cursorFrame = useRef<number | null>(null);
+  const pendingPointerPoint = useRef<Point | null>(null);
+  const pointerFrame = useRef<number | null>(null);
+  const pointerPathRef = useRef("");
+  const lastPointerPoint = useRef<Point | null>(null);
+  const pointerHeldRef = useRef(false);
+  const fadingTrailsRef = useRef<{ id: string; d: string }[]>([]);
+  const fadingTrailTimers = useRef(new Map<string, number>());
+  const pointerDotRef = useRef<SVGCircleElement>(null);
+  const pointerGlowRef = useRef<SVGPathElement>(null);
+  const pointerCoreRef = useRef<SVGPathElement>(null);
   const snapshotRequest = useRef<Promise<string> | null>(null);
   const surfaceShown = useRef(false);
   const lifecycleToken = useRef(0);
-  const lastPointerSample = useRef(0);
-  const pointerTrailRef = useRef<readonly PointerTrailPoint[]>([]);
+  const saveInFlight = useRef(false);
+  const saveMessageTimer = useRef<number | null>(null);
   const textEditorRef = useRef<TextEditor | null>(null);
+  const textEditorOpenedAt = useRef<number | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   const cursor = useMemo(
@@ -124,9 +141,107 @@ export function OnScreenOverlay(): React.JSX.Element {
     [history.present],
   );
   const textEditorOpen = textEditor !== null;
+  const isCapturing = saveState.phase === "capturing";
+
+  const cancelPointerFrame = useCallback((): void => {
+    if (pointerFrame.current !== null) {
+      window.cancelAnimationFrame(pointerFrame.current);
+      pointerFrame.current = null;
+    }
+    pendingPointerPoint.current = null;
+  }, []);
+
+  const clearLivePointerPath = useCallback((): void => {
+    pointerPathRef.current = "";
+    lastPointerPoint.current = null;
+    pointerGlowRef.current?.setAttribute("d", "");
+    pointerCoreRef.current?.setAttribute("d", "");
+  }, []);
+
+  const removeFadingTrail = useCallback((id: string): void => {
+    const timer = fadingTrailTimers.current.get(id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    fadingTrailTimers.current.delete(id);
+    fadingTrailsRef.current = fadingTrailsRef.current.filter((trail) => trail.id !== id);
+    setFadingTrails(fadingTrailsRef.current);
+  }, []);
+
+  const clearFadingTrails = useCallback((): void => {
+    for (const timer of fadingTrailTimers.current.values()) {
+      window.clearTimeout(timer);
+    }
+    fadingTrailTimers.current.clear();
+    fadingTrailsRef.current = [];
+    setFadingTrails([]);
+  }, []);
+
+  const clearSaveMessageTimer = useCallback((): void => {
+    if (saveMessageTimer.current !== null) {
+      window.clearTimeout(saveMessageTimer.current);
+      saveMessageTimer.current = null;
+    }
+  }, []);
+
+  const startFadingTrail = useCallback((path: string): void => {
+    if (path === "" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
+    const trail = { id: crypto.randomUUID(), d: path };
+    const nextTrails = [...fadingTrailsRef.current, trail];
+    const removedTrails = nextTrails.slice(0, Math.max(0, nextTrails.length - 3));
+    for (const removed of removedTrails) {
+      const timer = fadingTrailTimers.current.get(removed.id);
+      if (timer !== undefined) window.clearTimeout(timer);
+      fadingTrailTimers.current.delete(removed.id);
+    }
+    fadingTrailsRef.current = nextTrails.slice(-3);
+    setFadingTrails(fadingTrailsRef.current);
+
+    const timer = window.setTimeout(() => removeFadingTrail(trail.id), 600);
+    fadingTrailTimers.current.set(trail.id, timer);
+  }, [removeFadingTrail]);
+
+  const dismissScreenDraw = useCallback((): void => {
+    lifecycleToken.current += 1;
+    clearSaveMessageTimer();
+    clearFadingTrails();
+    void dismissOnScreen();
+  }, [clearFadingTrails, clearSaveMessageTimer]);
+
+  const saveScreen = useCallback(async (): Promise<void> => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    const token = lifecycleToken.current;
+    clearSaveMessageTimer();
+    setSaveState({ phase: "capturing" });
+
+    const showMessage = (text: string, tone: "success" | "error"): void => {
+      setSaveState({ phase: "message", text, tone });
+      saveMessageTimer.current = window.setTimeout(() => {
+        saveMessageTimer.current = null;
+        if (lifecycleToken.current === token) setSaveState({ phase: "idle" });
+      }, 2500);
+    };
+
+    try {
+      await waitForTwoAnimationFrames();
+      const path = await saveOnScreenCapture();
+      if (lifecycleToken.current !== token) return;
+      const fileName = path.split(/[\\/]/).filter((segment) => segment !== "").at(-1) ?? path;
+      showMessage(`Saved to ${fileName}`, "success");
+    } catch (reason: unknown) {
+      if (lifecycleToken.current !== token) return;
+      const diagnostic = describeInvokeError(reason, "Unknown save error");
+      showMessage(`Could not save this screen. Try again. ${diagnostic}`, "error");
+    } finally {
+      saveInFlight.current = false;
+    }
+  }, [clearSaveMessageTimer]);
 
   const cancelText = useCallback((): void => {
     textEditorRef.current = null;
+    textEditorOpenedAt.current = null;
     setTextEditor(null);
   }, []);
 
@@ -139,6 +254,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       return;
     }
     textEditorRef.current = null;
+    textEditorOpenedAt.current = null;
     setTextEditor(null);
     const text = editor.value.trim();
     if (text === "") return;
@@ -158,22 +274,26 @@ export function OnScreenOverlay(): React.JSX.Element {
   const openTextEditor = useCallback((position: Point): void => {
     const nextEditor = { id: crypto.randomUUID(), position, value: "" };
     textEditorRef.current = nextEditor;
+    textEditorOpenedAt.current = performance.now();
     setTextEditor(nextEditor);
   }, []);
 
   const clearAll = useCallback((): void => {
+    cancelPointerFrame();
+    clearFadingTrails();
     draftRef.current = null;
     pendingDraft.current = null;
     drawingPointer.current = null;
     drawingTool.current = null;
     setDraft(null);
     cancelText();
-    pointerTrailRef.current = [];
-    setPointerTrail([]);
+    pointerHeldRef.current = false;
+    clearLivePointerPath();
+    pointerDotRef.current?.setAttribute("visibility", "hidden");
     setPointerHeld(false);
     setActiveTool(defaultOnScreenTool);
     dispatch({ type: "clear" });
-  }, [cancelText]);
+  }, [cancelPointerFrame, cancelText, clearFadingTrails, clearLivePointerPath]);
 
   const selectTool = useCallback(
     (tool: OnScreenToolId): void => {
@@ -227,14 +347,32 @@ export function OnScreenOverlay(): React.JSX.Element {
 
   useEffect(() => {
     return (): void => {
+      lifecycleToken.current += 1;
+      saveInFlight.current = false;
+      clearSaveMessageTimer();
       if (cursorFrame.current !== null) {
         window.cancelAnimationFrame(cursorFrame.current);
       }
       if (draftFrame.current !== null) {
         window.cancelAnimationFrame(draftFrame.current);
       }
+      cancelPointerFrame();
+      for (const timer of fadingTrailTimers.current.values()) {
+        window.clearTimeout(timer);
+      }
+      fadingTrailTimers.current.clear();
     };
-  }, []);
+  }, [cancelPointerFrame, clearSaveMessageTimer]);
+
+  useEffect(() => {
+    clearFadingTrails();
+    if (activeTool === "pointer") return;
+    cancelPointerFrame();
+    pointerHeldRef.current = false;
+    clearLivePointerPath();
+    pointerDotRef.current?.setAttribute("visibility", "hidden");
+    setPointerHeld(false);
+  }, [activeTool, cancelPointerFrame, clearFadingTrails, clearLivePointerPath]);
 
   useEffect(() => {
     if (
@@ -247,9 +385,9 @@ export function OnScreenOverlay(): React.JSX.Element {
     surfaceShown.current = true;
     void showOnScreenSurface().catch((reason: unknown) => {
       setError(describeInvokeError(reason, "On-screen mode could not become visible"));
-      void dismissOnScreen();
+      dismissScreenDraw();
     });
-  }, [backgroundMode, session, snapshotUrl]);
+  }, [backgroundMode, dismissScreenDraw, session, snapshotUrl]);
 
   useEffect(() => {
     if (settings.onScreen.persistDrawings) {
@@ -289,7 +427,10 @@ export function OnScreenOverlay(): React.JSX.Element {
   }, [activeTool, session, snapshotUrl]);
 
   useEffect(() => {
-    if (textEditorOpen) textInputRef.current?.focus();
+    if (!textEditorOpen) return;
+    textInputRef.current?.focus();
+    const frame = requestAnimationFrame(() => textInputRef.current?.focus());
+    return (): void => cancelAnimationFrame(frame);
   }, [textEditorOpen]);
 
   useEffect(() => {
@@ -305,7 +446,20 @@ export function OnScreenOverlay(): React.JSX.Element {
           cancelText();
           return;
         }
-        void dismissOnScreen();
+        dismissScreenDraw();
+        return;
+      }
+      if (
+        event.key.toLowerCase() === "s"
+        && !event.ctrlKey
+        && !event.altKey
+        && !event.metaKey
+        && !event.shiftKey
+        && !isEditing
+        && textEditorRef.current === null
+      ) {
+        event.preventDefault();
+        void saveScreen();
         return;
       }
       if (isEditing) return;
@@ -325,7 +479,7 @@ export function OnScreenOverlay(): React.JSX.Element {
     }
     window.addEventListener("keydown", handleKeyboard, true);
     return (): void => window.removeEventListener("keydown", handleKeyboard, true);
-  }, [cancelText, settings.onScreen.toolShortcuts]);
+  }, [cancelText, dismissScreenDraw, saveScreen, settings.onScreen.toolShortcuts]);
 
   function localPoint(event: React.PointerEvent<HTMLDivElement>): Point {
     return { x: event.clientX, y: event.clientY };
@@ -339,6 +493,46 @@ export function OnScreenOverlay(): React.JSX.Element {
       const nextPoint = pendingCursorPoint.current;
       if (nextPoint !== null) setCursorPoint(nextPoint);
     });
+  }
+
+  function schedulePointerRender(points: readonly Point[]): void {
+    const latestPoint = points.at(-1);
+    if (latestPoint === undefined) return;
+
+    if (pointerHeldRef.current) {
+      for (const point of points) appendPointerPoint(point);
+    }
+    pendingPointerPoint.current = latestPoint;
+    if (pointerFrame.current !== null) return;
+    pointerFrame.current = window.requestAnimationFrame(() => {
+      pointerFrame.current = null;
+      const nextPoint = pendingPointerPoint.current;
+      pendingPointerPoint.current = null;
+      if (nextPoint === null) return;
+
+      pointerDotRef.current?.setAttribute("cx", String(nextPoint.x));
+      pointerDotRef.current?.setAttribute("cy", String(nextPoint.y));
+      pointerDotRef.current?.setAttribute("visibility", "visible");
+      if (pointerHeldRef.current) {
+        pointerGlowRef.current?.setAttribute("d", pointerPathRef.current);
+        pointerCoreRef.current?.setAttribute("d", pointerPathRef.current);
+      }
+    });
+  }
+
+  function appendPointerPoint(point: Point): void {
+    const previous = lastPointerPoint.current;
+    if (
+      previous !== null
+      && Math.hypot(point.x - previous.x, point.y - previous.y) < 1.5
+    ) {
+      return;
+    }
+
+    pointerPathRef.current = pointerPathRef.current === ""
+      ? `M ${String(point.x)} ${String(point.y)}`
+      : `${pointerPathRef.current} L ${String(point.x)} ${String(point.y)}`;
+    lastPointerPoint.current = point;
   }
 
   function scheduleDraftRender(nextDraft: OnScreenObject | null): void {
@@ -361,6 +555,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       return;
     }
     if (activeTool === "text") {
+      event.preventDefault();
       commitText();
       openTextEditor(point);
       return;
@@ -369,11 +564,9 @@ export function OnScreenOverlay(): React.JSX.Element {
     drawingPointer.current = event.pointerId;
     drawingTool.current = activeTool;
     if (activeTool === "pointer") {
-      pointerTrailRef.current = [];
-      setPointerTrail([]);
+      clearLivePointerPath();
+      pointerHeldRef.current = true;
       setPointerHeld(true);
-      lastPointerSample.current = 0;
-      appendPointerTrail(point);
       return;
     }
     if (isDrawingTool(activeTool)) {
@@ -392,12 +585,16 @@ export function OnScreenOverlay(): React.JSX.Element {
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     if (isOnScreenControl(event.target)) return;
     const point = localPoint(event);
-    if (toolTracksCursor(activeTool)) scheduleCursorRender(point);
-    if (drawingPointer.current !== event.pointerId) return;
-    if (drawingTool.current === "pointer") {
-      appendPointerTrail(point);
+    if (activeTool === "pointer") {
+      const coalescedEvents = coalescedPointerEvents(event.nativeEvent);
+      const points = coalescedEvents.length === 0
+        ? [point]
+        : coalescedEvents.map((sample) => ({ x: sample.clientX, y: sample.clientY }));
+      schedulePointerRender(points);
       return;
     }
+    if (toolTracksCursor(activeTool)) scheduleCursorRender(point);
+    if (drawingPointer.current !== event.pointerId) return;
     const nextDraft = updateDraft(draftRef.current, point);
     draftRef.current = nextDraft;
     scheduleDraftRender(nextDraft);
@@ -413,8 +610,9 @@ export function OnScreenOverlay(): React.JSX.Element {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (completedTool === "pointer") {
-      pointerTrailRef.current = [];
-      setPointerTrail([]);
+      startFadingTrail(pointerPathRef.current);
+      pointerHeldRef.current = false;
+      clearLivePointerPath();
       setPointerHeld(false);
       return;
     }
@@ -431,25 +629,12 @@ export function OnScreenOverlay(): React.JSX.Element {
     }
   }
 
-  function appendPointerTrail(point: Point): void {
-    const now = performance.now();
-    if (now - lastPointerSample.current < 24) return;
-    const previous = pointerTrailRef.current.at(-1);
-    if (
-      previous !== undefined &&
-      Math.hypot(point.x - previous.x, point.y - previous.y) < 1.5
-    ) {
-      return;
-    }
-    lastPointerSample.current = now;
-    const nextTrail = [...pointerTrailRef.current, point];
-    pointerTrailRef.current = nextTrail;
-    setPointerTrail(nextTrail);
-  }
-
   if (session === null) {
     return error === null ? <div className="size-full bg-transparent" /> : <div className="size-full bg-transparent" role="alert">{error}</div>;
   }
+
+  const displayWidth = session.display.bounds.width;
+  const displayHeight = session.display.bounds.height;
 
   return (
     <div
@@ -467,32 +652,62 @@ export function OnScreenOverlay(): React.JSX.Element {
       {backgroundMode === "frozen" && snapshotUrl !== null ? (
         <img
           alt=""
-          className="pointer-events-none fixed inset-0 size-full select-none object-fill"
+          className="pointer-events-none fixed select-none object-fill"
           data-testid="on-screen-frozen-background"
           draggable={false}
           src={snapshotUrl}
+          style={{ height: displayHeight, left: 0, top: 0, width: displayWidth }}
         />
       ) : null}
       {activeTool === "spotlight" ? (
         <Spotlight cursor={cursorPoint} radius={settings.onScreen.spotlightSize} />
       ) : null}
-      <BlurLayer objects={blurObjects} snapshotUrl={snapshotUrl} />
-      {draft?.kind === "blur" && snapshotUrl !== null ? <BlurRegion draft key={draft.id} object={draft} snapshotUrl={snapshotUrl} /> : null}
+      <BlurLayer
+        displayHeight={displayHeight}
+        displayWidth={displayWidth}
+        objects={blurObjects}
+        snapshotUrl={snapshotUrl}
+      />
+      {draft?.kind === "blur" && snapshotUrl !== null ? (
+        <BlurRegion
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
+          draft
+          key={draft.id}
+          object={draft}
+          snapshotUrl={snapshotUrl}
+        />
+      ) : null}
       <AnnotationLayer
         objects={history.present}
         draft={draft}
       />
       <PointerLayer
+        active={activeTool === "pointer"}
         accent={settings.onScreen.color}
-        cursorPoint={cursorPoint}
+        coreRef={pointerCoreRef}
+        dotRef={pointerDotRef}
+        fadingTrails={fadingTrails}
+        glowRef={pointerGlowRef}
+        hidden={isCapturing}
+        onFadeEnd={removeFadingTrail}
         pointerHeld={pointerHeld}
-        pointerTrail={pointerTrail}
       />
-      {activeTool === "magnifier" && snapshotUrl !== null ? <Magnifier cursor={cursorPoint} snapshotUrl={snapshotUrl} /> : null}
+      {activeTool === "magnifier" && snapshotUrl !== null ? (
+        <Magnifier
+          cursor={cursorPoint}
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
+          snapshotUrl={snapshotUrl}
+        />
+      ) : null}
       {activeTool === "text" && textEditor === null ? (
         <div
           className="pointer-events-none fixed bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-md border border-white/12 bg-[#171815]/98 px-3 py-1.5 text-[12px] font-semibold text-stone-200 shadow-xl"
           role="status"
+          style={{
+            visibility: isCapturing || saveState.phase === "message" ? "hidden" : undefined,
+          }}
         >
           Click anywhere to type
         </div>
@@ -510,9 +725,27 @@ export function OnScreenOverlay(): React.JSX.Element {
             left: Math.max(8, Math.min(textEditor.position.x, window.innerWidth - 232)),
             top: Math.max(8, Math.min(textEditor.position.y, window.innerHeight - 64)),
             color: settings.onScreen.color,
+            visibility: isCapturing ? "hidden" : undefined,
           }}
           value={textEditor.value}
-          onBlur={() => commitText(textEditor.id)}
+          onBlur={() => {
+            const currentEditor = textEditorRef.current;
+            const openedAt = textEditorOpenedAt.current;
+            if (
+              currentEditor?.id === textEditor.id &&
+              currentEditor.value.trim() === "" &&
+              openedAt !== null &&
+              performance.now() - openedAt < 100
+            ) {
+              requestAnimationFrame(() => {
+                if (textEditorRef.current?.id === textEditor.id) {
+                  textInputRef.current?.focus();
+                }
+              });
+              return;
+            }
+            commitText(textEditor.id);
+          }}
           onChange={(event) => {
             const nextEditor = {
               ...textEditor,
@@ -537,22 +770,50 @@ export function OnScreenOverlay(): React.JSX.Element {
         activeTool={activeTool}
         canRedo={history.future.length > 0}
         canUndo={history.past.length > 0}
+        capturing={isCapturing}
+        saveDisabled={saveInFlight.current || isCapturing}
         toolShortcuts={settings.onScreen.toolShortcuts}
         onClear={clearAll}
         onRedo={redo}
+        onSave={() => void saveScreen()}
         onToolChange={selectTool}
         onUndo={undo}
       />
+      <div
+        aria-live="polite"
+        className={`pointer-events-none fixed bottom-28 left-1/2 z-50 -translate-x-1/2 rounded-md border px-3 py-2 text-[12px] font-semibold shadow-xl ${saveState.phase === "message" && saveState.tone === "error" ? "border-rose-200/25 bg-[#261715]/98 text-rose-100" : "border-white/12 bg-[#171815]/98 text-stone-100"}`}
+        data-testid="on-screen-save-status"
+        role="status"
+        style={{
+          visibility: isCapturing || saveState.phase !== "message" ? "hidden" : undefined,
+        }}
+      >
+        {saveState.phase === "message" ? saveState.text : null}
+      </div>
       {error === null ? null : (
         <div
           className="pointer-events-none fixed left-1/2 top-5 z-50 -translate-x-1/2 rounded-md border border-amber-200/20 bg-[#171815]/98 px-3 py-2 text-[12px] font-medium text-amber-100 shadow-xl"
           role="status"
+          style={{ visibility: isCapturing ? "hidden" : undefined }}
         >
           {error}
         </div>
       )}
     </div>
   );
+}
+
+function waitForTwoAnimationFrames(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function coalescedPointerEvents(event: PointerEvent): PointerEvent[] {
+  const optionalCoalescedEventApi: { getCoalescedEvents?: () => PointerEvent[] } = event;
+  return optionalCoalescedEventApi.getCoalescedEvents?.() ?? [];
 }
 
 function createInitialHistory(persistDrawings: boolean): typeof initialOnScreenHistory {
@@ -605,8 +866,7 @@ function isOnScreenControl(target: EventTarget | null): boolean {
 function toolTracksCursor(tool: OnScreenToolId): boolean {
   return (
     tool === "spotlight" ||
-    tool === "magnifier" ||
-    tool === "pointer"
+    tool === "magnifier"
   );
 }
 
@@ -654,27 +914,44 @@ const AnnotationLayer = memo(function AnnotationLayer({
 });
 
 function PointerLayer({
-  pointerTrail,
+  active,
+  hidden,
   pointerHeld,
-  cursorPoint,
   accent,
+  fadingTrails,
+  dotRef,
+  glowRef,
+  coreRef,
+  onFadeEnd,
 }: {
-  pointerTrail: readonly PointerTrailPoint[];
+  active: boolean;
+  hidden: boolean;
   pointerHeld: boolean;
-  cursorPoint: Point;
   accent: string;
+  fadingTrails: readonly { id: string; d: string }[];
+  dotRef: React.RefObject<SVGCircleElement | null>;
+  glowRef: React.RefObject<SVGPathElement | null>;
+  coreRef: React.RefObject<SVGPathElement | null>;
+  onFadeEnd: (id: string) => void;
 }): React.JSX.Element | null {
-  if (!pointerHeld) return null;
+  if (!active) return null;
   return (
     <svg
       aria-hidden="true"
       className="pointer-events-none fixed inset-0 z-30 size-full overflow-visible"
       data-testid="on-screen-pointer-trail"
+      data-pointer-held={pointerHeld}
+      style={{ visibility: hidden ? "hidden" : undefined }}
     >
-      {pointerTrail.length > 1 ? (
-        <>
+      {fadingTrails.map((trail) => (
+        <g
+          className="animate-[laser-fade_450ms_ease-out_forwards] motion-reduce:hidden"
+          data-testid="on-screen-fading-trail"
+          key={trail.id}
+          onAnimationEnd={() => onFadeEnd(trail.id)}
+        >
           <path
-            d={pointsToSvgPath(pointerTrail)}
+            d={trail.d}
             fill="none"
             opacity="0.24"
             stroke={accent}
@@ -683,22 +960,42 @@ function PointerLayer({
             strokeWidth="12"
           />
           <path
-            d={pointsToSvgPath(pointerTrail)}
+            d={trail.d}
             fill="none"
             stroke={accent}
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="5"
           />
-        </>
-      ) : null}
+        </g>
+      ))}
+      <path
+        data-testid="on-screen-pointer-glow"
+        fill="none"
+        opacity="0.24"
+        ref={glowRef}
+        stroke={accent}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="12"
+      />
+      <path
+        data-testid="on-screen-pointer-core"
+        fill="none"
+        ref={coreRef}
+        stroke={accent}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="5"
+      />
       <circle
-        cx={cursorPoint.x}
-        cy={cursorPoint.y}
+        data-testid="on-screen-pointer-dot"
         fill={accent}
         r="7"
+        ref={dotRef}
         stroke="rgb(255 255 255 / 72%)"
         strokeWidth="2"
+        visibility="hidden"
       />
     </svg>
   );
@@ -723,9 +1020,13 @@ function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.El
 }
 
 const BlurLayer = memo(function BlurLayer({
+  displayHeight,
+  displayWidth,
   objects,
   snapshotUrl,
 }: {
+  displayHeight: number;
+  displayWidth: number;
   objects: readonly OnScreenShapeObject[];
   snapshotUrl: string | null;
 }): React.JSX.Element | null {
@@ -734,6 +1035,8 @@ const BlurLayer = memo(function BlurLayer({
     <>
       {objects.map((object) => (
         <BlurRegion
+          displayHeight={displayHeight}
+          displayWidth={displayWidth}
           key={object.id}
           object={object}
           snapshotUrl={snapshotUrl}
@@ -743,28 +1046,93 @@ const BlurLayer = memo(function BlurLayer({
   );
 });
 
-function BlurRegion({ object, snapshotUrl, draft = false }: { object: OnScreenShapeObject; snapshotUrl: string; draft?: boolean }): React.JSX.Element {
+function BlurRegion({
+  displayHeight,
+  displayWidth,
+  object,
+  snapshotUrl,
+  draft = false,
+}: {
+  displayHeight: number;
+  displayWidth: number;
+  object: OnScreenShapeObject;
+  snapshotUrl: string;
+  draft?: boolean;
+}): React.JSX.Element {
   const rect = normalizedObjectRect(object);
-  return <div aria-hidden="true" className={`pointer-events-none fixed z-10 overflow-hidden ${draft ? "border-2 border-dashed border-white/85" : "border border-white/25"}`} style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}><img alt="" className="pointer-events-none absolute max-w-none object-fill" src={snapshotUrl} style={{ filter: "blur(13px)", height: window.innerHeight, left: -rect.x, top: -rect.y, width: window.innerWidth }} /></div>;
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none fixed z-10 overflow-hidden ${draft ? "border-2 border-dashed border-white/85" : "border border-white/25"}`}
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    >
+      <img
+        alt=""
+        className="pointer-events-none absolute max-w-none object-fill"
+        src={snapshotUrl}
+        style={{
+          filter: "blur(13px)",
+          height: displayHeight,
+          left: -rect.x,
+          top: -rect.y,
+          width: displayWidth,
+        }}
+      />
+    </div>
+  );
 }
 
 function Spotlight({ cursor, radius }: { cursor: Point; radius: number }): React.JSX.Element {
   return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-10 rounded-full shadow-[0_0_0_9999px_rgba(0,0,0,0.68)] will-change-transform" data-testid="on-screen-spotlight" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }} />;
 }
 
-function Magnifier({ cursor, snapshotUrl }: { cursor: Point; snapshotUrl: string }): React.JSX.Element {
+function Magnifier({
+  cursor,
+  displayHeight,
+  displayWidth,
+  snapshotUrl,
+}: {
+  cursor: Point;
+  displayHeight: number;
+  displayWidth: number;
+  snapshotUrl: string;
+}): React.JSX.Element {
   const radius = 92;
   const zoom = 1.85;
-  return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-30 overflow-hidden rounded-full border-4 border-white/90 bg-black shadow-[0_16px_52px_rgba(0,0,0,0.48)] ring-2 ring-black/45 will-change-transform" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }}><img alt="" className="pointer-events-none absolute left-0 top-0 max-w-none object-fill will-change-transform" src={snapshotUrl} style={{ height: window.innerHeight * zoom, transform: `translate3d(${String(radius - cursor.x * zoom)}px, ${String(radius - cursor.y * zoom)}px, 0)`, width: window.innerWidth * zoom }} /><span className="absolute bottom-2 right-3 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-white">1.85×</span></div>;
+  return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-30 overflow-hidden rounded-full border-4 border-white/90 bg-black shadow-[0_16px_52px_rgba(0,0,0,0.48)] ring-2 ring-black/45 will-change-transform" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }}><img alt="" className="pointer-events-none absolute left-0 top-0 max-w-none object-fill will-change-transform" src={snapshotUrl} style={{ height: displayHeight * zoom, transform: `translate3d(${String(radius - cursor.x * zoom)}px, ${String(radius - cursor.y * zoom)}px, 0)`, width: displayWidth * zoom }} /><span className="absolute bottom-2 right-3 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-white">1.85×</span></div>;
 }
 
-const OnScreenDock = memo(function OnScreenDock({ activeTool, canUndo, canRedo, toolShortcuts, onToolChange, onUndo, onRedo, onClear }: { activeTool: OnScreenToolId; canUndo: boolean; canRedo: boolean; toolShortcuts: Record<OnScreenToolId, string>; onToolChange: (tool: OnScreenToolId) => void; onUndo: () => void; onRedo: () => void; onClear: () => void }): React.JSX.Element {
+const OnScreenDock = memo(function OnScreenDock({
+  activeTool,
+  canUndo,
+  canRedo,
+  capturing,
+  saveDisabled,
+  toolShortcuts,
+  onToolChange,
+  onUndo,
+  onRedo,
+  onSave,
+  onClear,
+}: {
+  activeTool: OnScreenToolId;
+  canUndo: boolean;
+  canRedo: boolean;
+  capturing: boolean;
+  saveDisabled: boolean;
+  toolShortcuts: Record<OnScreenToolId, string>;
+  onToolChange: (tool: OnScreenToolId) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onSave: () => void;
+  onClear: () => void;
+}): React.JSX.Element {
   const [hoveredTool, setHoveredTool] = useState<OnScreenToolId | null>(null);
   const highlightedTool = hoveredTool ?? activeTool;
   const highlightedIndex = toolCatalog.findIndex((tool) => tool.id === highlightedTool);
 
   return (
-    <div className="fixed bottom-12 left-1/2 z-50 flex max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/12 bg-[#171815]/98 p-2 text-white shadow-[0_22px_72px_rgba(0,0,0,0.48)]" data-onscreen-control="true" role="toolbar" aria-label="On-screen drawing tools" onPointerDown={(event) => event.stopPropagation()} onPointerUp={(event) => event.stopPropagation()}>
+    <div className="fixed bottom-12 left-1/2 z-50 flex max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/12 bg-[#171815]/98 p-2 text-white shadow-[0_22px_72px_rgba(0,0,0,0.48)]" data-onscreen-control="true" data-testid="on-screen-dock" role="toolbar" aria-label="On-screen drawing tools" style={{ visibility: capturing ? "hidden" : undefined }} onPointerDown={(event) => event.stopPropagation()} onPointerUp={(event) => event.stopPropagation()}>
       <div className="relative flex items-center gap-1.5" onPointerLeave={() => setHoveredTool(null)}>
         <span
           aria-hidden="true"
@@ -782,6 +1150,7 @@ const OnScreenDock = memo(function OnScreenDock({ activeTool, canUndo, canRedo, 
       <span aria-hidden="true" className="mx-0.5 h-7 w-px bg-white/12" />
       <button aria-label="Undo on-screen change" className="grid size-11 place-items-center rounded-[11px] text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-25" disabled={!canUndo} title="Undo" type="button" onClick={onUndo}><Undo aria-hidden="true" size={20} /></button>
       <button aria-label="Redo on-screen change" className="grid size-11 place-items-center rounded-[11px] text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-25" disabled={!canRedo} title="Redo" type="button" onClick={onRedo}><Redo aria-hidden="true" size={20} /></button>
+      <button aria-label="Save screen, shortcut S" aria-keyshortcuts="S" className="flex h-11 items-center gap-2 rounded-[11px] px-3 text-[11px] font-bold text-stone-200 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-wait disabled:opacity-40" disabled={saveDisabled} title="Save screen (S)" type="button" onClick={onSave}><Download aria-hidden="true" size={18} /><span>Save screen</span><kbd aria-hidden="true" className="rounded border border-white/20 px-1 font-mono text-[10px] font-bold text-stone-400">S</kbd></button>
       <button aria-label="Clear all on-screen changes" className="ml-0.5 flex h-11 items-center gap-2 rounded-[11px] bg-[#ff5b4d] px-4 text-[11px] font-bold text-white outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-white" type="button" onClick={onClear}><Delete aria-hidden="true" size={17} />Clear</button>
     </div>
   );

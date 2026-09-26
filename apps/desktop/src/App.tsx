@@ -55,11 +55,22 @@ type SelectedCompletionState =
   | { phase: "working"; message: string }
   | { phase: "save-pending"; diagnostic: string };
 
-const viewportBounds = (): Rect => ({
+function isPreparingCaptureSession(
+  activationState: { current: "idle" | "preparing" | "active" },
+  activeSessionId: { current: string | null },
+  expectedSessionId: string,
+): boolean {
+  return (
+    activationState.current === "preparing"
+    && activeSessionId.current === expectedSessionId
+  );
+}
+
+const viewportBounds = (display: CaptureSession["display"] | null): Rect => ({
   x: 0,
   y: 0,
-  width: window.innerWidth,
-  height: window.innerHeight,
+  width: display?.bounds.width ?? window.innerWidth,
+  height: display?.bounds.height ?? window.innerHeight,
 });
 
 export function App(): React.JSX.Element {
@@ -93,7 +104,26 @@ export function App(): React.JSX.Element {
   const completionInFlight = useRef(false);
   const sessionGeneration = useRef(0);
   const activeSessionId = useRef<string | null>(null);
+  const backdropReadyResolver = useRef<{
+    sessionId: string;
+    resolve: () => void;
+  } | null>(null);
   const settingsRef = useRef(settings);
+
+  const handleBackdropReady = useCallback((): void => {
+    const pending = backdropReadyResolver.current;
+    const sessionId = session?.id;
+    if (
+      pending === null
+      || sessionId === undefined
+      || pending.sessionId !== sessionId
+      || activeSessionId.current !== sessionId
+    ) {
+      return;
+    }
+    backdropReadyResolver.current = null;
+    pending.resolve();
+  }, [session]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -116,6 +146,9 @@ export function App(): React.JSX.Element {
   function clearCaptureUi(): void {
     activationState.current = "idle";
     activeSessionId.current = null;
+    const pendingBackdrop = backdropReadyResolver.current;
+    backdropReadyResolver.current = null;
+    pendingBackdrop?.resolve();
     completionInFlight.current = false;
     setSession(null);
     setSelection(null);
@@ -130,6 +163,9 @@ export function App(): React.JSX.Element {
 
   const startSession = useCallback(async (): Promise<void> => {
     if (activationState.current !== "idle") return;
+    const timingStartedAt = import.meta.env.DEV ? performance.now() : null;
+    let timingAfterRequest: number | null = null;
+    let timingAfterReady: number | null = null;
     activationState.current = "preparing";
     sessionGeneration.current += 1;
     completionInFlight.current = false;
@@ -137,7 +173,11 @@ export function App(): React.JSX.Element {
     let preparedSession: CaptureSession | null = null;
     try {
       const next = await requestCapture();
+      if (timingStartedAt !== null) timingAfterRequest = performance.now();
       preparedSession = next;
+      const backdropReady = new Promise<void>((resolve) => {
+        backdropReadyResolver.current = { sessionId: next.id, resolve };
+      });
       flushSync(() => {
         setSession(next);
         activeSessionId.current = next.id;
@@ -157,7 +197,38 @@ export function App(): React.JSX.Element {
         dispatchScene({ type: "reset" });
       });
       setMessage("Hover to preview targets / drag to draw a rectangle");
+      let readyTimeout: number | undefined;
+      await Promise.race([
+        backdropReady,
+        new Promise<void>((resolve) => {
+          readyTimeout = window.setTimeout(resolve, 1500);
+        }),
+      ]);
+      if (readyTimeout !== undefined) window.clearTimeout(readyTimeout);
+      if (backdropReadyResolver.current?.sessionId === next.id) {
+        backdropReadyResolver.current = null;
+      }
+      if (timingStartedAt !== null) timingAfterReady = performance.now();
+      if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
+        return;
+      }
       await showCaptureSurface();
+      if (
+        timingStartedAt !== null &&
+        timingAfterRequest !== null &&
+        timingAfterReady !== null
+      ) {
+        const timingAfterReveal = performance.now();
+        console.debug("[capture-timing]", {
+          request: timingAfterRequest - timingStartedAt,
+          ready: timingAfterReady - timingAfterRequest,
+          reveal: timingAfterReveal - timingAfterReady,
+          total: timingAfterReveal - timingStartedAt,
+        });
+      }
+      if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
+        return;
+      }
       activationState.current = "active";
       if (!settingsRef.current.detection.windows) return;
       void listTargets(next.display)
@@ -167,6 +238,11 @@ export function App(): React.JSX.Element {
         .catch((error: unknown) => console.error("SH-TARGET-UI-001", error));
     } catch (error: unknown) {
       activationState.current = "idle";
+      const pendingBackdrop = backdropReadyResolver.current;
+      if (pendingBackdrop !== null && pendingBackdrop.sessionId === preparedSession?.id) {
+        pendingBackdrop.resolve();
+        backdropReadyResolver.current = null;
+      }
       if (preparedSession !== null) {
         await cancelCapture(preparedSession.id).catch(async () => dismissCapture());
       } else {
@@ -197,8 +273,11 @@ export function App(): React.JSX.Element {
   }, [startSession]);
 
   const toolbarPlacement = useMemo(
-    () => (selection === null ? null : chooseToolbarPlacement(selection, viewportBounds())),
-    [selection],
+    () =>
+      selection === null
+        ? null
+        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null)),
+    [selection, session?.display],
   );
 
   function pointer(event: React.PointerEvent): Point {
@@ -361,12 +440,20 @@ export function App(): React.JSX.Element {
               x: current.initial.x + nextPoint.x - current.start.x,
               y: current.initial.y + nextPoint.y - current.start.y,
             },
-            viewportBounds(),
+            viewportBounds(session?.display ?? null),
           ),
         );
         break;
       case "resize":
-        scheduleSelection(resizeRect(current.initial, current.start, nextPoint, current.handle));
+        scheduleSelection(
+          resizeRect(
+            current.initial,
+            current.start,
+            nextPoint,
+            current.handle,
+            viewportBounds(session?.display ?? null),
+          ),
+        );
         break;
     }
   }
@@ -383,13 +470,16 @@ export function App(): React.JSX.Element {
         if (completedInteraction.kind === "select" && completedInteraction.candidate !== null) {
           setHoverTarget(null);
           setMessage("Window selected");
-          return clampRect(completedInteraction.candidate, viewportBounds());
+          return clampRect(
+            completedInteraction.candidate,
+            viewportBounds(session?.display ?? null),
+          );
         }
         setMessage("Selection is too small · drag a larger area");
         return null;
       }
       setMessage("Selection ready");
-      return clampRect(finalSelection, viewportBounds());
+      return clampRect(finalSelection, viewportBounds(session?.display ?? null));
     });
   }
 
@@ -474,8 +564,8 @@ export function App(): React.JSX.Element {
     sessionGeneration.current += 1;
     try {
       if (session !== null) {
-        await cancelManualScrolling(session.id).catch(() => undefined);
         await cancelCapture(session.id).catch(async () => dismissCapture());
+        await cancelManualScrolling(session.id).catch(() => undefined);
       } else {
         await dismissCapture();
       }
@@ -693,25 +783,26 @@ export function App(): React.JSX.Element {
     return <div aria-hidden="true" className="h-screen w-screen bg-transparent" />;
   }
 
-  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, window.innerWidth - 430));
+  const viewport = viewportBounds(session.display);
+  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, viewport.width - 430));
   const toolBarY =
     selection === null || toolbarPlacement === null
-      ? window.innerHeight - 68
+      ? viewport.height - 68
         : toolbarPlacement.tools === "bottom"
-          ? Math.min(window.innerHeight - 64, selection.y + selection.height + 10)
+          ? Math.min(viewport.height - 64, selection.y + selection.height + 10)
           : Math.max(10, selection.y - 62);
   const actionsOnLeft =
-    selection !== null && selection.x + selection.width + 62 > window.innerWidth;
+    selection !== null && selection.x + selection.width + 62 > viewport.width;
   const actionRailX =
     selection === null
-      ? window.innerWidth - 58
+      ? viewport.width - 58
       : actionsOnLeft
         ? Math.max(10, selection.x - 58)
-        : Math.min(window.innerWidth - 54, selection.x + selection.width + 10);
+        : Math.min(viewport.width - 54, selection.x + selection.width + 10);
   const actionRailY =
     selection === null
       ? 10
-      : Math.max(10, Math.min(selection.y, window.innerHeight - 190));
+      : Math.max(10, Math.min(selection.y, viewport.height - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
 
   return (
@@ -724,7 +815,12 @@ export function App(): React.JSX.Element {
       onPointerCancel={handlePointerUp}
       onPointerUp={handlePointerUp}
     >
-      <CaptureBackdrop snapshotUrl={session.snapshotUrl} />
+      <CaptureBackdrop
+        height={session.display.bounds.height}
+        onReady={handleBackdropReady}
+        snapshotUrl={session.snapshotUrl}
+        width={session.display.bounds.width}
+      />
 
       {selection === null && hoverTarget !== null ? (
         <div
@@ -822,7 +918,7 @@ export function App(): React.JSX.Element {
                 saveShortcut={settings.shortcuts.captureModeSave}
                 state={completionState.phase}
                 statusMessage={completionState.phase === "working" ? completionState.message : completionState.phase === "idle" ? completionState.message : ""}
-                statusSide={actionRailX < window.innerWidth / 2 ? "right" : "left"}
+                statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
               />
@@ -850,7 +946,13 @@ export function App(): React.JSX.Element {
   );
 }
 
-function resizeRect(initial: Rect, start: Point, current: Point, handle: ResizeHandle): Rect {
+function resizeRect(
+  initial: Rect,
+  start: Point,
+  current: Point,
+  handle: ResizeHandle,
+  viewport: Rect,
+): Rect {
   const dx = current.x - start.x;
   const dy = current.y - start.y;
   let left = initial.x;
@@ -870,7 +972,7 @@ function resizeRect(initial: Rect, start: Point, current: Point, handle: ResizeH
       width: Math.max(8, normalized.width),
       height: Math.max(8, normalized.height),
     },
-    viewportBounds(),
+    viewport,
   );
 }
 

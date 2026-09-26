@@ -22,6 +22,8 @@ use platform::xcap_backend::XcapPlatformBackend;
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -30,16 +32,11 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{
-    AW_BLEND, AW_HIDE, AnimateWindow, SetForegroundWindow,
-};
+use windows::Win32::UI::WindowsAndMessaging::{AW_BLEND, AnimateWindow, SetForegroundWindow};
 
-// A plain `.show()`/`.hide()` on the capture window pops the WebView2 surface in or
-// out instantly, which exposes the one or two frames before WebView2's swap chain has
-// actually composited fresh content (it reads as a black flash). AnimateWindow's
-// cross-fade masks that gap behind a deliberate reveal instead of an instant pop.
-const CAPTURE_REVEAL_MS: u32 = 180;
-const CAPTURE_DISMISS_MS: u32 = 140;
+// AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
+// has composited fresh content, which otherwise reads as a black flash on reveal.
+const CAPTURE_REVEAL_MS: u32 = 90;
 
 #[cfg(target_os = "windows")]
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
@@ -61,28 +58,6 @@ fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubEr
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
     window
         .show()
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
-#[cfg(target_os = "windows")]
-fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
-    // Same guarantee as reveal_window_smoothly: a silently failed animate-hide must never
-    // strand the capture overlay on screen (e.g. Escape appearing to do nothing).
-    if let Ok(hwnd) = window.hwnd() {
-        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
-        if unsafe { AnimateWindow(hwnd, CAPTURE_DISMISS_MS, AW_BLEND | AW_HIDE) }.is_ok() {
-            return Ok(());
-        }
-    }
-    window
-        .hide()
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn hide_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
-    window
-        .hide()
         .map_err(|error| SnaphubError::Window(error.to_string()))
 }
 
@@ -132,17 +107,27 @@ struct OnScreenActiveState {
 struct OnScreenModeRegistry(Mutex<OnScreenModeState>);
 
 #[tauri::command]
-fn begin_capture(
-    app: AppHandle,
-    service: tauri::State<'_, CaptureService>,
-) -> Result<CaptureSessionDto, SnaphubError> {
+async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError> {
+    #[cfg(debug_assertions)]
+    let request_started = Instant::now();
     let cursor = app
         .cursor_position()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
-    let session = service.begin(Point {
+    let point = Point {
         x: cursor.x,
         y: cursor.y,
-    })?;
+    };
+    let worker_app = app.clone();
+    let session = tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<CaptureService>().begin(point)
+    })
+    .await
+    .map_err(|error| SnaphubError::Capture(format!("Capture begin worker failed: {error}")))??;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[capture-timing] request_to_session={}ms",
+        request_started.elapsed().as_millis()
+    );
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
@@ -153,11 +138,9 @@ fn begin_capture(
             (session.display.bounds.y * scale).round() as i32,
         ))
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let overlay_size = overlay_window_size_for_display(&app, &session.display);
     window
-        .set_size(PhysicalSize::new(
-            (session.display.bounds.width * scale).round() as u32,
-            (session.display.bounds.height * scale).round() as u32,
-        ))
+        .set_size(PhysicalSize::new(overlay_size.0, overlay_size.1))
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     Ok(session)
 }
@@ -167,7 +150,14 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
+    #[cfg(debug_assertions)]
+    let reveal_started = Instant::now();
     reveal_window_smoothly(&window)?;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[capture-timing] reveal={}ms",
+        reveal_started.elapsed().as_millis()
+    );
     // The shortcut is a direct user gesture, so Windows normally allows this
     // process to promote its capture surface. Without foreground activation the
     // overlay is visible but Escape is still delivered to the previously active
@@ -235,6 +225,50 @@ fn on_screen_ready(app: AppHandle) -> Result<(), SnaphubError> {
 #[tauri::command]
 fn dismiss_on_screen(app: AppHandle) -> Result<(), SnaphubError> {
     close_on_screen_mode(&app)
+}
+
+#[tauri::command]
+async fn save_on_screen_capture(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<String, SnaphubError> {
+    if window.label() != "onscreen" {
+        return Err(SnaphubError::Session(
+            "Only the on-screen toolbar can save the screen".into(),
+        ));
+    }
+
+    let point = {
+        let registry = app.state::<OnScreenModeRegistry>();
+        let state = registry
+            .0
+            .lock()
+            .map_err(|_| SnaphubError::Window("On-screen mode state is unavailable".into()))?;
+        match &*state {
+            OnScreenModeState::Active(active) => display_center_point(&active.display),
+            OnScreenModeState::Idle | OnScreenModeState::Preparing => {
+                return Err(SnaphubError::Window("On-screen mode is not active".into()));
+            }
+        }
+    };
+
+    let worker_app = app.clone();
+    let saved_path = tauri::async_runtime::spawn_blocking(move || {
+        worker_app
+            .state::<CaptureService>()
+            .quick_capture(point, CompletionAction::Save)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(format!("Screen save worker failed: {error}")))??;
+
+    match saved_path {
+        Some(path) => {
+            let path_string = path.to_string_lossy().into_owned();
+            emit_capture_saved(&app, &path_string);
+            Ok(path_string)
+        }
+        None => Err(SnaphubError::Export("Screen save produced no file".into())),
+    }
 }
 
 #[tauri::command]
@@ -314,7 +348,7 @@ async fn retry_capture_save(
     Ok(result)
 }
 
-// Cancellation can wait for completion cleanup, which must run on the main thread.
+// Hide first so Escape feels instant, then wait for cancellation off the main thread.
 #[tauri::command]
 async fn cancel_capture(
     window: WebviewWindow,
@@ -322,6 +356,7 @@ async fn cancel_capture(
     session_id: String,
 ) -> Result<(), SnaphubError> {
     ensure_capture_window(&window)?;
+    let hide_result = hide_capture_window(&app);
     let worker_app = app.clone();
     let worker_session_id = session_id.clone();
     let cleanup_result = tauri::async_runtime::spawn_blocking(move || {
@@ -332,7 +367,6 @@ async fn cancel_capture(
     .await
     .map_err(|error| SnaphubError::Session(format!("Capture cancellation worker failed: {error}")))
     .and_then(|result| result);
-    let hide_result = hide_capture_window(&app);
     hide_result.and(cleanup_result)
 }
 
@@ -896,7 +930,9 @@ fn hide_capture_window_with_recovery(app: &AppHandle) -> Option<String> {
 
 fn hide_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("capture") {
-        hide_window_smoothly(&window)?;
+        window
+            .hide()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
     }
     Ok(())
 }
@@ -976,6 +1012,8 @@ fn prepare_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
     .title("CapKit On-Screen Toolbar")
     .closable(true)
     .decorations(false)
+    // An undecorated shadow insets the client area, misaligning a monitor-sized surface.
+    .shadow(false)
     .always_on_top(true)
     .transparent(true)
     .resizable(false)
@@ -993,17 +1031,13 @@ fn prepare_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
     };
 
     let scale = display.scale_factor;
+    let overlay_size = overlay_window_size_for_display(app, &display);
     let positioning = window
         .set_position(PhysicalPosition::new(
             (display.bounds.x * scale).round() as i32,
             (display.bounds.y * scale).round() as i32,
         ))
-        .and_then(|_| {
-            window.set_size(PhysicalSize::new(
-                (display.bounds.width * scale).round() as u32,
-                (display.bounds.height * scale).round() as u32,
-            ))
-        });
+        .and_then(|_| window.set_size(PhysicalSize::new(overlay_size.0, overlay_size.1)));
     if let Err(error) = positioning {
         let _ = window.destroy();
         let _ = close_on_screen_mode(app);
@@ -1069,11 +1103,7 @@ fn prepare_on_screen_snapshot(
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     std::thread::sleep(Duration::from_millis(24));
 
-    let scale = display.scale_factor;
-    let capture_point = Point {
-        x: (display.bounds.x + display.bounds.width / 2.0) * scale,
-        y: (display.bounds.y + display.bounds.height / 2.0) * scale,
-    };
+    let capture_point = display_center_point(&display);
     let service = app.state::<CaptureService>();
     let capture_result = service.begin(capture_point);
 
@@ -1116,6 +1146,89 @@ fn prepare_on_screen_snapshot(
         let _ = window.set_focus();
     }
     Ok(session)
+}
+
+fn display_center_point(display: &DisplayDto) -> Point {
+    let scale = display.scale_factor;
+    Point {
+        x: (display.bounds.x + display.bounds.width / 2.0) * scale,
+        y: (display.bounds.y + display.bounds.height / 2.0) * scale,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PhysicalRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn physical_display_rect(display: &DisplayDto) -> PhysicalRect {
+    let scale = display.scale_factor;
+    PhysicalRect {
+        x: (display.bounds.x * scale).round() as i32,
+        y: (display.bounds.y * scale).round() as i32,
+        width: (display.bounds.width * scale).round() as u32,
+        height: (display.bounds.height * scale).round() as u32,
+    }
+}
+
+fn overlay_window_size_for_display(app: &AppHandle, display: &DisplayDto) -> (u32, u32) {
+    let monitor = physical_display_rect(display);
+    let exact_size = (monitor.width, monitor.height);
+    let Ok(monitors) = app.available_monitors() else {
+        return exact_size;
+    };
+    let monitor_rectangles = monitors
+        .iter()
+        .map(|available| PhysicalRect {
+            x: available.position().x,
+            y: available.position().y,
+            width: available.size().width,
+            height: available.size().height,
+        })
+        .collect::<Vec<_>>();
+    let Some(target_index) = monitor_rectangles
+        .iter()
+        .position(|available| *available == monitor)
+    else {
+        return exact_size;
+    };
+    let others = monitor_rectangles
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, available)| (index != target_index).then_some(available))
+        .collect::<Vec<_>>();
+    overlay_window_size(monitor, &others)
+}
+
+fn overlay_window_size(monitor: PhysicalRect, others: &[PhysicalRect]) -> (u32, u32) {
+    let monitor_left = i64::from(monitor.x);
+    let monitor_top = i64::from(monitor.y);
+    let monitor_right = monitor_left + i64::from(monitor.width);
+    let monitor_bottom = monitor_top + i64::from(monitor.height);
+    let touches_bottom = others.iter().any(|other| {
+        let other_left = i64::from(other.x);
+        let other_right = other_left + i64::from(other.width);
+        let overlaps_horizontally = monitor_left.max(other_left) < monitor_right.min(other_right);
+        i64::from(other.y) == monitor_bottom && overlaps_horizontally
+    });
+    if !touches_bottom {
+        return (monitor.width, monitor.height.saturating_add(1));
+    }
+
+    let touches_right = others.iter().any(|other| {
+        let other_top = i64::from(other.y);
+        let other_bottom = other_top + i64::from(other.height);
+        let overlaps_vertically = monitor_top.max(other_top) < monitor_bottom.min(other_bottom);
+        i64::from(other.x) == monitor_right && overlaps_vertically
+    });
+    if !touches_right {
+        return (monitor.width.saturating_add(1), monitor.height);
+    }
+
+    (monitor.width, monitor.height)
 }
 
 fn close_on_screen_mode(app: &AppHandle) -> Result<(), SnaphubError> {
@@ -1635,6 +1748,7 @@ pub fn run() {
             on_screen_snapshot,
             on_screen_ready,
             dismiss_on_screen,
+            save_on_screen_capture,
             complete_capture,
             retry_capture_save,
             cancel_capture,
@@ -1874,6 +1988,120 @@ mod shortcut_tests {
     }
 
     #[test]
+    fn display_center_point_uses_physical_pixels() {
+        let display = DisplayDto {
+            id: "display-1".into(),
+            name: "Secondary display".into(),
+            bounds: Rect {
+                x: 1920.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            scale_factor: 1.5,
+            is_primary: false,
+        };
+
+        assert_eq!(
+            display_center_point(&display),
+            Point {
+                x: 3840.0,
+                y: 540.0
+            }
+        );
+    }
+
+    #[test]
+    fn overlay_size_extends_the_bottom_of_an_isolated_monitor() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[]), (100, 81));
+    }
+
+    #[test]
+    fn overlay_size_extends_right_when_a_monitor_is_directly_below() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let below = PhysicalRect {
+            x: 0,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[below]), (101, 80));
+    }
+
+    #[test]
+    fn overlay_size_stays_exact_when_monitors_are_below_and_right() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let below = PhysicalRect {
+            x: 0,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+        let right = PhysicalRect {
+            x: 100,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[below, right]), (100, 80));
+    }
+
+    #[test]
+    fn overlay_size_ignores_a_diagonal_monitor_below() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let diagonal = PhysicalRect {
+            x: 100,
+            y: 80,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[diagonal]), (100, 81));
+    }
+
+    #[test]
+    fn overlay_size_extends_down_when_only_a_monitor_to_the_left_touches() {
+        let monitor = PhysicalRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+        let left = PhysicalRect {
+            x: -100,
+            y: 0,
+            width: 100,
+            height: 80,
+        };
+
+        assert_eq!(overlay_window_size(monitor, &[left]), (100, 81));
+    }
+
+    #[test]
     fn post_commit_cleanup_never_reclassifies_a_committed_save() {
         let mut result = CompletionResult {
             action: CompletionAction::CopyAndSave,
@@ -1901,5 +2129,24 @@ mod shortcut_tests {
                 .cleanup_warning
                 .is_some_and(|warning| warning.contains("SH-WINDOW-001"))
         );
+    }
+}
+
+#[cfg(test)]
+mod window_config_tests {
+    #[test]
+    fn capture_window_disables_the_undecorated_shadow() {
+        let config = serde_json::from_str::<serde_json::Value>(include_str!("../tauri.conf.json"))
+            .expect("Tauri config should be valid JSON");
+        let windows = config["app"]["windows"]
+            .as_array()
+            .expect("Tauri config should contain app windows");
+        let capture = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("capture"))
+            .expect("Tauri config should contain a capture window");
+
+        assert_eq!(capture["shadow"].as_bool(), Some(false));
+        assert_eq!(capture["decorations"].as_bool(), Some(false));
     }
 }

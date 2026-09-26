@@ -1,6 +1,6 @@
 # CapKit local feature inventory
 
-**Last reviewed:** 2026-09-25
+**Last reviewed:** 2026-09-26
 **Product:** CapKit — *The lightweight desktop toolkit to capture, record, and showcase.*  
 **Scope:** This is an inventory of behavior present in the local Windows-first application. It is not a promise that every item is release-ready.
 
@@ -72,11 +72,11 @@ The editor is in-place: the selected pixels remain the immutable source while an
 
 - **Implemented:** Separate configurable global shortcut to toggle an on-screen drawing layer without entering screenshot capture.
 - **Implemented:** Live desktop mode and optional frozen-frame mode.
-- **Implemented:** Bottom-center dock with pencil, text, rectangle, ellipse, arrow, spotlight, magnifier, presentation pointer/laser, eraser, blur, undo, redo, and Clear.
+- **Implemented:** Bottom-center dock with pencil, text, rectangle, ellipse, arrow, spotlight, magnifier, presentation pointer/laser, Save screen (`S`), eraser, blur, undo, redo, and Clear. Save screen captures the composed monitor while briefly hiding Screen Draw's own controls and keeping the drawings and session open.
 - **Implemented:** Spotlight darkens the surrounding screen while keeping the focused region visible.
-- **Implemented:** Presentation laser persists while the primary pointer button is held and clears immediately on release.
+- **Implemented:** Presentation laser updates its dot and trail directly on SVG elements while the primary pointer is held, then fades out after release; reduced motion removes it immediately.
 - **Implemented:** Text placement opens a focused in-place editor and commits once.
-- **Implemented:** Cursor/draft rendering is animation-frame coalesced; static layers avoid cursor-only rerenders.
+- **Implemented:** Spotlight/Magnifier cursor and draft rendering is animation-frame coalesced; laser movement avoids React rerenders. Capture waits for its frozen backdrop to decode and paint before reveal.
 - **Implemented:** Settings for drawing color, stroke size, spotlight size, cursor preset, unique number-key shortcuts, live/frozen behavior, and drawing persistence.
 - **Partial:** Physical latency, accessibility, and broad application compatibility remain validation work.
 

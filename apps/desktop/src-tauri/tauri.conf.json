@@ -33,6 +33,7 @@
         "visible": false,
         "fullscreen": false,
         "decorations": false,
+        "shadow": false,
         "transparent": false,
         "resizable": false,
         "alwaysOnTop": true,

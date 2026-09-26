@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -142,6 +144,8 @@ impl CaptureService {
     }
 
     pub fn begin(&self, cursor: Point) -> Result<CaptureSessionDto, SnaphubError> {
+        #[cfg(debug_assertions)]
+        let begin_started = Instant::now();
         if !self.permissions.can_capture()? {
             return Err(SnaphubError::Capture(
                 "Screen capture permission is not available".into(),
@@ -149,17 +153,25 @@ impl CaptureService {
         }
 
         self.targets.begin_session()?;
+        #[cfg(debug_assertions)]
+        let capture_started = Instant::now();
         let captured = self.capture.capture_display_at_point(cursor)?;
+        #[cfg(debug_assertions)]
+        let capture_ms = capture_started.elapsed().as_millis();
         let id = Uuid::new_v4();
         let session_dir = session_directory().join(id.to_string());
         fs::create_dir_all(&session_dir).map_err(SnaphubError::export)?;
         // BMP avoids PNG compression on the shortcut-to-overlay critical path. The temporary
         // source is deleted at the end of the session; final user exports remain PNG.
         let snapshot_path = session_dir.join("source.bmp");
+        #[cfg(debug_assertions)]
+        let bmp_started = Instant::now();
         captured
             .image
             .save_with_format(&snapshot_path, image::ImageFormat::Bmp)
             .map_err(SnaphubError::export)?;
+        #[cfg(debug_assertions)]
+        let bmp_ms = bmp_started.elapsed().as_millis();
 
         let dto = CaptureSessionDto {
             id: id.to_string(),
@@ -184,6 +196,13 @@ impl CaptureService {
                 snapshot_path,
                 output: Arc::new(SessionOutput::new()),
             },
+        );
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[capture-timing] capture={}ms bmp={}ms begin_total={}ms",
+            capture_ms,
+            bmp_ms,
+            begin_started.elapsed().as_millis()
         );
         Ok(dto)
     }

@@ -7,6 +7,8 @@
 - **Observed:** Debug executable: 30.36 MB; built frontend assets: 0.86 MB.
 - **Not a release benchmark:** Debug binaries, warm filesystem caches, and one machine are insufficient for installed-size or latency acceptance. Release packaging and repeated cold/warm samples remain required.
 
+- **Measured (2026-09-26):** xcap 0.9.6 release build on a 2560×1440 display, six runs each: GDI capture took 23–38 ms; WGC took 218 ms on its first capture after launch, then 22–28 ms; BMP writes took 12–16 ms; BMP file reads took 6–10 ms.
+
 ## Release size baseline (2026-07-27)
 
 The 30.36 MB figure above is the **debug** executable and was being read as the release size when sizing the recorder work. Corrected measurements:

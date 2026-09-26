@@ -1,5 +1,34 @@
 # Decision Log
 
+## 2026-09-26 - Monitor-sized overlays avoid full-screen treatment
+
+- **Confirmed:** Windows treats a borderless overlay whose physical rectangle exactly matches a monitor as a full-screen application; on the user's 120 Hz display this capped the capture cursor at 60 Hz. The `a49f689` release build became smooth when its height was extended one physical pixel, with the frozen snapshot still aligned.
+- **Confirmed:** Add one physical pixel at the bottom when that edge is free; if another monitor touches the bottom, use the right edge when free; when both edges touch another monitor, keep the exact size.
+- **Rejected:** Re-enabling the undecorated shadow, because Windows insets the client area and shifts the frozen image; extending the top or left edge, because that changes the window origin and coordinate alignment.
+- **Known limitation:** If adjacent monitors occupy both the bottom and right edges, the overlay remains exact-size and can still receive full-screen treatment.
+- **Rationale:** The extra pixel keeps the original monitor origin and leaves the snapshot and selection content at the exact display bounds while avoiding Windows' exact-monitor-size classification where an edge is available.
+
+## 2026-09-26 - Capture exits hide instantly and reveal in 90 ms
+
+- **Confirmed:** Capture cancellation hides the surface before native session cleanup, avoiding a fade and keeping deletion or in-flight output work off the visible path.
+- **Confirmed:** The 180 ms reveal is shortened to 90 ms, preserving the fade that masks a possible black WebView2 first frame while the frozen snapshot is decoded and painted.
+- **Think Later:** The first Windows Graphics Capture capture after launch measured about 218 ms; consider GDI or pre-warming only after the new debug timings are reviewed.
+- **Rejected:** Changing the capture backend or pre-warming it now; the first-capture measurement is isolated and needs repeatable application timings.
+
+## 2026-09-26 - Screen Draw saves the composited monitor
+
+- **Confirmed:** Save screen captures the active Screen Draw monitor with its committed annotations, background, blur, and spotlight visible. The dock, text editor, statuses, and transient laser layer are hidden for two animation frames before capture; the session and drawings remain open afterwards.
+- **Confirmed:** The native command only accepts the `onscreen` window, captures the active display center in physical pixels through the shared quick-save service, and emits the existing saved-capture event.
+- **Rejected:** Rendering every Screen Draw object again in Rust over a clean capture; a second renderer for ten object types could drift from the visible screen.
+- **Provisional:** xcap/WGC includes the transparent Screen Draw WebView in the monitor capture. Manual check D-M1 verifies this on Windows.
+- **Rationale:** Capturing the composed display keeps the PNG aligned with what the presenter saw and reuses the established collision-safe save path.
+
+## 2026-09-25 - Monitor-sized overlays disable the undecorated shadow
+
+- **Confirmed:** Tauri defaults `shadow` to true; on Windows an undecorated shadow insets the WebView client area, offsetting and squeezing a monitor-sized frozen snapshot and drifting export coordinates.
+- **Confirmed:** Screen Draw's frozen-frame `onscreen` window is also monitor-sized and must disable the shadow to keep its background, blur, and magnifier aligned.
+- **Rejected:** replacing the frozen snapshot with a live overlay; the freeze is the confirmed capture model.
+
 ## 2026-09-25 - Selected-region Copy & Save owns one raster and a save-only retry
 
 - **Confirmed:** Copy & Save is available only in the standard selected-region overlay. It renders the immutable capture and current scene once, copies that `RgbaImage` first, then atomically saves the same raster as PNG in the configured folder.
