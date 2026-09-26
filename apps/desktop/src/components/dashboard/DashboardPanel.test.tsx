@@ -10,10 +10,10 @@ describe("DashboardPanel", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("opens on the saved captures dashboard", async () => {
+  it("opens on the screenshots dashboard", async () => {
     render(<DashboardPanel />);
 
-    expect(await screen.findByRole("heading", { name: "Saved captures" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Screenshots" })).toBeVisible();
     expect(screen.getByText("Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Capkit sections" })).toBeVisible();
   });
@@ -23,21 +23,29 @@ describe("DashboardPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Open Cloud" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open Record" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open Studio" })).toBeVisible();
+    // Studio is reached from a recording, so it is no longer a section.
+    expect(screen.queryByRole("button", { name: "Open Studio" })).toBeNull();
   });
 
-  it("opens the recorder and the studio", async () => {
+  it("orders the sidebar Screenshots, Showcase, Record, then Settings", () => {
+    render(<DashboardPanel />);
+
+    const nav = screen.getByRole("navigation", { name: "Capkit sections" });
+
+    expect(
+      within(nav)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Open Screenshots", "Open Showcase", "Open Record", "Open Settings"]);
+  });
+
+  it("opens the recorder from Record", async () => {
     render(<DashboardPanel />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Record" }));
     expect(await screen.findByRole("heading", { name: "Capture your screen." })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open the recorder" })).toBeVisible();
-    expect(screen.queryByText("Saved captures")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open Studio" }));
-    // With no recordings yet, Studio explains how to get one rather than
-    // showing an editor with nothing in it.
-    expect(await screen.findByRole("heading", { name: "Nothing to edit yet" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Screenshots" })).not.toBeInTheDocument();
   });
 
   it("opens the Showcase studio", async () => {

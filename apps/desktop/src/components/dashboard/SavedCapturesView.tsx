@@ -136,7 +136,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
       <header className="flex items-end justify-between gap-6 border-b border-stone-300/80 pb-5 dark:border-white/10">
         <div>
           <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Local workspace</p>
-          <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100" id="saved-captures-title">Saved captures</h1>
+          <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100" id="saved-captures-title">Screenshots</h1>
           <p className="mt-1.5 text-xs leading-5 text-stone-500 dark:text-stone-400">Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.</p>
         </div>
         <button

@@ -10,6 +10,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Improved
 
+- Record now holds your recordings and editing; Dashboard is renamed Screenshots.
 - Capture opens faster and closes instantly.
 
 ## 2026-09-25
