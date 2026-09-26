@@ -1,7 +1,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
-import { Cancel, Copy, Lock, PointerOff, RotateClockwise, Save, Tick } from "./icons";
+import { Cancel, Copy, Grip, Lock, RotateClockwise, Save, Tick } from "./icons";
 import { ToolButton } from "./ToolButton";
 
 type PinnedViewProps = { path: string; windowLabel?: string };
@@ -53,7 +54,6 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
   const [imageReady, setImageReady] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [clickThrough, setClickThrough] = useState(false);
   const imageUrl = convertFileSrc(path);
 
   async function close(): Promise<void> {
@@ -78,31 +78,59 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
     setMessage("Saved");
   }
 
-  async function enableClickThrough(): Promise<void> {
-    if (windowLabel === undefined) return;
-    await invoke("set_pinned_click_through", { label: windowLabel, enabled: true });
-    setClickThrough(true);
-    setMessage("Click-through on · restore from the CapKit tray");
-  }
-
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      if (clickThrough && windowLabel !== undefined) {
-        void invoke("set_pinned_click_through", { label: windowLabel, enabled: false }).then(() => {
-          setClickThrough(false);
-          setMessage("Click-through off");
-        });
-        return;
+      if (event.key === "Escape") {
+        void close();
       }
-      void close();
     }
     window.addEventListener("keydown", handleKeyDown);
     return (): void => window.removeEventListener("keydown", handleKeyDown);
-  }, [clickThrough, windowLabel]);
+  }, []);
 
   return (
     <main className="group relative grid h-screen w-screen place-items-center overflow-hidden rounded-xl bg-[#11130f]/90">
+      <button
+        aria-label="Move pinned image"
+        className="absolute left-2 top-2 flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#161815]/95 text-stone-300 opacity-0 shadow-xl backdrop-blur-xl transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 cursor-grab active:cursor-grabbing outline-none focus-visible:ring-2 focus-visible:ring-lime-300 hover:bg-white/10 hover:text-white"
+        title="Drag to move"
+        type="button"
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 50 : 10;
+          let dx = 0;
+          let dy = 0;
+          if (event.key === "ArrowLeft") dx = -step;
+          else if (event.key === "ArrowRight") dx = step;
+          else if (event.key === "ArrowUp") dy = -step;
+          else if (event.key === "ArrowDown") dy = step;
+          else return;
+
+          event.preventDefault();
+          void (async (): Promise<void> => {
+            try {
+              const currentWindow = getCurrentWindow();
+              const position = await currentWindow.outerPosition();
+              await currentWindow.setPosition(
+                new PhysicalPosition(position.x + dx, position.y + dy),
+              );
+            } catch {
+              setMessage("Could not move the pin");
+            }
+          })();
+        }}
+        onPointerDown={(event) => {
+          if (event.button === 0) {
+            event.preventDefault();
+            void getCurrentWindow()
+              .startDragging()
+              .catch(() => {
+                setMessage("Could not move the pin");
+              });
+          }
+        }}
+      >
+        <Grip aria-hidden="true" size={16} />
+      </button>
       {!imageReady && !imageFailed ? (
         <span className="text-xs text-stone-400" role="status">Loading capture…</span>
       ) : null}
@@ -122,7 +150,6 @@ export function PinnedView({ path, windowLabel }: PinnedViewProps): React.JSX.El
         <ToolButton active={locked} icon={Lock} label="Lock size" onClick={() => void toggleLocked()} />
         <ToolButton disabled={windowLabel === undefined} icon={Copy} label="Copy image" onClick={() => void copy()} />
         <ToolButton disabled={windowLabel === undefined} icon={Save} label="Save image" onClick={() => void save()} />
-        <ToolButton disabled={windowLabel === undefined} icon={PointerOff} label="Click through" onClick={() => void enableClickThrough()} />
         <label className="flex items-center px-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
           Opacity
           <input

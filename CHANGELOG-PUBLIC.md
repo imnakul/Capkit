@@ -7,10 +7,16 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 ### Fixed
 
 - Text in Screen Draw now appears where you click.
+- Recording opens again from Record and its shortcut.
 
 ### Improved
 
 - Capture opens faster and closes instantly.
+- Drag pinned images anywhere with the handle in their corner.
+
+### Removed
+
+- Click-through for pinned images.
 
 ## 2026-09-25
 

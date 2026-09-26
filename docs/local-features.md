@@ -55,7 +55,7 @@ The editor is in-place: the selected pixels remain the immutable source while an
 - **Implemented:** Native save-directory picker with a default `Pictures/CapKit` folder created on startup.
 - **Implemented:** Toolbar Save, scrolling Save, pinned-image Save, and direct Capture & Save use the same persisted save directory.
 - **Implemented:** CapKit filename generation for normal, scrolling, pinned, and direct-save workflows.
-- **Implemented:** Always-on-top pinned capture windows with resize, rotate, opacity, lock, copy, save, click-through, Escape/button close, taskbar close routing, and temporary-file cleanup.
+- **Implemented:** Always-on-top pinned capture windows with drag handle movement, resize, rotate, opacity, lock, copy, save, Escape/button close, taskbar close routing, and temporary-file cleanup.
 - **Partial:** Pin duplication and packaged-build pin lifecycle still require physical validation.
 - **Implemented:** Dashboard local workspace indexes explicitly saved images, shows the save path and file count, caches thumbnails, opens the folder, opens images with the Windows default handler/Open With, and supports View, Showcase, disabled Cloud upload, and confirmed Delete context actions.
 - **Implemented:** Clipboard-only captures are not indexed.

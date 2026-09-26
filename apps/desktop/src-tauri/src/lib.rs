@@ -414,21 +414,6 @@ fn save_pinned_capture(
     Ok(saved)
 }
 
-#[tauri::command]
-async fn set_pinned_click_through(
-    app: AppHandle,
-    label: String,
-    enabled: bool,
-) -> Result<(), SnaphubError> {
-    if !label.starts_with("pin-") {
-        return Err(SnaphubError::Window("Invalid pinned window".into()));
-    }
-    app.get_webview_window(&label)
-        .ok_or_else(|| SnaphubError::Window("Pinned window is unavailable".into()))?
-        .set_ignore_cursor_events(enabled)
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
 fn pinned_path_for_label(
     registry: &tauri::State<'_, PinnedCaptureRegistry>,
     label: &str,
@@ -1761,7 +1746,6 @@ pub fn run() {
             pinned_capture_path,
             copy_pinned_capture,
             save_pinned_capture,
-            set_pinned_click_through,
             detect_targets,
             list_targets,
             get_save_directory,

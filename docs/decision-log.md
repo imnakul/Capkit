@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-26 - Pinned images move by a drag handle; click-through removed
+
+- **Confirmed:** Pinned images are moved via a drag handle in their corner, supporting pointer drag and keyboard nudges with arrow keys (10 physical px, or 50 with Shift).
+- **Removed:** Click-through is removed entirely. Once cursor events were ignored on Windows, the window could not receive mouse or keyboard focus, leaving no reachable way back for the user to disable click-through or interact with the pin.
+- **Rationale:** Moving the pin out of the way via a drag handle replaces the primary use case of click-through while keeping the window responsive and interactive.
+
 ## 2026-09-26 - Monitor-sized overlays avoid full-screen treatment
 
 - **Confirmed:** Windows treats a borderless overlay whose physical rectangle exactly matches a monitor as a full-screen application; on the user's 120 Hz display this capped the capture cursor at 60 Hz. The `a49f689` release build became smooth when its height was extended one physical pixel, with the frozen snapshot still aligned.
