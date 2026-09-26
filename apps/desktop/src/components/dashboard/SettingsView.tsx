@@ -22,6 +22,7 @@ import {
   defaultOnScreenSettings,
   defaultSnaphubSettings,
   onScreenToolIds,
+  type OnScreenDrawingToolId,
   type OnScreenToolId,
   type SnaphubSettings,
   useSnaphubSettings,
@@ -39,6 +40,7 @@ import { ToolbarConfiguration } from "./ToolbarConfiguration";
 const neonColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ff5b4d", "#ffb547", "#ffffff", "#171717"] as const;
 const accentColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ffb547"] as const;
 const onScreenToolLabels: Record<OnScreenToolId, string> = {
+  select: "Select",
   pencil: "Pencil",
   rectangle: "Rectangle",
   ellipse: "Ellipse",
@@ -50,6 +52,10 @@ const onScreenToolLabels: Record<OnScreenToolId, string> = {
   eraser: "Eraser",
   blur: "Blur",
 };
+
+const configurableOnScreenToolIds: readonly OnScreenDrawingToolId[] = onScreenToolIds.filter(
+  (tool): tool is OnScreenDrawingToolId => tool !== "select",
+);
 
 type ShortcutField = keyof SnaphubSettings["shortcuts"];
 
@@ -238,9 +244,9 @@ export function SettingsView(): React.JSX.Element {
     setShortcutMessage(`${labels[field]} shortcut reset`);
   }
 
-  function updateOnScreenToolShortcut(tool: OnScreenToolId, value: string): void {
+  function updateOnScreenToolShortcut(tool: OnScreenDrawingToolId, value: string): void {
     const toolShortcuts = Object.fromEntries(
-      onScreenToolIds.map((candidate) => [
+      configurableOnScreenToolIds.map((candidate) => [
         candidate,
         candidate === tool
           ? value
@@ -464,7 +470,7 @@ export function SettingsView(): React.JSX.Element {
               <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-400">While active</span>
             </div>
             <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-              {onScreenToolIds.map((tool) => (
+              {configurableOnScreenToolIds.map((tool) => (
                 <label className="flex items-center gap-3 rounded-md border border-stone-200 bg-white/60 px-3 py-2 dark:border-white/8 dark:bg-white/[0.025]" key={tool}>
                   <span className="min-w-0 flex-1 text-[13px] font-semibold text-stone-700 dark:text-stone-300">{onScreenToolLabels[tool]}</span>
                   <select aria-label={`Shortcut for ${onScreenToolLabels[tool]}`} className="h-7 w-16 rounded border border-stone-300 bg-white px-2 font-mono text-[12px] text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-200" value={settings.onScreen.toolShortcuts[tool]} onChange={(event) => updateOnScreenToolShortcut(tool, event.currentTarget.value)}>

@@ -2,6 +2,16 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.2.0 — 2026-09-26
+
+### Added
+
+- Select tool in Screen Draw: move, resize and delete what you've drawn. It's now the default.
+
+### Fixed
+
+- Closing capture no longer leaves a black screen.
+
 ## 2026-09-26
 
 ### Fixed

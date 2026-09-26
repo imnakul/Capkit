@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-26 - Screen Draw defaults to Select
+
+- **Confirmed:** Screen Draw opens with the Select tool active, returns to Select after Clear, and recovers to Select after a snapshot-tool failure. This supersedes the 2026-07-25 Presentation Pointer default below; the pointer trail remains one click away for gesture-first presenting.
+- **Confirmed:** Select uses the normal arrow cursor and edits committed drawings in place: rectangle, ellipse and blur move, resize from 8 handles and delete; arrows move, drag either endpoint and delete; text moves, rescales 12–120 from the bottom-right handle and deletes; pencil moves and deletes. Delete/Backspace, arrow-key nudge (1px, 10 with Shift) and a clamped Delete button apply; Escape deselects first and only closes when nothing is selected. Clicking empty space deselects; the overlay keeps capturing input.
+- **Confirmed:** Select's shortcut is a fixed `V`, not configurable in Settings; digits stay configurable for the other tools and `S` stays Save screen.
+- **Think Later:** Click-through to the desktop from empty space, scaling pencil strokes, and editing the words of existing text.
+- **Rationale:** Presenters spend Screen Draw time adjusting what they already drew; a default that can move, resize and delete removes the erase-and-redraw loop without changing any drawing tool.
+
 ## 2026-09-26 - Monitor-sized overlays avoid full-screen treatment
 
 - **Confirmed:** Windows treats a borderless overlay whose physical rectangle exactly matches a monitor as a full-screen application; on the user's 120 Hz display this capped the capture cursor at 60 Hz. The `a49f689` release build became smooth when its height was extended one physical pixel, with the frozen snapshot still aligned.

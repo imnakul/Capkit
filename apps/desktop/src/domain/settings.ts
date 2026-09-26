@@ -16,6 +16,7 @@ const onScreenToolShortcutSchema = z.string().regex(/^[0-9]?$/);
 const captureModeShortcutSchema = z.string().regex(/^[A-Z0-9]$/);
 
 export const onScreenToolIds = [
+  "select",
   "pencil",
   "rectangle",
   "ellipse",
@@ -221,6 +222,8 @@ export type SnaphubSettings = z.infer<typeof snaphubSettingsSchema>;
 export type ShapeDefault = z.infer<typeof shapeDefaultSchema>;
 export type EffectDefault = z.infer<typeof effectDefaultSchema>;
 export type OnScreenToolId = typeof onScreenToolIds[number];
+export type OnScreenDrawingToolId = Exclude<OnScreenToolId, "select">;
+export type OnScreenToolShortcuts = Record<OnScreenDrawingToolId, string>;
 
 export function parseShapeDefault(value: string): ShapeDefault {
   return shapeDefaultSchema.parse(value);
