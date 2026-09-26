@@ -32,7 +32,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{AW_BLEND, AnimateWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AW_BLEND, AnimateWindow, SW_HIDE, SetForegroundWindow, ShowWindow,
+};
 
 // AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
 // has composited fresh content, which otherwise reads as a black flash on reveal.
@@ -46,6 +48,13 @@ fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubEr
     if let Ok(hwnd) = window.hwnd() {
         let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
         if unsafe { AnimateWindow(hwnd, CAPTURE_REVEAL_MS, AW_BLEND) }.is_ok() {
+            // AnimateWindow shows the window through Win32 without telling Tauri, so
+            // tao's diff-based `set_visible` still believes it is hidden and a later
+            // `window.hide()` becomes a no-op. Calling `window.show()` on the already
+            // visible window only syncs tao's `VISIBLE` flag so future hides work.
+            window
+                .show()
+                .map_err(|error| SnaphubError::Window(error.to_string()))?;
             return Ok(());
         }
     }
@@ -933,6 +942,16 @@ fn hide_capture_window(app: &AppHandle) -> Result<(), SnaphubError> {
         window
             .hide()
             .map_err(|error| SnaphubError::Window(error.to_string()))?;
+        // Second safeguard for any other direct-Win32 show path (see
+        // `reveal_window_smoothly`): hide through Win32 as well so the overlay
+        // cannot stay visible when tao's `VISIBLE` flag is out of sync.
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(hwnd) = window.hwnd() {
+                let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+                let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+            }
+        }
     }
     Ok(())
 }
