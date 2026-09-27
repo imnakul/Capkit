@@ -125,6 +125,72 @@ fn find_monitor(display_id: &str) -> Result<(HMONITOR, Rect, f64), SnaphubError>
     ))
 }
 
+/// The desktop area the video actually covers, in physical px.
+///
+/// Without a region it is the whole display; otherwise the display-local
+/// region's desktop origin with the video's width and height, so cursor
+/// samples line up with the cropped frames.
+fn recorded_area(display: Rect, region: Option<&Rect>, width: u32, height: u32) -> Rect {
+    match region {
+        None => display,
+        Some(region) => Rect {
+            x: display.x + region.x,
+            y: display.y + region.y,
+            width: f64::from(width),
+            height: f64::from(height),
+        },
+    }
+}
+
+#[cfg(test)]
+mod recorded_area_tests {
+    use super::recorded_area;
+    use crate::domain::Rect;
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn no_region_covers_the_whole_display() {
+        assert_eq!(
+            recorded_area(rect(0.0, 0.0, 1920.0, 1080.0), None, 1920, 1080),
+            rect(0.0, 0.0, 1920.0, 1080.0)
+        );
+    }
+
+    #[test]
+    fn a_region_offsets_by_the_display_origin() {
+        assert_eq!(
+            recorded_area(
+                rect(0.0, 0.0, 1920.0, 1080.0),
+                Some(&rect(100.0, 100.0, 640.0, 360.0)),
+                640,
+                360
+            ),
+            rect(100.0, 100.0, 640.0, 360.0)
+        );
+    }
+
+    #[test]
+    fn a_negative_origin_display_stays_negative() {
+        assert_eq!(
+            recorded_area(
+                rect(-1920.0, 0.0, 1920.0, 1080.0),
+                Some(&rect(100.0, 100.0, 200.0, 150.0)),
+                200,
+                150
+            ),
+            rect(-1820.0, 100.0, 200.0, 150.0)
+        );
+    }
+}
+
 impl ScreenRecordingBackend for WindowsRecorderBackend {
     fn is_supported(&self) -> bool {
         wgc::is_supported()
@@ -299,6 +365,15 @@ impl WindowsRecordingSession {
         let stream = CaptureStream::start(monitor, region, request.capture_cursor)?;
         let width = stream.width;
         let height = stream.height;
+        // The request region is in desktop coordinates; the area is computed
+        // from its display-local form, matching the frame pool above.
+        let local = request.region.map(|region| Rect {
+            x: (region.x - bounds.x).max(0.0),
+            y: (region.y - bounds.y).max(0.0),
+            width: region.width,
+            height: region.height,
+        });
+        let area = recorded_area(bounds, local.as_ref(), width, height);
         let mut video = VideoEncoder::new(&video_path, stream.device(), width, height, fps)?;
 
         let running = Arc::new(AtomicBool::new(true));
@@ -379,8 +454,9 @@ impl WindowsRecordingSession {
 
         // The cursor track is recorded unconditionally: it cannot be
         // reconstructed later, and the smooth-cursor and zoom-on-click features
-        // are worthless without it.
-        let pointer = Some(PointerSampler::start(bounds, scale));
+        // are worthless without it. The sampler works in the recorded area's
+        // coordinates, so crops line up with the video.
+        let pointer = Some(PointerSampler::start(area, scale));
 
         let system_audio = if request.system_audio {
             AudioTrack::start(AudioSource::System, directory.join("audio-system.m4a")).ok()

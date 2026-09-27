@@ -371,6 +371,8 @@ pub struct CursorTrackDto {
     pub ys: Vec<f32>,
     pub events: Vec<CursorEventDto>,
     pub shapes: Vec<CursorShapeSpanDto>,
+    /// The recorded area in physical desktop px: the whole display, or the
+    /// crop origin with the video's size for Window and Region recordings.
     pub display_bounds: Rect,
     pub scale_factor: f64,
 }

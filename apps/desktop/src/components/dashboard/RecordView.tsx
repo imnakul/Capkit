@@ -6,9 +6,10 @@ import {
   recordingLibraryStorageKey,
   type RecordingArtifacts,
 } from "../../domain/recording";
-import { openRecorder, recordingSrc, recordingSupported } from "../../lib/recordingTauri";
+import { openRecorder, recordingSupported } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { ChevronDown, Delete, Film, Record } from "../icons";
+import { RecordingPreview } from "./RecordingPreview";
 import { StudioView } from "./StudioView";
 
 /** Reads the recordings the user has made but not yet discarded. */
@@ -151,13 +152,7 @@ export function RecordView(): React.JSX.Element {
                 className="overflow-hidden rounded-lg border border-stone-300/80 bg-white/60 dark:border-white/10 dark:bg-white/5"
                 key={item.id}
               >
-                <video
-                  aria-label={`Recording ${formatDuration(item.durationSeconds)}`}
-                  className="aspect-video w-full bg-black object-contain"
-                  controls
-                  preload="metadata"
-                  src={recordingSrc(item.videoPath)}
-                />
+                <RecordingPreview item={item} />
                 <div className="flex items-center gap-2 px-2.5 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-100">

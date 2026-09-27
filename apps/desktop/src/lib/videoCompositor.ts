@@ -146,10 +146,23 @@ function paintCursor(
     context.restore();
   }
 
-  // A standard arrow silhouette, drawn rather than blitted so it stays crisp at
-  // any export scale.
+  drawPointerGlyph(context, px, py, size, scene.cursor.tint);
+}
+
+/**
+ * The standard arrow silhouette, drawn rather than blitted so it stays crisp
+ * at any scale. Shared with the recordings list, which overlays the same
+ * cursor Studio paints.
+ */
+export function drawPointerGlyph(
+  context: Canvas2D,
+  x: number,
+  y: number,
+  size: number,
+  tint: string,
+): void {
   context.save();
-  context.translate(px, py);
+  context.translate(x, y);
   context.scale(size / 22, size / 22);
   context.beginPath();
   context.moveTo(0, 0);
@@ -160,7 +173,7 @@ function paintCursor(
   context.lineTo(8.4, 13.9);
   context.lineTo(14.6, 13.4);
   context.closePath();
-  context.fillStyle = scene.cursor.tint;
+  context.fillStyle = tint;
   context.strokeStyle = "rgb(0 0 0 / 55%)";
   context.lineWidth = 1.4;
   context.shadowColor = "rgb(0 0 0 / 35%)";
