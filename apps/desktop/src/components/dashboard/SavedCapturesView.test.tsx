@@ -52,4 +52,35 @@ describe("SavedCapturesView", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Showcase" }));
     expect(onShowcase).toHaveBeenCalledOnce();
   });
+
+  it("spans the full main column with matching grid and skeleton columns", async () => {
+    type Captures = Awaited<ReturnType<typeof mocks.listCaptures>>;
+    let resolveList!: (captures: Captures) => void;
+    const pending = new Promise<Captures>((resolve) => {
+      resolveList = resolve;
+    });
+    mocks.listCaptures.mockReturnValueOnce(pending);
+    render(<SavedCapturesView onShowcase={vi.fn()} />);
+
+    const skeleton = await screen.findByRole("status", { name: "Loading saved captures" });
+    expect(skeleton.className).toContain("2xl:grid-cols-5");
+    resolveList([
+      {
+        path: "C:/Pictures/Snaphub/capture.png",
+        fileName: "capture.png",
+        thumbnailPath: "C:/Temp/Snaphub/library-thumbnails/capture.png",
+        thumbnailUrl: "asset://capture.png",
+        width: 1200,
+        height: 800,
+        sizeBytes: 2048,
+        modifiedAt: "2026-07-19T09:30:00+05:30",
+      },
+    ]);
+    await screen.findByRole("button", { name: "View capture.png" });
+
+    const section = document.querySelector("section[aria-labelledby='saved-captures-title']");
+    expect(section?.className).not.toContain("max-w-[1120px]");
+    const grid = document.querySelector("section div.mt-5.grid");
+    expect(grid?.className).toContain("2xl:grid-cols-5");
+  });
 });
