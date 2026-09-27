@@ -1,22 +1,168 @@
-# CapKit
+<p align="center">
+  <img src=".github/assets/capkit-banner.svg" alt="CapKit — The lightweight desktop toolkit to capture, record, and showcase." width="100%">
+</p>
 
-CapKit is the lightweight desktop toolkit to capture, record, and showcase. It is Windows-first, designed for cross-platform rollout, and built around one uninterrupted workflow:
+<p align="center">
+  <a href="https://github.com/imnakul/snaphub/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/badge/download-latest%20release-D9FF43?style=flat-square&labelColor=151714"></a>
+  <img alt="Platform: Windows 11" src="https://img.shields.io/badge/platform-Windows%2011-D9FF43?style=flat-square&labelColor=151714">
+  <img alt="Built with Tauri 2" src="https://img.shields.io/badge/built%20with-Tauri%202-D9FF43?style=flat-square&labelColor=151714">
+  <a href="LICENSE"><img alt="License: proprietary" src="https://img.shields.io/badge/license-proprietary-D9FF43?style=flat-square&labelColor=151714"></a>
+</p>
 
-`Shortcut -> select on a frozen screen -> edit in place -> copy, save, copy and save, or pin -> return to work`
+<p align="center">
+  <a href="https://github.com/imnakul/snaphub/releases/latest"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://capkit.nakulsrivastava.com/">Website</a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG-PUBLIC.md">What's new</a>
+</p>
 
-The product is intentionally narrower and calmer than automation-heavy capture suites. Phase 1 focuses on fast capture, contextual quick editing, pinning, and scrolling capture without opening a conventional editor window.
+---
 
-## Status
+CapKit is a small desktop app that lives in your system tray. Press a shortcut, select part of the screen, mark it up right where it is, then copy, save, or pin it, and get back to work. No editor window, no account, no cloud.
 
-- **Confirmed:** Windows-first reference implementation with Windows 11 as the first supported platform.
-- **Confirmed:** macOS, Ubuntu, and Fedora remain architectural targets.
-- **Confirmed:** Phase 1 is local-first and requires no account, cloud, telemetry, or library.
-- **In progress:** The first Windows capture-to-export vertical slice, tray lifecycle, pinning, and settings dashboard are operational; Phase 1 still needs native hardening and completion.
-- **Implemented, physical validation pending:** A configurable shortcut toggles a temporary on-screen presentation toolbar for drawing, spotlighting, magnification, pointer trails, and blur without entering screenshot capture. The desktop stays live by default; Settings can use a frozen frame when stable markup is preferable.
-- **Provisional:** Pricing, quotas, update entitlement, final brand clearance, and distribution channels.
+When you need more, the same app records your screen, turns recordings into polished clips, and dresses screenshots up for sharing.
 
-See [Current implementation status](docs/current-status.md) for the verified working surface, partial implementations, and remaining gaps.
-For a single user-facing inventory of current local capabilities, see [Local feature inventory](docs/local-features.md).
+```text
+Shortcut  →  select on a frozen screen  →  edit in place  →  copy · save · pin  →  back to work
+```
+
+## Screenshots
+
+<p align="center">
+  <img src=".github/assets/screenshots/screenshots.png" alt="The Screenshots page showing a grid of saved captures" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src=".github/assets/screenshots/showcase.png" alt="Showcase: a capture framed with a background, padding and shadow"></td>
+    <td width="50%"><img src=".github/assets/screenshots/record.png" alt="Record: the recordings list with Start recording"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Showcase</b>: frame a capture for sharing</td>
+    <td align="center"><b>Record</b>: record and edit your screen</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src=".github/assets/screenshots/settings.png" alt="Settings: shortcuts, colors and toolbar options"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>Settings</b>: shortcuts, colors and toolbar options, stored on your device</td>
+  </tr>
+</table>
+
+## Features
+
+### Capture
+
+- **One shortcut, frozen screen.** `Alt+Shift+S` freezes the display under your cursor so menus and tooltips stay put while you select.
+- **Smart selection.** Drag a region, click a window, or click an individual button or panel inside an app. Resize and move the selection after drawing it.
+- **Precision aids.** Crosshair, live dimensions, a magnifier and snapping, each of which you can turn off.
+- **Scrolling capture.** Capture a whole long page automatically, or scroll by hand. CapKit stitches the frames and handles sticky headers.
+- **Direct shortcuts.** Separate shortcuts for Capture & Copy and Capture & Save when you don't need to edit.
+
+### Edit in place
+
+The selected area becomes the editor. Tools appear right beside it.
+
+- Rectangle, ellipse, line, straight and curved arrows, highlighter, pencil, spotlight, numbered steps and text, including a handwritten style.
+- **Redaction that sticks.** Blur, pixelate and black out. Protected areas are permanently flattened into the exported image.
+- Select, move and delete anything you drew, with full undo and redo.
+- Finish with **Copy** (`C`), **Copy & Save** (`A`), **Save** (`S`) or **Pin**.
+- Arrange the toolbar your way: one row of tools, or grouped rows you order yourself.
+
+### Pin
+
+- Keep a capture floating above everything: move, resize, rotate, change the opacity, lock it, then copy or save it later.
+
+### Screen Draw
+
+- A separate shortcut puts a drawing layer over your live screen, for demos, calls and teaching.
+- Pen, text, shapes, arrows, spotlight, magnifier, a laser pointer that fades, eraser and blur.
+- Press `S` to save the whole screen with your drawings.
+
+### Record and edit
+
+- Record a display, a single window, or an area you draw.
+- Choose your microphone and speaker. The recording controls stay out of the video.
+- The cursor is recorded as its own track, so the editor can smooth it and zoom in automatically on clicks.
+- Trim, add a webcam bubble, apply a Showcase look, and export to MP4 or GIF.
+
+### Showcase
+
+- Turn a plain screenshot into something worth posting: backgrounds, gradients and wallpapers; padding, rounded corners and shadows; browser and device frames; tilt and perspective; titles and notes.
+- Save your favourite looks as presets.
+
+### Private by design
+
+- Everything stays on your device. No account, sign-in, telemetry or network access is needed to capture, edit, record or export.
+- CapKit idles in the tray and loads its capture, editing and recording tools only when you use them.
+
+## Install
+
+1. Download `CapKit_<version>_x64-setup.exe` from the [latest release](https://github.com/imnakul/snaphub/releases/latest).
+2. Run it. It installs for your user account only and doesn't need admin rights.
+3. CapKit starts in the system tray. Press `Alt+Shift+S` to capture.
+
+> [!NOTE]
+> The installer isn't code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Choose **More info → Run anyway**. Each release includes a `.sha256` file so you can check the download.
+
+Requirements: Windows 11 (Windows 10 version 2004 or later for screen recording) with the WebView2 runtime, which comes with current Windows. macOS, Ubuntu and Fedora support is planned.
+
+## Development
+
+<details>
+<summary>Prerequisites, commands and project layout</summary>
+
+### Prerequisites
+
+- Node.js 24+
+- pnpm 11+
+- Rust 1.95+
+- Windows 11 SDK and WebView2
+
+### Commands
+
+```powershell
+pnpm.cmd install          # install dependencies
+pnpm.cmd tauri dev        # run the desktop app
+pnpm.cmd typecheck
+pnpm.cmd lint
+pnpm.cmd test
+pnpm.cmd bundle:windows   # build the NSIS setup
+pnpm.cmd bundle:store     # build the Microsoft Store MSIX package
+```
+
+Rust checks:
+
+```powershell
+cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+```
+
+The setup is written to `apps/desktop/src-tauri/target/release/bundle/nsis/CapKit_<version>_x64-setup.exe`. Store packaging is described in [Microsoft Store release](docs/microsoft-store-release.md), and publishing a release in [Releasing CapKit](docs/releasing.md).
+
+### Project layout
+
+```text
+apps/desktop/            React capture surface and Tauri host
+apps/desktop/src-tauri/  Rust resident core and platform adapters
+apps/landing-page/       Next.js marketing site
+docs/                    Product and engineering source of truth
+```
+
+### Stack
+
+Tauri 2 · Rust · React 19 · TypeScript · Vite · Tailwind CSS 4 · Zod · Vitest. The landing page uses Next.js 16.
+
+</details>
+
+## Project status
+
+- **Confirmed:** Windows 11 is the supported, tested platform.
+- **Confirmed:** Capture, editing, Screen Draw, recording and export are local-first and need no account or cloud.
+- **Provisional:** macOS, Ubuntu and Fedora are architectural targets. Native permissions, packaging and hardware testing are not done yet.
+- **Provisional:** Pricing, paid features and distribution channels.
 
 ## Documentation
 
@@ -31,76 +177,6 @@ For a single user-facing inventory of current local capabilities, see [Local fea
 - [Brand and marketing handoff](docs/brand-marketing-handoff.md)
 - [Decision log](docs/decision-log.md)
 
-## Development
+## License
 
-Prerequisites:
-
-- Node.js 24+
-- pnpm 10+
-- Rust 1.95+
-- Windows 11 SDK and WebView2 for the Windows reference application
-
-Commands:
-
-```powershell
-pnpm.cmd install
-pnpm.cmd dev
-pnpm.cmd typecheck
-pnpm.cmd lint
-pnpm.cmd test
-pnpm.cmd tauri dev
-```
-
-## Installable builds
-
-The current supported build is Windows 11. From a Windows development machine with the prerequisites above installed, create a normal per-user NSIS setup executable with:
-
-```powershell
-pnpm.cmd install
-pnpm.cmd bundle:windows
-pnpm.cmd bundle:store
-```
-
-The installer is written to:
-
-```text
-apps/desktop/src-tauri/target/release/bundle/nsis/CapKit_0.1.1_x64-setup.exe
-```
-
-`pnpm.cmd bundle:store` creates the Store-ready x64 MSIX package and the recommended `.msixupload` submission artifact under `apps/desktop/src-tauri/target/store`. Its manifest uses the immutable Partner Center identity `JagatBandhu.SnapHub`; package versions use four parts and must end in `.0`. See [Microsoft Store release](docs/microsoft-store-release.md).
-
-Tauri uses the system WebView2 runtime on current Windows 10/11 installations, keeping the installer smaller. Production distribution should add code signing before public release. `pnpm.cmd bundle` builds the native bundle formats configured for the host operating system.
-
-### Platform status
-
-- **Confirmed:** Windows 11 is the only currently supported and physically tested target.
-- **Provisional:** macOS, Ubuntu, and Fedora are architectural targets. Shared capture/domain code exists, but native permissions, target detection, scrolling input, packaging, signing, and hardware acceptance are not complete.
-- Native installers should be built and tested on their target OS: Windows for NSIS/MSI, macOS with Xcode for `.app`/`.dmg`, and Linux with WebKitGTK/system packaging dependencies for AppImage, Debian, or RPM packages.
-
-Rust checks:
-
-```powershell
-cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
-cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-## Source layout
-
-```text
-apps/desktop/          React capture surface and Tauri host
-apps/desktop/src-tauri Rust resident core and platform adapters
-apps/landing-page/     Next.js marketing site (docs/brand-marketing-handoff.md)
-docs/                  Product and engineering source of truth
-```
-
-## Landing page
-
-The marketing site lives in `apps/landing-page` and is a standalone Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 project, styled per [Brand and marketing handoff](docs/brand-marketing-handoff.md). It ships no product code and is not part of the desktop build.
-
-```powershell
-pnpm.cmd --filter @snaphub/landing-page dev
-pnpm.cmd --filter @snaphub/landing-page typecheck
-pnpm.cmd --filter @snaphub/landing-page lint
-pnpm.cmd --filter @snaphub/landing-page build
-```
+Copyright © 2026 Nakul Srivastava. All rights reserved. CapKit is proprietary software; see [LICENSE](LICENSE). Bundled third-party components, such as the Caveat font (SIL Open Font License 1.1), keep their own licenses.
