@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { cancelRecordRegion, confirmRecordRegion, recordRegionReady } from "../lib/recordingTauri";
 
 type Drag = { readonly startX: number; readonly startY: number; readonly x: number; readonly y: number };
 
@@ -21,17 +22,33 @@ export function RecordRegion(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      void recordRegionReady().catch(() => undefined);
+    });
+    return (): void => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const confirm = useCallback((box: { x: number; y: number; width: number; height: number }): void => {
+    void confirmRecordRegion(box).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Enter" && committed !== null) {
+        const box = normalize(committed);
+        if (box.width >= minimumSize && box.height >= minimumSize) {
+          event.preventDefault();
+          confirm(box);
+        }
+        return;
+      }
       if (event.key !== "Escape") return;
       event.preventDefault();
-      void (async (): Promise<void> => {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        await getCurrentWindow().destroy();
-      })();
+      void cancelRecordRegion().catch(() => undefined);
     }
     window.addEventListener("keydown", onKeyDown, true);
     return (): void => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [committed, confirm]);
 
   function begin(event: React.PointerEvent<HTMLDivElement>): void {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -84,6 +101,34 @@ export function RecordRegion(): React.JSX.Element {
           >
             {`${String(Math.round(box.width))} × ${String(Math.round(box.height))}`}
           </p>
+          {committed === null ? null : (
+            <div
+              className="absolute flex gap-1.5"
+              style={{
+                left: box.x,
+                top: box.y + box.height + 8 <= window.innerHeight - 44
+                  ? box.y + box.height + 8
+                  : Math.max(8, box.y - 44),
+              }}
+            >
+              <button
+                className="rounded-md bg-[var(--snaphub-accent)] px-3 py-1.5 text-[12px] font-bold text-[#171815] outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white"
+                type="button"
+                onClick={() => confirm(box)}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Use this area
+              </button>
+              <button
+                className="rounded-md border border-white/20 bg-[#171815]/95 px-3 py-1.5 text-[12px] font-semibold text-stone-200 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white"
+                type="button"
+                onClick={() => setCommitted(null)}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Redraw
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

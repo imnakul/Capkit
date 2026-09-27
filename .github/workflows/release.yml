@@ -107,9 +107,14 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLowerInvariant()
           $checksum = "$installer.sha256"
           Set-Content -LiteralPath $checksum -Value $hash -NoNewline
-          gh api "repos/${{ github.repository }}/releases/generate-notes" -f tag_name="v${{ env.VERSION }}" -f target_commitish="${{ github.sha }}" --jq .body > notes.md
-          Add-Content -Path notes.md -Value ""
-          Add-Content -Path notes.md -Value "Full changelog: CHANGELOG-PUBLIC.md"
+          # PowerShell 5.1 captures native output as UTF-16; force UTF-8 so
+          # non-ASCII notes (emoji in PR titles) survive, then write the file
+          # as UTF-8 without a BOM with LF endings (`>` would write UTF-16).
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          $generated = gh api "repos/${{ github.repository }}/releases/generate-notes" -f tag_name="v${{ env.VERSION }}" -f target_commitish="${{ github.sha }}" --jq .body
+          if ($LASTEXITCODE -ne 0) { throw "Could not generate release notes" }
+          $notes = (@($generated) -join "`n") + "`n`nFull changelog: [CHANGELOG-PUBLIC.md](https://github.com/${{ github.repository }}/blob/v${{ env.VERSION }}/CHANGELOG-PUBLIC.md)`n"
+          [System.IO.File]::WriteAllText("$PWD/notes.md", $notes, [System.Text.UTF8Encoding]::new($false))
           gh release create "v${{ env.VERSION }}" $installer $checksum --target "${{ github.sha }}" --title "CapKit ${{ env.VERSION }}" --notes-file notes.md
 
       - name: Upload installer artifact

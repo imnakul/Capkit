@@ -1,6 +1,6 @@
 [package]
 name = "capkit-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "CapKit lightweight desktop toolkit to capture, record, and showcase"
 authors = ["CapKit"]
 edition = "2024"
@@ -49,6 +49,15 @@ windows = { version = "0.62.2", features = [
   # Cursor sampling and the shared QPC clock.
   "Win32_UI_Input", "Win32_System_Performance", "Win32_System_Threading",
 ] }
+# Camera permission for the camera window's own webview only. Pinned to the
+# version wry already brings in, so there is exactly one copy in the binary.
+webview2-com = "=0.38.2"
+# The 0.61 Interface trait and w! literals that webview2-com 0.38's types are
+# bound to (our windows crate is 0.62). Pinned to the version already in the
+# tree; adds no new code.
+[target.'cfg(target_os = "windows")'.dependencies.windows-core-061]
+package = "windows-core"
+version = "=0.61.2"
 
 # Size is a product gate, not an afterthought: `docs/performance-quality.md`
 # budgets the installed app at under 60 MB, and the video recorder is being

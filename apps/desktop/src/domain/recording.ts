@@ -84,6 +84,7 @@ export const recorderSettingsSchema = z.object({
   systemAudio: z.boolean(),
   microphone: z.boolean(),
   microphoneDeviceId: z.string(),
+  systemAudioDeviceId: z.string().default(""),
   /**
    * Burns the hardware cursor into the video.
    *
@@ -104,8 +105,16 @@ export const defaultRecorderSettings: RecorderSettings = {
   systemAudio: true,
   microphone: false,
   microphoneDeviceId: "",
+  systemAudioDeviceId: "",
   captureCursor: false,
 };
+
+export const recordRegionSelectionSchema = z.object({
+  displayId: z.string().min(1),
+  bounds: rectSchema,
+});
+
+export type RecordRegionSelection = z.infer<typeof recordRegionSelectionSchema>;
 
 /** localStorage key holding the recorder's last configuration. */
 export const recorderSettingsStorageKey = "capkit.recorder.settings.v1";
@@ -160,6 +169,7 @@ export function toRecordingRequest(
   systemAudio: boolean;
   microphone: boolean;
   microphoneDeviceId: string | null;
+  systemAudioDeviceId: string | null;
 } {
   // A window is recorded as the crop of its display that it currently occupies,
   // so it survives being resized mid-recording.
@@ -172,6 +182,7 @@ export function toRecordingRequest(
     systemAudio: settings.systemAudio,
     microphone: settings.microphone,
     microphoneDeviceId: settings.microphoneDeviceId === "" ? null : settings.microphoneDeviceId,
+    systemAudioDeviceId: settings.systemAudioDeviceId === "" ? null : settings.systemAudioDeviceId,
   };
 }
 

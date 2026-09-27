@@ -18,7 +18,7 @@ use domain::{
     RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
 };
 use error::SnaphubError;
-use platform::xcap_backend::XcapPlatformBackend;
+use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
@@ -1397,13 +1397,19 @@ async fn list_audio_devices(
 #[tauri::command]
 async fn start_recording(app: AppHandle, request: RecordingRequestDto) -> Result<(), SnaphubError> {
     let worker_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let audio_failures = tauri::async_runtime::spawn_blocking(move || {
         worker_app.state::<RecordingService>().start(&request)
     })
     .await
     .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
     .and_then(|result| result)?;
     let _ = app.emit("snaphub://recording-started", ());
+    for kind in audio_failures {
+        let _ = app.emit(
+            "snaphub://recording-audio-failed",
+            serde_json::json!({ "kind": kind }),
+        );
+    }
     Ok(())
 }
 
@@ -1505,18 +1511,19 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
         let _ = window.set_focus();
         return Ok(());
     }
-    let monitor = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .ok_or_else(|| SnaphubError::Window("No display available for the camera".into()))?;
-    let bounds = monitor.size();
-    let size = 260u32;
+    if app.primary_monitor().ok().flatten().is_none() {
+        return Err(SnaphubError::Window(
+            "No display available for the camera".into(),
+        ));
+    }
 
     // Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
-    let window = WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
+    // The window stays hidden until the frontend attaches the stream
+    // (`camera_ready`), so there is nothing to place yet.
+    WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
         .title("CapKit Camera")
-        .inner_size(f64::from(size), f64::from(size))
+        .inner_size(260.0, 260.0)
+        .center()
         .decorations(false)
         .transparent(true)
         .resizable(false)
@@ -1526,10 +1533,6 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
         .visible(false)
         .build()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
-
-    let x = 48;
-    let y = bounds.height.saturating_sub(size + 220);
-    let _ = window.set_position(PhysicalPosition::new(x, y as i32));
     Ok(())
 }
 
@@ -1537,19 +1540,71 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
 fn camera_ready(
     app: AppHandle,
     service: tauri::State<'_, RecordingService>,
+    mode: String,
 ) -> Result<(), SnaphubError> {
+    let live = match mode.as_str() {
+        "live" => true,
+        "blocked" => false,
+        _ => {
+            return Err(SnaphubError::Window(
+                "Camera mode must be \"live\" or \"blocked\"".into(),
+            ));
+        }
+    };
     let Some(window) = app.get_webview_window("camera") else {
         return Ok(());
     };
     if let Ok(handle) = window.hwnd() {
         let _ = service.set_capture_exclusion(handle.0 as isize, true);
     }
+    let (work_area, scale) = window_work_area(&app, &window)
+        .ok_or_else(|| SnaphubError::Window("No display available for the camera".into()))?;
+    let frame = camera_frame(work_area, scale, live);
+    window
+        .set_position(PhysicalPosition::new(
+            frame.x.round() as i32,
+            frame.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            frame.width.round() as u32,
+            frame.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
     let _ = window.unminimize();
     window
         .show()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     let _ = window.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+async fn prepare_camera_permission(app: AppHandle) -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_webview::prepare_camera_permission(&app).await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_shell::open_camera_privacy_settings()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(SnaphubError::Window(
+            "Camera settings are only available on Windows".into(),
+        ))
+    }
 }
 
 #[tauri::command]
@@ -1636,7 +1691,152 @@ fn close_recorder(
     service: tauri::State<'_, RecordingService>,
 ) -> Result<(), SnaphubError> {
     service.cancel()?;
+    if let Some(window) = app.get_webview_window("record-region") {
+        let _ = window.destroy();
+    }
     if let Some(window) = app.get_webview_window("recorder") {
+        let _ = window.destroy();
+    }
+    Ok(())
+}
+
+/// Converts a logical box drawn in the region overlay to physical desktop px.
+///
+/// Rounds to whole physical px, enforces a 32x32 minimum, and clamps inside
+/// `display`. `origin` is the overlay window's physical outer position.
+fn logical_box_to_desktop(origin: (i32, i32), scale: f64, area: Rect, display: Rect) -> Rect {
+    let width = (area.width * scale).round().max(32.0).min(display.width);
+    let height = (area.height * scale).round().max(32.0).min(display.height);
+    let x = (f64::from(origin.0) + (area.x * scale).round())
+        .max(display.x)
+        .min(display.x + display.width - width);
+    let y = (f64::from(origin.1) + (area.y * scale).round())
+        .max(display.y)
+        .min(display.y + display.height - height);
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordRegionSelection {
+    display_id: String,
+    bounds: Rect,
+}
+
+struct RecordRegionRegistry(Mutex<Option<(String, Rect)>>);
+
+/// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
+#[tauri::command]
+async fn open_record_region(app: AppHandle, display_id: String) -> Result<(), SnaphubError> {
+    if let Some(window) = app.get_webview_window("record-region") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    // Cheap display enumeration only: the thumbnail-capturing sources() call
+    // must never run on the way to revealing the overlay.
+    let bounds = display_bounds(&display_id)?;
+    if let Ok(mut registry) = app.state::<RecordRegionRegistry>().0.lock() {
+        *registry = Some((display_id, bounds));
+    }
+    WebviewWindowBuilder::new(&app, "record-region", WebviewUrl::App("index.html".into()))
+        .title("CapKit Record Region")
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Err(SnaphubError::Window("Region window is unavailable".into()));
+    };
+    window
+        .set_position(PhysicalPosition::new(
+            bounds.x.round() as i32,
+            bounds.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            bounds.width.round() as u32,
+            bounds.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn record_region_ready(app: AppHandle) -> Result<(), SnaphubError> {
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Ok(());
+    };
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn confirm_record_region(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), SnaphubError> {
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Err(SnaphubError::Window("Region window is unavailable".into()));
+    };
+    let (display_id, bounds) = app
+        .state::<RecordRegionRegistry>()
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Region state is unavailable".into()))?
+        .clone()
+        .ok_or_else(|| SnaphubError::Window("No display was chosen for the region".into()))?;
+    let position = window
+        .outer_position()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let scale = window
+        .scale_factor()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let desktop = logical_box_to_desktop(
+        (position.x, position.y),
+        scale,
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        },
+        bounds,
+    );
+    let _ = app.emit(
+        "snaphub://record-region-selected",
+        RecordRegionSelection {
+            display_id,
+            bounds: desktop,
+        },
+    );
+    let _ = window.destroy();
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_record_region(app: AppHandle) -> Result<(), SnaphubError> {
+    let _ = app.emit("snaphub://record-region-cancelled", ());
+    if let Some(window) = app.get_webview_window("record-region") {
         let _ = window.destroy();
     }
     Ok(())
@@ -1675,18 +1875,10 @@ fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
         return Ok(());
     }
 
-    let monitor = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
-    let bounds = monitor.size();
-    let width = 720u32;
-    let height = 132u32;
-
-    let window = WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
+    // The frontend fits the window to its content before revealing it.
+    match WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
         .title("CapKit Recorder")
-        .inner_size(f64::from(width), f64::from(height))
+        .inner_size(724.0, 140.0)
         .decorations(false)
         .transparent(true)
         .resizable(false)
@@ -1695,12 +1887,136 @@ fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
         .shadow(false)
         .visible(false)
         .build()
-        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            // A fast double click (or the shortcut racing the button) can
+            // reach here after the first call already built the window.
+            if let Some(window) = app.get_webview_window("recorder") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                return Ok(());
+            }
+            Err(SnaphubError::Window(error.to_string()))
+        }
+    }
+}
 
-    let x = (bounds.width.saturating_sub(width)) / 2;
-    let y = bounds.height.saturating_sub(height + 72);
-    let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
-    let _ = window.set_size(PhysicalSize::new(width, height));
+/// Computes the recorder window's physical frame from its logical content size.
+///
+/// All inputs are logical except `work_area`, which is physical. The window is
+/// bottom-anchored with `bottom_gap` logical px above the taskbar and centred
+/// horizontally. Content larger than the work area is clamped, and the frame
+/// never starts above the work area.
+fn dock_frame(
+    work_area: Rect,
+    scale: f64,
+    content_width: f64,
+    content_height: f64,
+    bottom_gap: f64,
+) -> Rect {
+    let width = (content_width * scale)
+        .round()
+        .min(work_area.width)
+        .max(1.0);
+    let height = (content_height * scale)
+        .round()
+        .min(work_area.height)
+        .max(1.0);
+    let x = work_area.x + (work_area.width - width) / 2.0;
+    let y =
+        (work_area.y + work_area.height - height - (bottom_gap * scale).round()).max(work_area.y);
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// Computes the camera window's physical frame.
+///
+/// `live` is the 260 logical px bottom-left bubble, 24 px from the work area's
+/// left and bottom edges. Otherwise it is the 360x220 centred blocked panel.
+fn camera_frame(work_area: Rect, scale: f64, live: bool) -> Rect {
+    let (content_width, content_height) = if live { (260.0, 260.0) } else { (360.0, 220.0) };
+    let width = (content_width * scale)
+        .round()
+        .min(work_area.width)
+        .max(1.0);
+    let height = (content_height * scale)
+        .round()
+        .min(work_area.height)
+        .max(1.0);
+    let x = if live {
+        work_area.x + (24.0 * scale).round()
+    } else {
+        work_area.x + (work_area.width - width) / 2.0
+    };
+    let y = if live {
+        (work_area.y + work_area.height - height - (24.0 * scale).round()).max(work_area.y)
+    } else {
+        (work_area.y + (work_area.height - height) / 2.0).max(work_area.y)
+    };
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// The work area and scale of the monitor hosting `window`, or the primary one.
+fn window_work_area(app: &AppHandle, window: &WebviewWindow) -> Option<(Rect, f64)> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let area = monitor.work_area();
+    Some((
+        Rect {
+            x: f64::from(area.position.x),
+            y: f64::from(area.position.y),
+            width: f64::from(area.size.width),
+            height: f64::from(area.size.height),
+        },
+        monitor.scale_factor(),
+    ))
+}
+
+/// Fits the recorder window to its content.
+///
+/// A sync command is safe here: it builds no window, and `set_size` and
+/// `set_position` do not deadlock.
+#[tauri::command]
+fn fit_recorder(app: AppHandle, width: f64, height: f64) -> Result<(), SnaphubError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(SnaphubError::Window(
+            "Recorder size must be finite and positive".into(),
+        ));
+    }
+    let Some(window) = app.get_webview_window("recorder") else {
+        return Err(SnaphubError::Window(
+            "Recorder window is unavailable".into(),
+        ));
+    };
+    let (work_area, scale) = window_work_area(&app, &window)
+        .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
+    let frame = dock_frame(work_area, scale, width, height, 24.0);
+    window
+        .set_position(PhysicalPosition::new(
+            frame.x.round() as i32,
+            frame.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            frame.width.round() as u32,
+            frame.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
     Ok(())
 }
 
@@ -1748,6 +2064,7 @@ pub fn run() {
         .manage(recording_service())
         .manage(ShortcutConfiguration(Mutex::new(shortcuts)))
         .manage(PinnedCaptureRegistry(Mutex::new(HashMap::new())))
+        .manage(RecordRegionRegistry(Mutex::new(None)))
         .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
         .invoke_handler(tauri::generate_handler![
             begin_capture,
@@ -1794,14 +2111,21 @@ pub fn run() {
             recording_status,
             set_capture_exclusion,
             recorder_ready,
+            fit_recorder,
             open_recorder,
             close_recorder,
+            open_record_region,
+            record_region_ready,
+            confirm_record_region,
+            cancel_record_region,
             set_recording_paused,
             show_recording_border,
             hide_recording_border,
             open_camera,
             camera_ready,
-            close_camera
+            close_camera,
+            prepare_camera_permission,
+            open_camera_privacy_settings
         ])
         .setup(move |app| {
             if std::env::args().any(|argument| argument == "--background")
@@ -2144,6 +2468,187 @@ mod shortcut_tests {
                 .cleanup_warning
                 .is_some_and(|warning| warning.contains("SH-WINDOW-001"))
         );
+    }
+}
+
+#[cfg(test)]
+mod recorder_layout_tests {
+    use super::*;
+
+    fn work_area(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn dock_frame_centres_above_the_taskbar_at_scale_one() {
+        let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 1040.0), 1.0, 724.0, 140.0, 24.0);
+        assert_eq!(
+            frame,
+            Rect {
+                x: 598.0,
+                y: 876.0,
+                width: 724.0,
+                height: 140.0,
+            }
+        );
+    }
+
+    #[test]
+    fn dock_frame_scales_content_at_fractional_scales() {
+        let frame = dock_frame(work_area(0.0, 0.0, 2880.0, 1560.0), 1.5, 724.0, 140.0, 24.0);
+        assert_eq!(
+            frame,
+            Rect {
+                x: 897.0,
+                y: 1314.0,
+                width: 1086.0,
+                height: 210.0,
+            }
+        );
+        let frame = dock_frame(work_area(0.0, 0.0, 3840.0, 2080.0), 2.0, 724.0, 140.0, 24.0);
+        assert_eq!(frame.width, 1448.0);
+        assert_eq!(frame.height, 280.0);
+    }
+
+    #[test]
+    fn dock_frame_handles_a_work_area_away_from_the_origin() {
+        // A taskbar on the left pushes the work area right.
+        let frame = dock_frame(
+            work_area(80.0, 0.0, 1840.0, 1040.0),
+            1.0,
+            724.0,
+            140.0,
+            24.0,
+        );
+        assert_eq!(frame.x, 80.0 + (1840.0 - 724.0) / 2.0);
+        assert_eq!(frame.y, 876.0);
+    }
+
+    #[test]
+    fn dock_frame_clamps_content_taller_than_the_work_area() {
+        let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 400.0), 1.0, 724.0, 900.0, 24.0);
+        assert_eq!(frame.height, 400.0);
+        assert_eq!(frame.y, 0.0);
+    }
+
+    #[test]
+    fn logical_box_scales_to_physical_px() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 80.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(
+            area,
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 80.0,
+            }
+        );
+        // A 1280x720 logical box on a 150% display is a 1920x1080 recording.
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.5,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.width, 1920.0);
+        assert_eq!(area.height, 1080.0);
+    }
+
+    #[test]
+    fn logical_box_supports_a_negative_origin() {
+        let area = logical_box_to_desktop(
+            (-1920, 0),
+            1.0,
+            Rect {
+                x: 100.0,
+                y: 100.0,
+                width: 200.0,
+                height: 150.0,
+            },
+            work_area(-1920.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.x, -1820.0);
+        assert_eq!(area.y, 100.0);
+    }
+
+    #[test]
+    fn logical_box_clamps_at_the_display_edges() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 1850.0,
+                y: 1000.0,
+                width: 200.0,
+                height: 200.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.x, 1720.0);
+        assert_eq!(area.y, 880.0);
+        assert_eq!(area.width, 200.0);
+        assert_eq!(area.height, 200.0);
+    }
+
+    #[test]
+    fn camera_frame_places_the_live_bubble_bottom_left() {
+        // 150% scaling: 260 logical px are 390 physical, 24 gap.
+        let frame = camera_frame(work_area(0.0, 0.0, 2880.0, 1560.0), 1.5, true);
+        assert_eq!(frame.width, 390.0);
+        assert_eq!(frame.height, 390.0);
+        assert_eq!(frame.x, 36.0);
+        assert_eq!(frame.y, 1560.0 - 390.0 - 36.0);
+    }
+
+    #[test]
+    fn camera_frame_centres_the_blocked_panel() {
+        let frame = camera_frame(work_area(0.0, 0.0, 1920.0, 1040.0), 1.0, false);
+        assert_eq!(
+            frame,
+            Rect {
+                x: (1920.0 - 360.0) / 2.0,
+                y: (1040.0 - 220.0) / 2.0,
+                width: 360.0,
+                height: 220.0,
+            }
+        );
+    }
+
+    #[test]
+    fn logical_box_enforces_the_minimum_size() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 50.0,
+                y: 50.0,
+                width: 5.0,
+                height: 4.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.width, 32.0);
+        assert_eq!(area.height, 32.0);
     }
 }
 

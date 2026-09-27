@@ -62,7 +62,7 @@ Also verify affected components, multi-monitor/DPI-sensitive geometry, loading, 
 ## Tech stack
 
 - Workspace: pnpm 11.14.0, TypeScript, strict mode
-- Desktop: Tauri 2.11, Rust 2024, React 19, Vite 8, Tailwind CSS 4, Zod 4
+- Desktop: Tauri 2.11, Rust 2024, React 19, Vite 8, Tailwind CSS 4, Zod 4, webview2-com 0.38.2 + windows-core 0.61 (camera permission only, pinned to versions already in the tree)
 - Landing page: Next.js 16.2 App Router, React 19, TypeScript 5, Tailwind CSS 4, Framer Motion 12
 - Tooling: ESLint 9, Vitest 4, Testing Library, Cargo
 - Targets: Windows 11 supported; macOS, Ubuntu, and Fedora provisional

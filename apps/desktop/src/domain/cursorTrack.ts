@@ -35,6 +35,7 @@ export const cursorTrackSchema = z.object({
   ys: z.array(z.number()),
   events: z.array(cursorEventSchema),
   shapes: z.array(cursorShapeSpanSchema),
+  /** The recorded area: the whole display, or the crop origin for Window and Region. */
   displayBounds: rectSchema,
   scaleFactor: z.number(),
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatBytes,
   formatDuration,
@@ -6,9 +6,10 @@ import {
   recordingLibraryStorageKey,
   type RecordingArtifacts,
 } from "../../domain/recording";
-import { openRecorder, recordingSrc, recordingSupported } from "../../lib/recordingTauri";
+import { openRecorder, recordingSupported } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { ChevronDown, Delete, Film, Record } from "../icons";
+import { RecordingPreview } from "./RecordingPreview";
 import { StudioView } from "./StudioView";
 
 /** Reads the recordings the user has made but not yet discarded. */
@@ -51,12 +52,21 @@ export function RecordView(): React.JSX.Element {
     return (): void => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
+
   const start = useCallback(async (): Promise<void> => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpening(true);
     setError(null);
     try {
       await openRecorder();
     } catch (cause: unknown) {
       setError(describeInvokeError(cause, "The recorder could not be opened"));
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
     }
   }, []);
 
@@ -104,7 +114,7 @@ export function RecordView(): React.JSX.Element {
         <button
           aria-label="Start recording"
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#ff5b4d] px-3.5 py-2 text-[13px] font-semibold text-white outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={supported === false}
+          disabled={supported === false || opening}
           type="button"
           onClick={() => void start()}
         >
@@ -142,13 +152,7 @@ export function RecordView(): React.JSX.Element {
                 className="overflow-hidden rounded-lg border border-stone-300/80 bg-white/60 dark:border-white/10 dark:bg-white/5"
                 key={item.id}
               >
-                <video
-                  aria-label={`Recording ${formatDuration(item.durationSeconds)}`}
-                  className="aspect-video w-full bg-black object-contain"
-                  controls
-                  preload="metadata"
-                  src={recordingSrc(item.videoPath)}
-                />
+                <RecordingPreview item={item} />
                 <div className="flex items-center gap-2 px-2.5 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-100">

@@ -34,14 +34,30 @@ const HNS_PER_SECOND: i64 = 10_000_000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AudioSource {
     /// Everything the machine is playing, via a loopback render endpoint.
-    System,
+    /// `None` follows the user's default output.
+    System(Option<String>),
     /// A capture endpoint. `None` follows the user's default microphone.
     Microphone(Option<String>),
 }
 
 impl AudioSource {
     fn is_loopback(&self) -> bool {
-        matches!(self, Self::System)
+        matches!(self, Self::System(_))
+    }
+
+    /// The explicitly chosen device id, if any.
+    fn explicit_id(&self) -> Option<&str> {
+        match self {
+            Self::System(id) | Self::Microphone(id) => id.as_deref().filter(|id| !id.is_empty()),
+        }
+    }
+
+    /// `system` or `microphone`, for failure reporting.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::System(_) => "system",
+            Self::Microphone(_) => "microphone",
+        }
     }
 }
 
@@ -342,6 +358,69 @@ fn convert(raw: &[u8], format: &WAVEFORMATEX, out: &mut Vec<i16>) {
     }
 }
 
+/// Resolves the endpoint for a source: an explicitly chosen id first, then the
+/// default endpoint of the same flow. A System id must resolve to a render
+/// endpoint; anything else falls back to the default rather than failing.
+fn resolve_endpoint(
+    enumerator: &IMMDeviceEnumerator,
+    source: &AudioSource,
+) -> windows::core::Result<IMMDevice> {
+    if let Some(id) = source.explicit_id() {
+        let wide = HSTRING::from(id);
+        // SAFETY: `enumerator` and `wide` are live for the call.
+        if let Ok(device) = unsafe { enumerator.GetDevice(&wide) } {
+            let usable = match source {
+                AudioSource::System(_) => is_render_endpoint(&device),
+                AudioSource::Microphone(_) => true,
+            };
+            if usable {
+                return Ok(device);
+            }
+        }
+    }
+    let flow = if source.is_loopback() {
+        eRender
+    } else {
+        eCapture
+    };
+    // SAFETY: `enumerator` is live.
+    unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }
+}
+
+fn is_render_endpoint(device: &IMMDevice) -> bool {
+    use windows::Win32::Media::Audio::IMMEndpoint;
+    use windows::core::Interface as _;
+    device
+        .cast::<IMMEndpoint>()
+        .ok()
+        // SAFETY: the endpoint is live.
+        .and_then(|endpoint| unsafe { endpoint.GetDataFlow() }.ok())
+        .is_some_and(|flow| flow == eRender)
+}
+
+/// Synchronously checks that a requested source can be opened, without
+/// recording anything. Used at recording start so a broken audio choice
+/// warns instead of silently producing no track.
+pub fn probe_source(source: &AudioSource) -> Result<(), SnaphubError> {
+    // SAFETY: COM is initialised for this thread; S_FALSE on repeat is fine.
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+        .ok()
+        .map_err(SnaphubError::audio)?;
+    // SAFETY: class and interface identifiers are matched.
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
+            .map_err(SnaphubError::audio)?;
+    let device = resolve_endpoint(&enumerator, source).map_err(SnaphubError::audio)?;
+    // SAFETY: `device` is live and the interface identifier matches.
+    let client: IAudioClient =
+        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(SnaphubError::audio)?;
+    // SAFETY: the returned pointer is owned by us and freed below.
+    let format_ptr = unsafe { client.GetMixFormat() }.map_err(SnaphubError::audio)?;
+    // SAFETY: the format was allocated by GetMixFormat and is released once.
+    unsafe { CoTaskMemFree(Some(format_ptr.cast())) };
+    Ok(())
+}
+
 fn capture_loop(
     source: AudioSource,
     path: &Path,
@@ -357,25 +436,7 @@ fn capture_loop(
         unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
             .map_err(SnaphubError::audio)?;
 
-    // An explicitly chosen microphone is resolved by id; everything else falls
-    // back to the user's current default endpoint.
-    let device = match &source {
-        AudioSource::Microphone(Some(id)) if !id.is_empty() => {
-            let wide = HSTRING::from(id.as_str());
-            // SAFETY: `enumerator` and `wide` are live for the call.
-            unsafe { enumerator.GetDevice(&wide) }
-        }
-        other => {
-            let flow = if other.is_loopback() {
-                eRender
-            } else {
-                eCapture
-            };
-            // SAFETY: `enumerator` is live.
-            unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole) }
-        }
-    }
-    .map_err(SnaphubError::audio)?;
+    let device = resolve_endpoint(&enumerator, &source).map_err(SnaphubError::audio)?;
     // SAFETY: `device` is live and the interface identifier matches.
     let client: IAudioClient =
         unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(SnaphubError::audio)?;
@@ -480,4 +541,32 @@ fn capture_loop(
     // SAFETY: the client was started above.
     let _ = unsafe { client.Stop() };
     encoder.finish()
+}
+
+#[cfg(test)]
+mod device_tests {
+    /// Prints the WASAPI endpoints on the dev machine.
+    ///
+    /// Ignored by default: it needs real audio hardware. Run it with
+    /// `cargo test -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs audio hardware"]
+    fn lists_audio_endpoints() {
+        let devices = super::capture_devices().expect("endpoints enumerate");
+        let microphones = devices
+            .iter()
+            .filter(|device| device.kind == "microphone")
+            .count();
+        let systems = devices
+            .iter()
+            .filter(|device| device.kind == "system")
+            .count();
+        println!("microphones={microphones} systems={systems}");
+        for device in &devices {
+            println!(
+                "kind={} default={} name={}",
+                device.kind, device.is_default, device.name
+            );
+        }
+    }
 }

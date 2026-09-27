@@ -4,11 +4,13 @@ import {
   recordingArtifactsSchema,
   recordingSourceSchema,
   recordingStatsSchema,
+  recordRegionSelectionSchema,
   type AudioDevice,
   type RecorderSettings,
   type RecordingArtifacts,
   type RecordingSource,
   type RecordingStats,
+  type RecordRegionSelection,
   toRecordingRequest,
 } from "../domain/recording";
 import { cursorTrackSchema, type CursorTrack } from "../domain/cursorTrack";
@@ -74,6 +76,11 @@ export async function setRecordingPaused(paused: boolean): Promise<boolean> {
   return Boolean(await invoke("set_recording_paused", { paused }));
 }
 
+/** Fits the recorder window to its content; the backend anchors and clamps it. */
+export async function fitRecorder(width: number, height: number): Promise<void> {
+  await invoke("fit_recorder", { width, height });
+}
+
 /**
  * Shows a click-through outline around exactly what is about to be, or is
  * being, recorded. Bounds are in physical desktop pixels, matching a source's
@@ -96,8 +103,16 @@ export async function openCamera(): Promise<void> {
   await invoke("open_camera");
 }
 
-export async function cameraReady(): Promise<void> {
-  await invoke("camera_ready");
+export async function cameraReady(mode: "live" | "blocked"): Promise<void> {
+  await invoke("camera_ready", { mode });
+}
+
+export async function prepareCameraPermission(): Promise<void> {
+  await invoke("prepare_camera_permission");
+}
+
+export async function openCameraPrivacySettings(): Promise<void> {
+  await invoke("open_camera_privacy_settings");
 }
 
 export async function closeCamera(): Promise<void> {
@@ -110,6 +125,58 @@ export async function openRecorder(): Promise<void> {
 
 export async function closeRecorder(): Promise<void> {
   await invoke("close_recorder");
+}
+
+export async function openRecordRegion(displayId: string): Promise<void> {
+  await invoke("open_record_region", { displayId });
+}
+
+export async function recordRegionReady(): Promise<void> {
+  await invoke("record_region_ready");
+}
+
+export async function confirmRecordRegion(box: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): Promise<void> {
+  await invoke("confirm_record_region", box);
+}
+
+export async function cancelRecordRegion(): Promise<void> {
+  await invoke("cancel_record_region");
+}
+
+export async function listenForRecordRegion(
+  onSelected: (selection: RecordRegionSelection) => void,
+  onCancelled: () => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const stopSelected = await listen<unknown>("snaphub://record-region-selected", (event) => {
+    const parsed = recordRegionSelectionSchema.safeParse(event.payload);
+    if (!parsed.success) {
+      console.error("SH-RECORD-REGION-001", parsed.error);
+      return;
+    }
+    onSelected(parsed.data);
+  });
+  const stopCancelled = await listen("snaphub://record-region-cancelled", () => onCancelled());
+  return (): void => {
+    stopSelected();
+    stopCancelled();
+  };
+}
+
+export async function listenForAudioFailure(onFailed: (kind: string) => void): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const stop = await listen<{ kind: string }>("snaphub://recording-audio-failed", (event) => {
+    if (event.payload.kind !== "system" && event.payload.kind !== "microphone") return;
+    onFailed(event.payload.kind);
+  });
+  return (): void => {
+    stop();
+  };
 }
 
 /** Reads the cursor samples recorded alongside a video. */

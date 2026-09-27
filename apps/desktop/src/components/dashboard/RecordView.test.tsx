@@ -71,6 +71,26 @@ describe("RecordView", () => {
     await vi.waitFor(() => expect(openRecorder).toHaveBeenCalledTimes(1));
   });
 
+  it("disables Start recording while opening so a double click opens once", async () => {
+    let resolveOpen!: () => void;
+    openRecorder.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveOpen = resolve;
+      }),
+    );
+    render(<RecordView />);
+
+    const button = screen.getByRole("button", { name: "Start recording" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(button).toBeDisabled();
+    expect(openRecorder).toHaveBeenCalledTimes(1);
+    resolveOpen();
+    await vi.waitFor(() => expect(button).not.toBeDisabled());
+    expect(openRecorder).toHaveBeenCalledTimes(1);
+  });
+
   it("edits a recording in place and returns to the library", async () => {
     render(<RecordView />);
 

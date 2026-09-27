@@ -16,6 +16,8 @@ pub(crate) mod windows_recorder;
 pub mod windows_shell;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_ui;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_webview;
 pub mod xcap_backend;
 
 pub struct CapturedDisplay {
@@ -59,11 +61,14 @@ pub trait PinnedWindowBackend: Send + Sync {
 pub trait ScreenRecordingBackend: Send + Sync {
     fn is_supported(&self) -> bool;
     fn sources(&self) -> Result<Vec<RecordingSourceDto>, SnaphubError>;
+    /// Starts a recording. The second element names requested audio kinds
+    /// (`"system"` or `"microphone"`) that could not be opened; the video
+    /// still records, and the caller reports them.
     fn start(
         &self,
         request: &RecordingRequestDto,
         directory: &std::path::Path,
-    ) -> Result<Box<dyn RecordingSession>, SnaphubError>;
+    ) -> Result<(Box<dyn RecordingSession>, Vec<&'static str>), SnaphubError>;
 }
 
 /// A recording in flight. Dropping one without `stop` abandons its output.
