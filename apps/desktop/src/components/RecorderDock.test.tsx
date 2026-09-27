@@ -44,27 +44,50 @@ const artifacts: RecordingArtifacts = {
 };
 
 const mocks = {
-  start: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  start: vi.fn<
+    (
+      settings: unknown,
+      source: unknown,
+      region: unknown,
+    ) => Promise<void>
+  >(() => Promise.resolve()),
   stop: vi.fn<() => Promise<RecordingArtifacts>>(() => Promise.resolve(artifacts)),
   cancel: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   close: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   ready: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   fit: vi.fn<(width: number, height: number) => Promise<void>>(() => Promise.resolve()),
+  border: vi.fn<(bounds: unknown) => Promise<void>>(() => Promise.resolve()),
+  openRegion: vi.fn<() => Promise<void>>(() => Promise.resolve()),
 };
+
+const regionListeners = vi.hoisted(() => ({
+  selected: null as null | ((selection: { displayId: string; bounds: { x: number; y: number; width: number; height: number } }) => void),
+  cancelled: null as null | (() => void),
+}));
 
 vi.mock("../lib/recordingTauri", () => ({
   fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
+  openRecordRegion: (): Promise<void> => mocks.openRegion(),
+  listenForRecordRegion: (
+    onSelected: (selection: { displayId: string; bounds: { x: number; y: number; width: number; height: number } }) => void,
+    onCancelled: () => void,
+  ): Promise<() => void> => {
+    regionListeners.selected = onSelected;
+    regionListeners.cancelled = onCancelled;
+    return Promise.resolve((): void => undefined);
+  },
   listRecordingSources: (): Promise<readonly RecordingSource[]> =>
     Promise.resolve([display, secondDisplay, editorWindow]),
   listAudioDevices: (): Promise<readonly { id: string; name: string; kind: string; isDefault: boolean }[]> =>
     Promise.resolve([{ id: "mic-1", name: "Headset", kind: "microphone", isDefault: true }]),
-  startRecording: (): Promise<void> => mocks.start(),
+  startRecording: (settings: unknown, source: unknown, region: unknown): Promise<void> =>
+    mocks.start(settings, source, region),
   stopRecording: (): Promise<RecordingArtifacts> => mocks.stop(),
   cancelRecording: (): Promise<void> => mocks.cancel(),
   closeRecorder: (): Promise<void> => mocks.close(),
   recorderReady: (): Promise<void> => mocks.ready(),
   recordingStatus: (): Promise<null> => Promise.resolve(null),
-  showRecordingBorder: (): Promise<void> => Promise.resolve(),
+  showRecordingBorder: (bounds: unknown): Promise<void> => mocks.border(bounds),
   hideRecordingBorder: (): Promise<void> => Promise.resolve(),
   recordingSrc: (path: string): string => path,
 }));
@@ -81,6 +104,8 @@ describe("RecorderDock", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    regionListeners.selected = null;
+    regionListeners.cancelled = null;
   });
 
   it("reveals itself only after its first frame, so a hidden window never flashes", async () => {
@@ -157,6 +182,59 @@ describe("RecorderDock", () => {
     fireEvent.keyDown(listbox, { key: "Escape" });
     expect(screen.queryByRole("listbox", { name: "Available sources" })).not.toBeInTheDocument();
     expect(picker).toHaveFocus();
+  });
+
+  it("disables Record in Region mode until an area is drawn", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Record a region" }));
+
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Draw area to record" })).toBeVisible();
+  });
+
+  it("records the drawn area and ignores areas drawn for another display", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+    fireEvent.click(screen.getByRole("button", { name: "Record a region" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
+      target: { value: "0" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw area to record" }));
+    expect(mocks.openRegion).toHaveBeenCalledTimes(1);
+
+    regionListeners.selected?.({ displayId: "other", bounds: { x: 0, y: 0, width: 100, height: 100 } });
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeDisabled();
+
+    regionListeners.selected?.({ displayId: "1", bounds: { x: 10, y: 20, width: 640, height: 360 } });
+    const redraw = await screen.findByRole("button", { name: "Redraw area to record" });
+    expect(redraw).toHaveTextContent("640 × 360 · Redraw");
+    expect(screen.getByRole("button", { name: "Start recording" })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => {
+      expect(mocks.border).toHaveBeenCalledWith({ x: 10, y: 20, width: 640, height: 360 });
+    });
+    expect(mocks.start).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "region" }),
+      expect.objectContaining({ displayId: "1" }),
+      { x: 10, y: 20, width: 640, height: 360 },
+    );
+  });
+
+  it("re-enables drawing with no error when the overlay is cancelled", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+    fireEvent.click(screen.getByRole("button", { name: "Record a region" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Draw area to record" }));
+    expect(screen.getByRole("button", { name: "Draw area to record" })).toBeDisabled();
+
+    regionListeners.cancelled?.();
+    expect(await screen.findByRole("button", { name: "Draw area to record" })).not.toBeDisabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("offers the capture modes and lists sources for the chosen one, with a preview to pick from", async () => {

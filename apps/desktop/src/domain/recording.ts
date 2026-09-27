@@ -107,6 +107,13 @@ export const defaultRecorderSettings: RecorderSettings = {
   captureCursor: false,
 };
 
+export const recordRegionSelectionSchema = z.object({
+  displayId: z.string().min(1),
+  bounds: rectSchema,
+});
+
+export type RecordRegionSelection = z.infer<typeof recordRegionSelectionSchema>;
+
 /** localStorage key holding the recorder's last configuration. */
 export const recorderSettingsStorageKey = "capkit.recorder.settings.v1";
 

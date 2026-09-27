@@ -1636,7 +1636,166 @@ fn close_recorder(
     service: tauri::State<'_, RecordingService>,
 ) -> Result<(), SnaphubError> {
     service.cancel()?;
+    if let Some(window) = app.get_webview_window("record-region") {
+        let _ = window.destroy();
+    }
     if let Some(window) = app.get_webview_window("recorder") {
+        let _ = window.destroy();
+    }
+    Ok(())
+}
+
+/// Converts a logical box drawn in the region overlay to physical desktop px.
+///
+/// Rounds to whole physical px, enforces a 32x32 minimum, and clamps inside
+/// `display`. `origin` is the overlay window's physical outer position.
+fn logical_box_to_desktop(origin: (i32, i32), scale: f64, area: Rect, display: Rect) -> Rect {
+    let width = (area.width * scale).round().max(32.0).min(display.width);
+    let height = (area.height * scale).round().max(32.0).min(display.height);
+    let x = (f64::from(origin.0) + (area.x * scale).round())
+        .max(display.x)
+        .min(display.x + display.width - width);
+    let y = (f64::from(origin.1) + (area.y * scale).round())
+        .max(display.y)
+        .min(display.y + display.height - height);
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordRegionSelection {
+    display_id: String,
+    bounds: Rect,
+}
+
+struct RecordRegionRegistry(Mutex<Option<String>>);
+
+/// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
+#[tauri::command]
+async fn open_record_region(app: AppHandle, display_id: String) -> Result<(), SnaphubError> {
+    if let Some(window) = app.get_webview_window("record-region") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    // Reuse the service's own enumeration rather than adding a second one.
+    let bounds = app
+        .state::<RecordingService>()
+        .sources()
+        .map_err(|_| SnaphubError::Window("Recording sources are unavailable".into()))?
+        .into_iter()
+        .find(|source| source.kind == "display" && source.display_id == display_id)
+        .map(|source| source.bounds)
+        .ok_or_else(|| SnaphubError::Window("The chosen display is unavailable".into()))?;
+    if let Ok(mut registry) = app.state::<RecordRegionRegistry>().0.lock() {
+        *registry = Some(display_id);
+    }
+    WebviewWindowBuilder::new(&app, "record-region", WebviewUrl::App("index.html".into()))
+        .title("CapKit Record Region")
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Err(SnaphubError::Window("Region window is unavailable".into()));
+    };
+    window
+        .set_position(PhysicalPosition::new(
+            bounds.x.round() as i32,
+            bounds.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            bounds.width.round() as u32,
+            bounds.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn record_region_ready(app: AppHandle) -> Result<(), SnaphubError> {
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Ok(());
+    };
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn confirm_record_region(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), SnaphubError> {
+    let Some(window) = app.get_webview_window("record-region") else {
+        return Err(SnaphubError::Window("Region window is unavailable".into()));
+    };
+    let display_id = app
+        .state::<RecordRegionRegistry>()
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Region state is unavailable".into()))?
+        .clone()
+        .ok_or_else(|| SnaphubError::Window("No display was chosen for the region".into()))?;
+    let bounds = app
+        .state::<RecordingService>()
+        .sources()
+        .map_err(|_| SnaphubError::Window("Recording sources are unavailable".into()))?
+        .into_iter()
+        .find(|source| source.kind == "display" && source.display_id == display_id)
+        .map(|source| source.bounds)
+        .ok_or_else(|| SnaphubError::Window("The chosen display is unavailable".into()))?;
+    let position = window
+        .outer_position()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let scale = window
+        .scale_factor()
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let desktop = logical_box_to_desktop(
+        (position.x, position.y),
+        scale,
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        },
+        bounds,
+    );
+    let _ = app.emit(
+        "snaphub://record-region-selected",
+        RecordRegionSelection {
+            display_id,
+            bounds: desktop,
+        },
+    );
+    let _ = window.destroy();
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_record_region(app: AppHandle) -> Result<(), SnaphubError> {
+    let _ = app.emit("snaphub://record-region-cancelled", ());
+    if let Some(window) = app.get_webview_window("record-region") {
         let _ = window.destroy();
     }
     Ok(())
@@ -1824,6 +1983,7 @@ pub fn run() {
         .manage(recording_service())
         .manage(ShortcutConfiguration(Mutex::new(shortcuts)))
         .manage(PinnedCaptureRegistry(Mutex::new(HashMap::new())))
+        .manage(RecordRegionRegistry(Mutex::new(None)))
         .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
         .invoke_handler(tauri::generate_handler![
             begin_capture,
@@ -1873,6 +2033,10 @@ pub fn run() {
             fit_recorder,
             open_recorder,
             close_recorder,
+            open_record_region,
+            record_region_ready,
+            confirm_record_region,
+            cancel_record_region,
             set_recording_paused,
             show_recording_border,
             hide_recording_border,
@@ -2287,6 +2451,97 @@ mod recorder_layout_tests {
         let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 400.0), 1.0, 724.0, 900.0, 24.0);
         assert_eq!(frame.height, 400.0);
         assert_eq!(frame.y, 0.0);
+    }
+
+    #[test]
+    fn logical_box_scales_to_physical_px() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 80.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(
+            area,
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 80.0,
+            }
+        );
+        // A 1280x720 logical box on a 150% display is a 1920x1080 recording.
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.5,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 720.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.width, 1920.0);
+        assert_eq!(area.height, 1080.0);
+    }
+
+    #[test]
+    fn logical_box_supports_a_negative_origin() {
+        let area = logical_box_to_desktop(
+            (-1920, 0),
+            1.0,
+            Rect {
+                x: 100.0,
+                y: 100.0,
+                width: 200.0,
+                height: 150.0,
+            },
+            work_area(-1920.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.x, -1820.0);
+        assert_eq!(area.y, 100.0);
+    }
+
+    #[test]
+    fn logical_box_clamps_at_the_display_edges() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 1850.0,
+                y: 1000.0,
+                width: 200.0,
+                height: 200.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.x, 1720.0);
+        assert_eq!(area.y, 880.0);
+        assert_eq!(area.width, 200.0);
+        assert_eq!(area.height, 200.0);
+    }
+
+    #[test]
+    fn logical_box_enforces_the_minimum_size() {
+        let area = logical_box_to_desktop(
+            (0, 0),
+            1.0,
+            Rect {
+                x: 50.0,
+                y: 50.0,
+                width: 5.0,
+                height: 4.0,
+            },
+            work_area(0.0, 0.0, 1920.0, 1080.0),
+        );
+        assert_eq!(area.width, 32.0);
+        assert_eq!(area.height, 32.0);
     }
 }
 

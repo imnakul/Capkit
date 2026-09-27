@@ -16,13 +16,16 @@ import {
   type RecorderSettings,
   type RecordingSource,
   type RecordingStats,
+  type RecordRegionSelection,
 } from "../domain/recording";
 import {
   cancelRecording,
   closeCamera,
   closeRecorder,
   hideRecordingBorder,
+  listenForRecordRegion,
   openCamera,
+  openRecordRegion,
   fitRecorder,
   listAudioDevices,
   listRecordingSources,
@@ -70,9 +73,12 @@ export function RecorderDock(): React.JSX.Element {
   const [paused, setPaused] = useState(false);
   const [camera, setCamera] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [region, setRegion] = useState<RecordRegionSelection | null>(null);
+  const [drawingRegion, setDrawingRegion] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const dockSizeRef = useRef<HTMLDivElement | null>(null);
   const sourceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pendingDisplayRef = useRef<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add("on-screen-surface");
@@ -188,8 +194,59 @@ export function RecorderDock(): React.JSX.Element {
     sourceTriggerRef.current?.focus();
   }, []);
 
+  // Region overlay results. A selection for a display that is no longer
+  // current is ignored, but drawing always ends. No isTauri guard: the dock
+  // only renders inside the Tauri recorder window, and the subscription must
+  // stay testable through the mocked recordingTauri module.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenForRecordRegion(
+      (selection) => {
+        if (selection.displayId !== pendingDisplayRef.current) {
+          setDrawingRegion(false);
+          return;
+        }
+        setRegion(selection);
+        setDrawingRegion(false);
+      },
+      () => setDrawingRegion(false),
+    )
+      .then((stopListening) => {
+        stop = stopListening;
+      })
+      .catch(() => undefined);
+    return (): void => {
+      stop?.();
+    };
+  }, []);
+
+  // Choosing a different display clears the drawn area; switching mode away
+  // and back keeps it.
+  const regionDisplayId = region?.displayId ?? null;
+  const activeDisplayId = active?.displayId ?? null;
+  useEffect(() => {
+    if (settings.mode !== "region" || regionDisplayId === null) return;
+    if (activeDisplayId !== regionDisplayId) setRegion(null);
+  }, [settings.mode, regionDisplayId, activeDisplayId]);
+
+  const drawArea = useCallback((): void => {
+    if (active === null || drawingRegion) return;
+    pendingDisplayRef.current = active.displayId;
+    setDrawingRegion(true);
+    void openRecordRegion(active.displayId).catch((cause: unknown) => {
+      setDrawingRegion(false);
+      setError(describeInvokeError(cause, "The area picker could not be opened"));
+    });
+  }, [active, drawingRegion]);
+
   const begin = useCallback(async (): Promise<void> => {
-    if (active === null) {
+    const target =
+      settings.mode === "region" && region !== null
+        ? (sources.find(
+            (source) => source.kind === "display" && source.displayId === region.displayId,
+          ) ?? active)
+        : active;
+    if (target === null) {
       setError("Choose something to record first");
       return;
     }
@@ -197,25 +254,38 @@ export function RecorderDock(): React.JSX.Element {
     setError(null);
     try {
       // A window records as the crop of its display it currently occupies, so
-      // the region is derived rather than asked for again.
-      await startRecording(settings, active, settings.mode === "region" ? active.bounds : null);
+      // the region is derived rather than asked for again. A drawn area is
+      // used directly; `toRecordingRequest` keeps the window behaviour.
+      await startRecording(
+        settings,
+        target,
+        settings.mode === "region" && region !== null ? region.bounds : null,
+      );
       setPhase("recording");
     } catch (cause: unknown) {
       setPhase("setup");
       setError(describeInvokeError(cause, "That recording could not be started"));
       void hideRecordingBorder();
     }
-  }, [active, settings]);
+  }, [active, region, settings, sources]);
 
   function requestStart(): void {
-    if (active === null) {
+    const target =
+      settings.mode === "region" && region !== null
+        ? (sources.find(
+            (source) => source.kind === "display" && source.displayId === region.displayId,
+          ) ?? active)
+        : active;
+    if (target === null) {
       setError("Choose something to record first");
       return;
     }
     setSourcePickerOpen(false);
     // Shown for the whole countdown, not just once recording starts, so the
     // target is visible before a single frame is captured.
-    void showRecordingBorder(active.bounds).catch(() => undefined);
+    const bounds =
+      settings.mode === "region" && region !== null ? region.bounds : target.bounds;
+    void showRecordingBorder(bounds).catch(() => undefined);
     if (settings.countdown <= 0) {
       void begin();
       return;
@@ -428,6 +498,32 @@ export function RecorderDock(): React.JSX.Element {
                 </button>
               </div>
 
+              {settings.mode === "region" ? (
+                region === null ? (
+                  <button
+                    aria-label="Draw area to record"
+                    className={controlClass}
+                    disabled={active === null || drawingRegion}
+                    type="button"
+                    onClick={drawArea}
+                  >
+                    <Crop aria-hidden="true" size={14} />
+                    {drawingRegion ? "Drawing…" : "Draw area"}
+                  </button>
+                ) : (
+                  <button
+                    aria-label="Redraw area to record"
+                    className={controlClass}
+                    disabled={drawingRegion}
+                    type="button"
+                    onClick={drawArea}
+                  >
+                    <Crop aria-hidden="true" size={14} />
+                    {`${String(Math.round(region.bounds.width))} × ${String(Math.round(region.bounds.height))} · Redraw`}
+                  </button>
+                )
+              ) : null}
+
               <div className="ml-auto flex items-center gap-1.5">
                 <button
                   aria-label="Close the recorder"
@@ -440,7 +536,7 @@ export function RecorderDock(): React.JSX.Element {
                 <button
                   aria-label="Start recording"
                   className="inline-flex items-center gap-1.5 rounded-md bg-[var(--snaphub-accent)] px-3.5 py-1.5 text-[12px] font-bold text-[#171815] outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-                  disabled={active === null}
+                  disabled={active === null || (settings.mode === "region" && region === null)}
                   type="button"
                   onClick={requestStart}
                 >
