@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatBytes,
   formatDuration,
@@ -51,12 +51,21 @@ export function RecordView(): React.JSX.Element {
     return (): void => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
+
   const start = useCallback(async (): Promise<void> => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpening(true);
     setError(null);
     try {
       await openRecorder();
     } catch (cause: unknown) {
       setError(describeInvokeError(cause, "The recorder could not be opened"));
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
     }
   }, []);
 
@@ -104,7 +113,7 @@ export function RecordView(): React.JSX.Element {
         <button
           aria-label="Start recording"
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#ff5b4d] px-3.5 py-2 text-[13px] font-semibold text-white outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={supported === false}
+          disabled={supported === false || opening}
           type="button"
           onClick={() => void start()}
         >

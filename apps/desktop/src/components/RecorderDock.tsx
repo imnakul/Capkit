@@ -69,7 +69,6 @@ export function RecorderDock(): React.JSX.Element {
   const [paused, setPaused] = useState(false);
   const [camera, setCamera] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
-  const readyRef = useRef(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -82,10 +81,10 @@ export function RecorderDock(): React.JSX.Element {
   }, []);
 
   // The dock is revealed only once its first styled frame exists, matching the
-  // capture overlay's prepare-then-reveal lifecycle.
+  // capture overlay's prepare-then-reveal lifecycle. No mounted guard: under
+  // StrictMode the cleanup runs before the second mount, and a guard would
+  // skip the reveal on the remount.
   useEffect(() => {
-    if (readyRef.current) return;
-    readyRef.current = true;
     const frame = window.requestAnimationFrame(() => {
       void recorderReady().catch((cause: unknown) => {
         setError(describeInvokeError(cause, "The recorder could not be shown"));

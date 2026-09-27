@@ -20,7 +20,6 @@ export function CameraPreview(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const readyRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.classList.add("on-screen-surface");
@@ -54,8 +53,6 @@ export function CameraPreview(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (readyRef.current) return;
-    readyRef.current = true;
     const frame = window.requestAnimationFrame(() => {
       void cameraReady().catch(() => setError("The camera window could not be shown."));
     });

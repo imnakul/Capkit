@@ -1684,18 +1684,32 @@ fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
     let width = 720u32;
     let height = 132u32;
 
-    let window = WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
-        .title("CapKit Recorder")
-        .inner_size(f64::from(width), f64::from(height))
-        .decorations(false)
-        .transparent(true)
-        .resizable(false)
-        .skip_taskbar(true)
-        .always_on_top(true)
-        .shadow(false)
-        .visible(false)
-        .build()
-        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    let window =
+        match WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
+            .title("CapKit Recorder")
+            .inner_size(f64::from(width), f64::from(height))
+            .decorations(false)
+            .transparent(true)
+            .resizable(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .shadow(false)
+            .visible(false)
+            .build()
+        {
+            Ok(window) => window,
+            Err(error) => {
+                // A fast double click (or the shortcut racing the button) can
+                // reach here after the first call already built the window.
+                if let Some(window) = app.get_webview_window("recorder") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    return Ok(());
+                }
+                return Err(SnaphubError::Window(error.to_string()));
+            }
+        };
 
     let x = (bounds.width.saturating_sub(width)) / 2;
     let y = bounds.height.saturating_sub(height + 72);

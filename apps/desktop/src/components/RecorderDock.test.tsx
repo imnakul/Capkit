@@ -88,6 +88,21 @@ describe("RecorderDock", () => {
     });
   });
 
+  it("reveals itself under StrictMode remounting, where the first frame is cancelled", async () => {
+    const { StrictMode } = await import("react");
+    render(
+      <StrictMode>
+        <RecorderDock />
+      </StrictMode>,
+    );
+    await waitFor(() => {
+      expect(mocks.ready).toHaveBeenCalled();
+    });
+    // One frame is cancelled by the StrictMode cleanup; the remount schedules
+    // again. Zero calls is the old readyRef bug.
+    expect(mocks.ready.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
   it("offers the capture modes and lists sources for the chosen one, with a preview to pick from", async () => {
     render(<RecorderDock />);
 
