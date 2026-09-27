@@ -11,6 +11,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Improved
 
+- Settings are organized into General, Screenshots, Screen Draw and Shortcuts tabs.
+- Record now holds your recordings and editing; Dashboard is renamed Screenshots.
 - Capture opens faster and closes instantly.
 - Drag pinned images anywhere with the handle in their corner.
 

@@ -8,7 +8,8 @@ import {
 } from "../../domain/recording";
 import { openRecorder, recordingSrc, recordingSupported } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
-import { Delete, Film, Record } from "../icons";
+import { ChevronDown, Delete, Film, Record } from "../icons";
+import { StudioView } from "./StudioView";
 
 /** Reads the recordings the user has made but not yet discarded. */
 function readLibrary(): readonly RecordingArtifacts[] {
@@ -19,16 +20,18 @@ function readLibrary(): readonly RecordingArtifacts[] {
 }
 
 /**
- * The Record section.
+ * The Record section, which also owns editing.
  *
  * Starting a recording hands off to a separate always-on-top window, because
  * the dock has to sit over the screen being recorded while staying out of the
- * video itself.
+ * video itself. Editing stays inline here, so a recording and its editor are
+ * one step apart instead of two sections.
  */
-export function RecordView({ onEdit }: { onEdit?: (recording: RecordingArtifacts) => void }): React.JSX.Element {
+export function RecordView(): React.JSX.Element {
   const [library, setLibrary] = useState<readonly RecordingArtifacts[]>([]);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<RecordingArtifacts | null>(null);
 
   useEffect(() => {
     setLibrary(readLibrary());
@@ -63,6 +66,29 @@ export function RecordView({ onEdit }: { onEdit?: (recording: RecordingArtifacts
     window.localStorage.setItem(recordingLibraryStorageKey, JSON.stringify(next));
   }
 
+  if (editing !== null) {
+    return (
+      <section aria-label="Edit recording" className="flex h-full min-h-full flex-col px-6 py-5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-stone-300/80 pb-3 dark:border-white/10">
+          <button
+            aria-label="Back to recordings"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold text-stone-600 outline-none transition hover:bg-black/5 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-300 dark:hover:bg-white/7 dark:hover:text-white"
+            type="button"
+            onClick={() => setEditing(null)}
+          >
+            <ChevronDown aria-hidden="true" className="-rotate-90" size={14} />
+            Recordings
+          </button>
+          <p className="font-mono text-[12px] text-stone-500 dark:text-stone-400">{formatDuration(editing.durationSeconds)}</p>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col pt-3">
+          <StudioView initialRecording={editing} />
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section aria-labelledby="record-title" className="flex min-h-full flex-col px-6 py-5">
       <header className="flex shrink-0 items-start justify-between gap-5 border-b border-stone-300/80 pb-4 dark:border-white/10">
@@ -76,14 +102,14 @@ export function RecordView({ onEdit }: { onEdit?: (recording: RecordingArtifacts
           </p>
         </div>
         <button
-          aria-label="Open the recorder"
+          aria-label="Start recording"
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#ff5b4d] px-3.5 py-2 text-[13px] font-semibold text-white outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={supported === false}
           type="button"
           onClick={() => void start()}
         >
           <Record aria-hidden="true" size={15} />
-          New recording
+          Start recording
         </button>
       </header>
 
@@ -133,16 +159,14 @@ export function RecordView({ onEdit }: { onEdit?: (recording: RecordingArtifacts
                       {item.cursorPath === null ? "" : " · cursor track"}
                     </p>
                   </div>
-                  {onEdit === undefined ? null : (
-                    <button
-                      aria-label={`Open this recording in Studio`}
-                      className="rounded-md border border-stone-300 px-2 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-500 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/12 dark:text-stone-300 dark:hover:text-white"
-                      type="button"
-                      onClick={() => onEdit(item)}
-                    >
-                      Studio
-                    </button>
-                  )}
+                  <button
+                    aria-label="Edit this recording"
+                    className="rounded-md border border-stone-300 px-2 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-500 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/12 dark:text-stone-300 dark:hover:text-white"
+                    type="button"
+                    onClick={() => setEditing(item)}
+                  >
+                    Edit
+                  </button>
                   <button
                     aria-label="Remove this recording from the list"
                     className="grid size-7 shrink-0 place-items-center rounded text-stone-400 outline-none transition hover:bg-stone-200/70 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:hover:bg-white/10 dark:hover:text-white"
