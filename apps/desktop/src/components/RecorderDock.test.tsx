@@ -43,7 +43,15 @@ const artifacts: RecordingArtifacts = {
   stats: { paused: false, elapsedSeconds: 4, encodedFrames: 120, droppedFrames: 0, bytesWritten: 1024 },
 };
 
+const audioDeviceList = [
+  { id: "mic-1", name: "Headset", kind: "microphone", isDefault: true },
+  { id: "mic-2", name: "USB Mic", kind: "microphone", isDefault: false },
+  { id: "spk-1", name: "Speakers", kind: "system", isDefault: true },
+  { id: "spk-2", name: "Headphones", kind: "system", isDefault: false },
+];
+
 const mocks = {
+  devices: vi.fn<() => Promise<typeof audioDeviceList>>(() => Promise.resolve(audioDeviceList)),
   start: vi.fn<
     (
       settings: unknown,
@@ -65,6 +73,10 @@ const regionListeners = vi.hoisted(() => ({
   cancelled: null as null | (() => void),
 }));
 
+const audioFailedListeners = vi.hoisted(() => ({
+  handlers: [] as ((kind: string) => void)[],
+}));
+
 vi.mock("../lib/recordingTauri", () => ({
   fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
   openRecordRegion: (): Promise<void> => mocks.openRegion(),
@@ -79,7 +91,11 @@ vi.mock("../lib/recordingTauri", () => ({
   listRecordingSources: (): Promise<readonly RecordingSource[]> =>
     Promise.resolve([display, secondDisplay, editorWindow]),
   listAudioDevices: (): Promise<readonly { id: string; name: string; kind: string; isDefault: boolean }[]> =>
-    Promise.resolve([{ id: "mic-1", name: "Headset", kind: "microphone", isDefault: true }]),
+    mocks.devices(),
+  listenForAudioFailure: (onFailed: (kind: string) => void): Promise<() => void> => {
+    audioFailedListeners.handlers.push(onFailed);
+    return Promise.resolve((): void => undefined);
+  },
   startRecording: (settings: unknown, source: unknown, region: unknown): Promise<void> =>
     mocks.start(settings, source, region),
   stopRecording: (): Promise<RecordingArtifacts> => mocks.stop(),
@@ -106,6 +122,7 @@ describe("RecorderDock", () => {
     vi.clearAllMocks();
     regionListeners.selected = null;
     regionListeners.cancelled = null;
+    audioFailedListeners.handlers.length = 0;
   });
 
   it("reveals itself only after its first frame, so a hidden window never flashes", async () => {
@@ -222,6 +239,70 @@ describe("RecorderDock", () => {
       expect.objectContaining({ displayId: "1" }),
       { x: 10, y: 20, width: 640, height: 360 },
     );
+  });
+
+  it("lists both device kinds with defaults and disables selects with their toggles", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    const microphone = screen.getByRole("combobox", { name: "Microphone device" });
+    const speaker = screen.getByRole("combobox", { name: "Speaker device" });
+    expect(microphone).toBeDisabled();
+    expect(speaker).not.toBeDisabled();
+    for (const [select, names] of [
+      [microphone, ["Default (Headset)", "Headset", "USB Mic"]],
+      [speaker, ["Default (Speakers)", "Speakers", "Headphones"]],
+    ] as const) {
+      const options = Array.from(select.querySelectorAll("option")).map((option) => option.textContent);
+      expect(options).toEqual(names);
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Record the microphone" }));
+    expect(screen.getByRole("combobox", { name: "Microphone device" })).not.toBeDisabled();
+  });
+
+  it("resets a missing device on refocus and shows the fallback message", async () => {
+    window.localStorage.setItem(
+      "capkit.recorder.settings.v1",
+      JSON.stringify({
+        mode: "display",
+        sourceId: "",
+        fps: 30,
+        countdown: 3,
+        systemAudio: true,
+        microphone: true,
+        microphoneDeviceId: "mic-1",
+        systemAudioDeviceId: "",
+        captureCursor: false,
+      }),
+    );
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+    expect(screen.getByRole("combobox", { name: "Microphone device" })).toHaveValue("mic-1");
+
+    mocks.devices.mockResolvedValueOnce(audioDeviceList.filter((device) => device.id !== "mic-1"));
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Microphone device" })).toHaveValue("");
+    });
+    expect(
+      screen.getByText("Your chosen microphone is not connected, so the default will be used."),
+    ).toBeVisible();
+  });
+
+  it("warns when a requested audio track cannot be opened", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    audioFailedListeners.handlers.forEach((handler) => handler("microphone"));
+    expect(
+      await screen.findByText("The microphone could not be recorded. The video is still recording."),
+    ).toBeVisible();
+
+    audioFailedListeners.handlers.forEach((handler) => handler("system"));
+    expect(
+      await screen.findByText("System audio could not be recorded. The video is still recording."),
+    ).toBeVisible();
   });
 
   it("re-enables drawing with no error when the overlay is cancelled", async () => {

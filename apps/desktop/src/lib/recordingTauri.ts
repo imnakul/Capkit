@@ -160,6 +160,17 @@ export async function listenForRecordRegion(
   };
 }
 
+export async function listenForAudioFailure(onFailed: (kind: string) => void): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const stop = await listen<{ kind: string }>("snaphub://recording-audio-failed", (event) => {
+    if (event.payload.kind !== "system" && event.payload.kind !== "microphone") return;
+    onFailed(event.payload.kind);
+  });
+  return (): void => {
+    stop();
+  };
+}
+
 /** Reads the cursor samples recorded alongside a video. */
 export async function loadCursorTrack(path: string): Promise<CursorTrack | null> {
   try {

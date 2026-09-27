@@ -53,7 +53,10 @@ impl RecordingService {
         self.exclusion.set_excluded(hwnd, excluded)
     }
 
-    pub fn start(&self, request: &RecordingRequestDto) -> Result<(), SnaphubError> {
+    /// Starts a recording. The returned names (`"system"` or `"microphone"`)
+    /// are requested audio kinds that could not be opened; the video still
+    /// records, and the caller reports them.
+    pub fn start(&self, request: &RecordingRequestDto) -> Result<Vec<&'static str>, SnaphubError> {
         let mut active = self.lock()?;
         if active.is_some() {
             return Err(SnaphubError::Record(
@@ -61,8 +64,9 @@ impl RecordingService {
             ));
         }
         let directory = self.root.join(session_stamp());
-        *active = Some(self.recorder.start(request, &directory)?);
-        Ok(())
+        let (session, audio_failures) = self.recorder.start(request, &directory)?;
+        *active = Some(session);
+        Ok(audio_failures)
     }
 
     /// Live counters, or `None` when nothing is recording.

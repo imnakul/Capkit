@@ -1397,13 +1397,19 @@ async fn list_audio_devices(
 #[tauri::command]
 async fn start_recording(app: AppHandle, request: RecordingRequestDto) -> Result<(), SnaphubError> {
     let worker_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let audio_failures = tauri::async_runtime::spawn_blocking(move || {
         worker_app.state::<RecordingService>().start(&request)
     })
     .await
     .map_err(|error| SnaphubError::Record(format!("Recording worker failed: {error}")))
     .and_then(|result| result)?;
     let _ = app.emit("snaphub://recording-started", ());
+    for kind in audio_failures {
+        let _ = app.emit(
+            "snaphub://recording-audio-failed",
+            serde_json::json!({ "kind": kind }),
+        );
+    }
     Ok(())
 }
 

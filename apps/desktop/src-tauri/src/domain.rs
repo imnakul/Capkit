@@ -295,6 +295,8 @@ pub struct RecordingRequestDto {
     pub microphone: bool,
     #[serde(default)]
     pub microphone_device_id: Option<String>,
+    #[serde(default)]
+    pub system_audio_device_id: Option<String>,
 }
 
 /// Live counters for the recorder dock, emitted at most once per second.
@@ -375,4 +377,24 @@ pub struct CursorTrackDto {
     /// crop origin with the video's size for Window and Region recordings.
     pub display_bounds: Rect,
     pub scale_factor: f64,
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::RecordingRequestDto;
+
+    #[test]
+    fn system_audio_device_id_defaults_to_none() {
+        let request = serde_json::from_value::<RecordingRequestDto>(serde_json::json!({
+            "displayId": "1",
+            "region": null,
+            "fps": 30,
+            "captureCursor": false,
+            "systemAudio": true,
+            "microphone": false,
+            "microphoneDeviceId": null
+        }))
+        .expect("a request without systemAudioDeviceId deserializes");
+        assert_eq!(request.system_audio_device_id, None);
+    }
 }

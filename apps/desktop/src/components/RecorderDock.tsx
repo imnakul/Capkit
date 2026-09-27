@@ -10,6 +10,7 @@ import {
   recorderSettingsStorageKey,
   recordingLibrarySchema,
   recordingLibraryStorageKey,
+  type AudioDevice,
   type CaptureMode,
   type CountdownSeconds,
   type FrameRate,
@@ -23,6 +24,7 @@ import {
   closeCamera,
   closeRecorder,
   hideRecordingBorder,
+  listenForAudioFailure,
   listenForRecordRegion,
   openCamera,
   openRecordRegion,
@@ -65,10 +67,11 @@ export function RecorderDock(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>("setup");
   const [settings, setSettings] = useState<RecorderSettings>(defaultRecorderSettings);
   const [sources, setSources] = useState<readonly RecordingSource[]>([]);
-  const [microphones, setMicrophones] = useState<readonly { id: string; name: string }[]>([]);
+  const [audioDevices, setAudioDevices] = useState<readonly AudioDevice[]>([]);
   const [stats, setStats] = useState<RecordingStats | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [excluded, setExcluded] = useState(true);
   const [paused, setPaused] = useState(false);
   const [camera, setCamera] = useState(false);
@@ -146,12 +149,8 @@ export function RecorderDock(): React.JSX.Element {
   useEffect(() => {
     const unlisten = (): void => undefined;
     void (async (): Promise<void> => {
-      const [available, devices] = await Promise.all([
-        listRecordingSources().catch(() => []),
-        listAudioDevices().catch(() => []),
-      ]);
+      const available = await listRecordingSources().catch(() => []);
       setSources(available);
-      setMicrophones(devices.filter((device) => device.kind === "microphone"));
       setSettings((current) => {
         if (current.sourceId !== "" && available.some((item) => item.id === current.sourceId)) return current;
         const primary = available.find((item) => item.kind === "display" && item.isPrimary) ?? available.at(0);
@@ -168,6 +167,69 @@ export function RecorderDock(): React.JSX.Element {
       return merged;
     });
   }, []);
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // Devices refresh on mount and whenever the dock regains focus, so a device
+  // plugged in while the dock is open appears without reopening it.
+  const refreshDevices = useCallback(async (): Promise<void> => {
+    const devices = await listAudioDevices().catch(() => []);
+    setAudioDevices(devices);
+    const current = settingsRef.current;
+    if (
+      current.microphoneDeviceId !== "" &&
+      !devices.some((device) => device.kind === "microphone" && device.id === current.microphoneDeviceId)
+    ) {
+      patch({ microphoneDeviceId: "" });
+      setNotice("Your chosen microphone is not connected, so the default will be used.");
+    }
+    if (
+      current.systemAudioDeviceId !== "" &&
+      !devices.some((device) => device.kind === "system" && device.id === current.systemAudioDeviceId)
+    ) {
+      patch({ systemAudioDeviceId: "" });
+      setNotice("Your chosen speaker is not connected, so the default will be used.");
+    }
+  }, [patch]);
+
+  useEffect(() => {
+    void refreshDevices();
+  }, [refreshDevices]);
+
+  useEffect(() => {
+    function onFocus(): void {
+      void refreshDevices();
+    }
+    window.addEventListener("focus", onFocus);
+    return (): void => window.removeEventListener("focus", onFocus);
+  }, [refreshDevices]);
+
+  const handleAudioFailure = useCallback((kind: string): void => {
+    setNotice(
+      kind === "microphone"
+        ? "The microphone could not be recorded. The video is still recording."
+        : "System audio could not be recorded. The video is still recording.",
+    );
+  }, []);
+
+  // The backend emits this at recording start when a requested track cannot be
+  // opened. No isTauri guard: the dock only renders inside the Tauri recorder
+  // window, and the subscription must stay testable through the mocked module.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenForAudioFailure(handleAudioFailure)
+      .then((stopListening) => {
+        stop = stopListening;
+      })
+      .catch(() => undefined);
+    return (): void => {
+      stop?.();
+    };
+  }, [handleAudioFailure]);
+
+  const microphones = audioDevices.filter((device) => device.kind === "microphone");
+  const speakers = audioDevices.filter((device) => device.kind === "system");
 
   const visibleSources = sources.filter((source) =>
     settings.mode === "window" ? source.kind === "window" : source.kind === "display",
@@ -557,6 +619,14 @@ export function RecorderDock(): React.JSX.Element {
                 <Speaker aria-hidden="true" size={14} />
                 System
               </button>
+              <DeviceSelect
+                devices={speakers}
+                disabled={!settings.systemAudio}
+                emptyLabel="No speakers found"
+                label="Speaker device"
+                value={settings.systemAudioDeviceId}
+                onChange={(systemAudioDeviceId) => patch({ systemAudioDeviceId })}
+              />
               <button
                 aria-label="Record the microphone"
                 aria-pressed={settings.microphone}
@@ -567,6 +637,14 @@ export function RecorderDock(): React.JSX.Element {
                 <Mic aria-hidden="true" size={14} />
                 Mic
               </button>
+              <DeviceSelect
+                devices={microphones}
+                disabled={!settings.microphone}
+                emptyLabel="No microphones found"
+                label="Microphone device"
+                value={settings.microphoneDeviceId}
+                onChange={(microphoneDeviceId) => patch({ microphoneDeviceId })}
+              />
               <button
                 aria-label="Show the camera"
                 aria-pressed={camera}
@@ -581,22 +659,9 @@ export function RecorderDock(): React.JSX.Element {
                 <Video aria-hidden="true" size={14} />
                 Camera
               </button>
-              {settings.microphone && microphones.length > 0 ? (
-                <select
-                  aria-label="Microphone device"
-                  className={`${selectClass} max-w-[180px]`}
-                  value={settings.microphoneDeviceId}
-                  onChange={(event) => patch({ microphoneDeviceId: event.currentTarget.value })}
-                >
-                  <option value="">Default microphone</option>
-                  {microphones.map((device) => (
-                    <option key={device.id} value={device.id}>
-                      {device.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
+            </div>
 
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-white/8 pt-2">
               <label className="flex items-center gap-1.5 text-[12px] font-semibold text-stone-400">
                 Quality
                 <select
@@ -637,6 +702,11 @@ export function RecorderDock(): React.JSX.Element {
             {error}
           </p>
         )}
+        {notice === null ? null : (
+          <p className="rounded-md border border-amber-200/20 bg-amber-200/8 px-2.5 py-1.5 text-[12px] text-amber-100" role="status">
+            {notice}
+          </p>
+        )}
         {excluded ? null : (
           <p className="rounded-md border border-amber-200/20 bg-amber-200/8 px-2.5 py-1.5 text-[12px] text-amber-100" role="status">
             This dock could not be hidden from the recording, so it will appear in the video.
@@ -645,6 +715,51 @@ export function RecorderDock(): React.JSX.Element {
         <ExclusionWatcher onFailed={() => setExcluded(false)} />
       </div>
     </div>
+  );
+}
+
+/**
+ * An audio device choice. The first option always follows the OS default; a
+ * missing device list leaves a single disabled option and the toggle usable.
+ */
+function DeviceSelect({
+  devices,
+  disabled,
+  emptyLabel,
+  label,
+  value,
+  onChange,
+}: {
+  devices: readonly AudioDevice[];
+  disabled: boolean;
+  emptyLabel: string;
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+}): React.JSX.Element {
+  const fallback = devices.find((device) => device.isDefault) ?? null;
+  if (devices.length === 0) {
+    return (
+      <select aria-label={label} className={`${selectClass} max-w-[180px] truncate`} disabled value="">
+        <option value="">{emptyLabel}</option>
+      </select>
+    );
+  }
+  return (
+    <select
+      aria-label={label}
+      className={`${selectClass} max-w-[180px] truncate`}
+      disabled={disabled}
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    >
+      <option value="">{fallback === null ? "Default" : `Default (${fallback.name})`}</option>
+      {devices.map((device) => (
+        <option key={device.id} value={device.id}>
+          {device.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

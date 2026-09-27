@@ -292,9 +292,9 @@ impl ScreenRecordingBackend for WindowsRecorderBackend {
         &self,
         request: &RecordingRequestDto,
         directory: &Path,
-    ) -> Result<Box<dyn RecordingSession>, SnaphubError> {
-        let session = WindowsRecordingSession::start(request, directory)?;
-        Ok(Box::new(session))
+    ) -> Result<(Box<dyn RecordingSession>, Vec<&'static str>), SnaphubError> {
+        let (session, audio_failures) = WindowsRecordingSession::start(request, directory)?;
+        Ok((Box::new(session), audio_failures))
     }
 }
 
@@ -341,7 +341,10 @@ pub struct WindowsRecordingSession {
 }
 
 impl WindowsRecordingSession {
-    fn start(request: &RecordingRequestDto, directory: &Path) -> Result<Self, SnaphubError> {
+    fn start(
+        request: &RecordingRequestDto,
+        directory: &Path,
+    ) -> Result<(Self, Vec<&'static str>), SnaphubError> {
         std::fs::create_dir_all(directory).map_err(SnaphubError::record)?;
         encoder::startup()?;
 
@@ -458,38 +461,50 @@ impl WindowsRecordingSession {
         // coordinates, so crops line up with the video.
         let pointer = Some(PointerSampler::start(area, scale));
 
+        let mut audio_failures = Vec::new();
         let system_audio = if request.system_audio {
-            AudioTrack::start(AudioSource::System, directory.join("audio-system.m4a")).ok()
+            let source = AudioSource::System(request.system_audio_device_id.clone());
+            if audio::probe_source(&source).is_err() {
+                audio_failures.push(source.kind());
+                None
+            } else {
+                AudioTrack::start(source, directory.join("audio-system.m4a")).ok()
+            }
         } else {
             None
         };
         let microphone = if request.microphone {
-            AudioTrack::start(
-                AudioSource::Microphone(request.microphone_device_id.clone()),
-                directory.join("audio-mic.m4a"),
-            )
-            .ok()
+            let source = AudioSource::Microphone(request.microphone_device_id.clone());
+            if audio::probe_source(&source).is_err() {
+                audio_failures.push(source.kind());
+                None
+            } else {
+                AudioTrack::start(source, directory.join("audio-mic.m4a")).ok()
+            }
         } else {
             None
         };
 
-        Ok(Self {
-            id,
-            directory: directory.to_path_buf(),
-            video_path,
-            width,
-            height,
-            fps,
-            started: Instant::now(),
-            running,
-            paused,
-            counters,
-            worker: Some(worker),
-            outcome,
-            pointer,
-            system_audio,
-            microphone,
-        })
+        Ok((
+            Self {
+                id,
+                directory: directory.to_path_buf(),
+                video_path,
+                width,
+                height,
+                fps,
+                started: Instant::now(),
+                running,
+                paused,
+                counters,
+                worker: Some(worker),
+                outcome,
+                pointer,
+                system_audio,
+                microphone,
+            },
+            audio_failures,
+        ))
     }
 
     fn write_cursor_track(&mut self) -> Option<PathBuf> {
@@ -619,9 +634,10 @@ mod tests {
             system_audio: false,
             microphone: false,
             microphone_device_id: None,
+            system_audio_device_id: None,
         };
 
-        let session = backend.start(&request, &directory).expect("start");
+        let (session, _) = backend.start(&request, &directory).expect("start");
         std::thread::sleep(Duration::from_secs(4));
         let stats = session.stats();
         let artifacts = session.stop().expect("stop");
@@ -681,9 +697,10 @@ mod tests {
             system_audio: true,
             microphone: false,
             microphone_device_id: None,
+            system_audio_device_id: None,
         };
 
-        let session = backend.start(&request, &directory).expect("start");
+        let (session, _) = backend.start(&request, &directory).expect("start");
         std::thread::sleep(Duration::from_secs(5));
         let artifacts = session.stop().expect("stop");
 

@@ -77,6 +77,24 @@ describe("requests", () => {
     expect(request.microphoneDeviceId).toBeNull();
   });
 
+  it("loads stored settings without a speaker id and maps it to null", () => {
+    const legacy = JSON.parse(JSON.stringify(defaultRecorderSettings)) as Record<string, unknown>;
+    delete legacy.systemAudioDeviceId;
+    const parsed = readRecorderSettings(JSON.stringify(legacy));
+    expect(parsed.systemAudioDeviceId).toBe("");
+    expect(parsed).toMatchObject({
+      mode: defaultRecorderSettings.mode,
+      sourceId: defaultRecorderSettings.sourceId,
+      fps: defaultRecorderSettings.fps,
+      microphoneDeviceId: defaultRecorderSettings.microphoneDeviceId,
+    });
+    expect(toRecordingRequest(parsed, display, null).systemAudioDeviceId).toBeNull();
+    expect(
+      toRecordingRequest({ ...parsed, systemAudioDeviceId: "speakers-2" }, display, null)
+        .systemAudioDeviceId,
+    ).toBe("speakers-2");
+  });
+
   it("leaves the hardware cursor out of the frames by default", () => {
     // The cursor is recorded as its own track precisely so the editor can
     // smooth it; burning it in would make that impossible.
