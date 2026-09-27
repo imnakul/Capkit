@@ -103,8 +103,16 @@ export async function openCamera(): Promise<void> {
   await invoke("open_camera");
 }
 
-export async function cameraReady(): Promise<void> {
-  await invoke("camera_ready");
+export async function cameraReady(mode: "live" | "blocked"): Promise<void> {
+  await invoke("camera_ready", { mode });
+}
+
+export async function prepareCameraPermission(): Promise<void> {
+  await invoke("prepare_camera_permission");
+}
+
+export async function openCameraPrivacySettings(): Promise<void> {
+  await invoke("open_camera_privacy_settings");
 }
 
 export async function closeCamera(): Promise<void> {

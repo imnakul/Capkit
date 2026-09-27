@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cameraShapes, type CameraShape } from "../domain/videoScene";
-import { cameraReady, closeCamera } from "../lib/recordingTauri";
+import {
+  cameraReady,
+  closeCamera,
+  openCameraPrivacySettings,
+  prepareCameraPermission,
+} from "../lib/recordingTauri";
 
 const shapeClass: Readonly<Record<CameraShape, string>> = {
   circle: "rounded-full",
@@ -8,18 +13,79 @@ const shapeClass: Readonly<Record<CameraShape, string>> = {
   square: "rounded-none",
 };
 
+type CameraFailure =
+  | { kind: "blocked" }
+  | { kind: "missing" }
+  | { kind: "busy" }
+  | { kind: "failed" };
+
+const failureCopy: Record<CameraFailure["kind"], string> = {
+  blocked: "Windows is blocking camera access for Capkit.",
+  missing: "No camera was found. Connect one and try again.",
+  busy: "The camera is being used by another app. Close it and try again.",
+  failed: "The camera could not be started.",
+};
+
+function failureFor(error: unknown): CameraFailure {
+  const name = error instanceof DOMException
+    ? error.name
+    : typeof error === "object" && error !== null && "name" in error
+      ? String((error).name)
+      : "";
+  if (name === "NotAllowedError" || name === "SecurityError") return { kind: "blocked" };
+  if (name === "NotFoundError" || name === "OverconstrainedError") return { kind: "missing" };
+  if (name === "NotReadableError" || name === "AbortError") return { kind: "busy" };
+  return { kind: "failed" };
+}
+
 /**
  * The floating webcam window.
  *
  * It is excluded from screen capture like the recorder dock: the camera is
  * recorded as its own track, so letting the preview appear in the screen video
  * would put two copies of the presenter in the export.
+ *
+ * The window stays hidden until the stream starts (or fails), then the
+ * backend places it: a bottom-left bubble when live, a centred panel when
+ * blocked. The dock's Camera button is the user's consent, so access is
+ * granted for this webview before asking, and a decline can be retried.
  */
 export function CameraPreview(): React.JSX.Element {
   const [shape, setShape] = useState<CameraShape>("circle");
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<CameraFailure | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const stopStream = useCallback((): void => {
+    const stream = streamRef.current;
+    if (stream !== null) for (const track of stream.getTracks()) track.stop();
+    streamRef.current = null;
+  }, []);
+
+  const startStream = useCallback(async (): Promise<boolean> => {
+    try {
+      await prepareCameraPermission();
+    } catch {
+      // Fall through to getUserMedia: the old behaviour stays the fallback.
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current !== null) videoRef.current.srcObject = stream;
+      setFailure(null);
+      await cameraReady("live");
+      return true;
+    } catch (error: unknown) {
+      stopStream();
+      setFailure(failureFor(error));
+      await cameraReady("blocked").catch(() => undefined);
+      return false;
+    }
+  }, [stopStream]);
 
   useEffect(() => {
     document.documentElement.classList.add("on-screen-surface");
@@ -27,41 +93,32 @@ export function CameraPreview(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    const lifetime = { active: true };
-    void (async (): Promise<void> => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
-        if (!lifetime.active) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current !== null) videoRef.current.srcObject = stream;
-      } catch {
-        if (lifetime.active) setError("No camera is available, or access was declined.");
-      }
-    })();
+    const lifetime: { active: boolean; frame?: number } = { active: true };
+    const frame = window.requestAnimationFrame(() => {
+      if (lifetime.active) void startStream();
+    });
+    lifetime.frame = frame;
     return (): void => {
       lifetime.active = false;
+      if (lifetime.frame !== undefined) window.cancelAnimationFrame(lifetime.frame);
       const stream = streamRef.current;
       if (stream !== null) for (const track of stream.getTracks()) track.stop();
       streamRef.current = null;
     };
-  }, []);
+  }, [startStream]);
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      void cameraReady().catch(() => setError("The camera window could not be shown."));
-    });
-    return (): void => window.cancelAnimationFrame(frame);
-  }, []);
+  const retry = useCallback(async (): Promise<void> => {
+    setRetrying(true);
+    try {
+      await startStream();
+    } finally {
+      setRetrying(false);
+    }
+  }, [startStream]);
 
   return (
     <div className="group flex h-screen w-screen items-center justify-center bg-transparent p-1">
-      {error === null ? (
+      {failure === null ? (
         <div className={`relative size-full overflow-hidden border-2 border-white/70 bg-black shadow-[0_18px_48px_rgba(0,0,0,0.5)] ${shapeClass[shape]}`}>
           <video
             aria-label="Camera preview"
@@ -101,10 +158,37 @@ export function CameraPreview(): React.JSX.Element {
           </div>
         </div>
       ) : (
-        <div className="grid size-full place-items-center rounded-2xl border border-white/12 bg-[#171815]/95 p-3 text-center">
+        <div className="grid max-w-xs place-items-center gap-2.5 rounded-2xl border border-white/12 bg-[#171815]/95 p-4 text-center">
           <p className="text-[12px] leading-4 text-stone-300" role="status">
-            {error}
+            {failureCopy[failure.kind]}
           </p>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {failure.kind === "blocked" ? (
+              <button
+                className="rounded-md bg-[var(--snaphub-accent)] px-2.5 py-1 text-[11px] font-bold text-[#171815] outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white"
+                type="button"
+                onClick={() => void openCameraPrivacySettings().catch(() => undefined)}
+              >
+                Open camera settings
+              </button>
+            ) : null}
+            <button
+              className="rounded-md border border-white/20 px-2.5 py-1 text-[11px] font-semibold text-stone-200 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
+              disabled={retrying}
+              type="button"
+              onClick={() => void retry()}
+            >
+              {retrying ? "Trying…" : "Try again"}
+            </button>
+            <button
+              aria-label="Close the camera"
+              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[#ff8a80] outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white"
+              type="button"
+              onClick={() => void closeCamera()}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -10,6 +10,36 @@ use windows::{
 
 use crate::error::SnaphubError;
 
+/// Opens the Windows camera privacy page. The URI is fixed here so no caller
+/// can open an arbitrary location.
+pub fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
+    open_uri("ms-settings:privacy-webcam")
+}
+
+fn open_uri(uri: &str) -> Result<(), SnaphubError> {
+    let verb = wide(OsStr::new("open"));
+    let target = wide(OsStr::new(uri));
+    // SAFETY: the buffers are live for the call.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(SnaphubError::Window(format!(
+            "Windows could not open {uri} (ShellExecute code {})",
+            result.0 as isize
+        )))
+    }
+}
+
 pub fn open_path(path: &Path, offer_open_with: bool) -> Result<(), SnaphubError> {
     let encoded_path = wide(path.as_os_str());
     let open = wide(OsStr::new("open"));

@@ -16,6 +16,8 @@ pub(crate) mod windows_recorder;
 pub mod windows_shell;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_ui;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_webview;
 pub mod xcap_backend;
 
 pub struct CapturedDisplay {

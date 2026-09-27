@@ -1511,18 +1511,19 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
         let _ = window.set_focus();
         return Ok(());
     }
-    let monitor = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .ok_or_else(|| SnaphubError::Window("No display available for the camera".into()))?;
-    let bounds = monitor.size();
-    let size = 260u32;
+    if app.primary_monitor().ok().flatten().is_none() {
+        return Err(SnaphubError::Window(
+            "No display available for the camera".into(),
+        ));
+    }
 
     // Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
-    let window = WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
+    // The window stays hidden until the frontend attaches the stream
+    // (`camera_ready`), so there is nothing to place yet.
+    WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
         .title("CapKit Camera")
-        .inner_size(f64::from(size), f64::from(size))
+        .inner_size(260.0, 260.0)
+        .center()
         .decorations(false)
         .transparent(true)
         .resizable(false)
@@ -1532,10 +1533,6 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
         .visible(false)
         .build()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
-
-    let x = 48;
-    let y = bounds.height.saturating_sub(size + 220);
-    let _ = window.set_position(PhysicalPosition::new(x, y as i32));
     Ok(())
 }
 
@@ -1543,19 +1540,71 @@ async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
 fn camera_ready(
     app: AppHandle,
     service: tauri::State<'_, RecordingService>,
+    mode: String,
 ) -> Result<(), SnaphubError> {
+    let live = match mode.as_str() {
+        "live" => true,
+        "blocked" => false,
+        _ => {
+            return Err(SnaphubError::Window(
+                "Camera mode must be \"live\" or \"blocked\"".into(),
+            ));
+        }
+    };
     let Some(window) = app.get_webview_window("camera") else {
         return Ok(());
     };
     if let Ok(handle) = window.hwnd() {
         let _ = service.set_capture_exclusion(handle.0 as isize, true);
     }
+    let (work_area, scale) = window_work_area(&app, &window)
+        .ok_or_else(|| SnaphubError::Window("No display available for the camera".into()))?;
+    let frame = camera_frame(work_area, scale, live);
+    window
+        .set_position(PhysicalPosition::new(
+            frame.x.round() as i32,
+            frame.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            frame.width.round() as u32,
+            frame.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
     let _ = window.unminimize();
     window
         .show()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
     let _ = window.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+async fn prepare_camera_permission(app: AppHandle) -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_webview::prepare_camera_permission(&app).await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_shell::open_camera_privacy_settings()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(SnaphubError::Window(
+            "Camera settings are only available on Windows".into(),
+        ))
+    }
 }
 
 #[tauri::command]
@@ -1900,6 +1949,57 @@ fn dock_frame(
     }
 }
 
+/// Computes the camera window's physical frame.
+///
+/// `live` is the 260 logical px bottom-left bubble, 24 px from the work area's
+/// left and bottom edges. Otherwise it is the 360x220 centred blocked panel.
+fn camera_frame(work_area: Rect, scale: f64, live: bool) -> Rect {
+    let (content_width, content_height) = if live { (260.0, 260.0) } else { (360.0, 220.0) };
+    let width = (content_width * scale)
+        .round()
+        .min(work_area.width)
+        .max(1.0);
+    let height = (content_height * scale)
+        .round()
+        .min(work_area.height)
+        .max(1.0);
+    let x = if live {
+        work_area.x + (24.0 * scale).round()
+    } else {
+        work_area.x + (work_area.width - width) / 2.0
+    };
+    let y = if live {
+        (work_area.y + work_area.height - height - (24.0 * scale).round()).max(work_area.y)
+    } else {
+        (work_area.y + (work_area.height - height) / 2.0).max(work_area.y)
+    };
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// The work area and scale of the monitor hosting `window`, or the primary one.
+fn window_work_area(app: &AppHandle, window: &WebviewWindow) -> Option<(Rect, f64)> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let area = monitor.work_area();
+    Some((
+        Rect {
+            x: f64::from(area.position.x),
+            y: f64::from(area.position.y),
+            width: f64::from(area.size.width),
+            height: f64::from(area.size.height),
+        },
+        monitor.scale_factor(),
+    ))
+}
+
 /// Fits the recorder window to its content.
 ///
 /// A sync command is safe here: it builds no window, and `set_size` and
@@ -1916,20 +2016,9 @@ fn fit_recorder(app: AppHandle, width: f64, height: f64) -> Result<(), SnaphubEr
             "Recorder window is unavailable".into(),
         ));
     };
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| app.primary_monitor().ok().flatten())
+    let (work_area, scale) = window_work_area(&app, &window)
         .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
-    let area = monitor.work_area();
-    let work_area = Rect {
-        x: f64::from(area.position.x),
-        y: f64::from(area.position.y),
-        width: f64::from(area.size.width),
-        height: f64::from(area.size.height),
-    };
-    let frame = dock_frame(work_area, monitor.scale_factor(), width, height, 24.0);
+    let frame = dock_frame(work_area, scale, width, height, 24.0);
     window
         .set_position(PhysicalPosition::new(
             frame.x.round() as i32,
@@ -2048,7 +2137,9 @@ pub fn run() {
             hide_recording_border,
             open_camera,
             camera_ready,
-            close_camera
+            close_camera,
+            prepare_camera_permission,
+            open_camera_privacy_settings
         ])
         .setup(move |app| {
             if std::env::args().any(|argument| argument == "--background")
@@ -2531,6 +2622,30 @@ mod recorder_layout_tests {
         assert_eq!(area.y, 880.0);
         assert_eq!(area.width, 200.0);
         assert_eq!(area.height, 200.0);
+    }
+
+    #[test]
+    fn camera_frame_places_the_live_bubble_bottom_left() {
+        // 150% scaling: 260 logical px are 390 physical, 24 gap.
+        let frame = camera_frame(work_area(0.0, 0.0, 2880.0, 1560.0), 1.5, true);
+        assert_eq!(frame.width, 390.0);
+        assert_eq!(frame.height, 390.0);
+        assert_eq!(frame.x, 36.0);
+        assert_eq!(frame.y, 1560.0 - 390.0 - 36.0);
+    }
+
+    #[test]
+    fn camera_frame_centres_the_blocked_panel() {
+        let frame = camera_frame(work_area(0.0, 0.0, 1920.0, 1040.0), 1.0, false);
+        assert_eq!(
+            frame,
+            Rect {
+                x: (1920.0 - 360.0) / 2.0,
+                y: (1040.0 - 220.0) / 2.0,
+                width: 360.0,
+                height: 220.0,
+            }
+        );
     }
 
     #[test]
