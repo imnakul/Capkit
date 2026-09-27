@@ -172,6 +172,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
 
       <div
         aria-labelledby={`settings-tab-${active}`}
+        className="pt-6"
         id={`settings-panel-${active}`}
         role="tabpanel"
       >
