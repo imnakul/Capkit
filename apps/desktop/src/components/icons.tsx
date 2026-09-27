@@ -42,7 +42,6 @@ import {
   MagicWand02Icon,
   MinusSignIcon,
   Moon02Icon,
-  MousePointerOffIcon,
   PaintBrush02Icon,
   PencilEdit01Icon,
   PinIcon,
@@ -154,7 +153,6 @@ export const Palette = createCapkitIcon(ColorPickerIcon);
 export const Pencil = createCapkitIcon(PencilEdit01Icon);
 export const Pin = createCapkitIcon(PinIcon);
 export const Pixelate = createCapkitIcon(GridIcon);
-export const PointerOff = createCapkitIcon(MousePointerOffIcon);
 export const Presentation = createCapkitIcon(Presentation01Icon);
 export const PresentationPointer = createCapkitIcon(SplinePointerIcon);
 export const Mic = createCapkitIcon(Mic01Icon);

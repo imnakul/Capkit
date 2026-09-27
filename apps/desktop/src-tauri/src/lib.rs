@@ -414,21 +414,6 @@ fn save_pinned_capture(
     Ok(saved)
 }
 
-#[tauri::command]
-async fn set_pinned_click_through(
-    app: AppHandle,
-    label: String,
-    enabled: bool,
-) -> Result<(), SnaphubError> {
-    if !label.starts_with("pin-") {
-        return Err(SnaphubError::Window("Invalid pinned window".into()));
-    }
-    app.get_webview_window(&label)
-        .ok_or_else(|| SnaphubError::Window("Pinned window is unavailable".into()))?
-        .set_ignore_cursor_events(enabled)
-        .map_err(|error| SnaphubError::Window(error.to_string()))
-}
-
 fn pinned_path_for_label(
     registry: &tauri::State<'_, PinnedCaptureRegistry>,
     label: &str,
@@ -1276,6 +1261,7 @@ fn validated_scrolling_output(path: &str) -> Result<PathBuf, SnaphubError> {
     Ok(candidate)
 }
 
+// Must only be called off the main thread and outside event handlers.
 fn create_pin_window(app: &AppHandle, path: &str) -> Result<(), SnaphubError> {
     let label = format!("pin-{}", uuid::Uuid::new_v4());
     app.state::<PinnedCaptureRegistry>()
@@ -1312,6 +1298,7 @@ fn emit_capture_request(app: &AppHandle) {
     }
 }
 
+/// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
 fn show_dashboard(app: &AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("dashboard") {
         window
@@ -1441,7 +1428,7 @@ fn set_recording_paused(
 /// being, recorded — the countdown alone gives no sense of the boundary,
 /// especially for a window or region smaller than the full screen.
 #[tauri::command]
-fn show_recording_border(
+async fn show_recording_border(
     app: AppHandle,
     service: tauri::State<'_, RecordingService>,
     bounds: Rect,
@@ -1490,8 +1477,9 @@ fn hide_recording_border(app: AppHandle) -> Result<(), SnaphubError> {
     Ok(())
 }
 
+/// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
 #[tauri::command]
-fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
+async fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("camera") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -1506,6 +1494,7 @@ fn open_camera(app: AppHandle) -> Result<(), SnaphubError> {
     let bounds = monitor.size();
     let size = 260u32;
 
+    // Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
     let window = WebviewWindowBuilder::new(&app, "camera", WebviewUrl::App("index.html".into()))
         .title("CapKit Camera")
         .inner_size(f64::from(size), f64::from(size))
@@ -1618,8 +1607,7 @@ fn recorder_ready(
 }
 
 #[tauri::command]
-fn open_recorder(app: AppHandle) -> Result<(), SnaphubError> {
-    println!("[recorder] open_recorder invoked");
+async fn open_recorder(app: AppHandle) -> Result<(), SnaphubError> {
     show_recorder(&app)
 }
 
@@ -1648,23 +1636,25 @@ fn toggle_recording(app: &AppHandle) {
         let _ = window.set_focus();
         return;
     }
-    if let Err(error) = show_recorder(app) {
-        eprintln!("SH-RECORD-SHORTCUT-001: {error}");
-    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = show_recorder(&app) {
+            eprintln!("SH-RECORD-SHORTCUT-001: {error}");
+        }
+    });
 }
 
+/// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
+///
 /// Creates the recorder window hidden and lets the frontend reveal it, matching
 /// the on-screen overlay's prepare-then-reveal lifecycle.
 fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
-    println!("[recorder] show_recorder invoked");
     if let Some(window) = app.get_webview_window("recorder") {
-        println!("[recorder] show_recorder: reusing the existing window");
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         return Ok(());
     }
-    println!("[recorder] show_recorder: building a fresh window");
 
     let monitor = app
         .primary_monitor()
@@ -1756,7 +1746,6 @@ pub fn run() {
             pinned_capture_path,
             copy_pinned_capture,
             save_pinned_capture,
-            set_pinned_click_through,
             detect_targets,
             list_targets,
             get_save_directory,
@@ -1857,9 +1846,12 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "dashboard" => {
-                        if let Err(error) = show_dashboard(app) {
-                            eprintln!("SH-DASHBOARD-001: {error}");
-                        }
+                        let app = app.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            if let Err(error) = show_dashboard(&app) {
+                                eprintln!("SH-DASHBOARD-001: {error}");
+                            }
+                        });
                     }
                     "capture" => emit_capture_request(app),
                     "on-screen" => toggle_on_screen_mode(app),
@@ -1879,9 +1871,13 @@ pub fn run() {
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
-                        && let Err(error) = show_dashboard(tray.app_handle())
                     {
-                        eprintln!("SH-DASHBOARD-002: {error}");
+                        let app = tray.app_handle().clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            if let Err(error) = show_dashboard(&app) {
+                                eprintln!("SH-DASHBOARD-002: {error}");
+                            }
+                        });
                     }
                 });
             if let Some(icon) = app.default_window_icon() {
