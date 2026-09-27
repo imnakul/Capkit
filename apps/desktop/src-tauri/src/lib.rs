@@ -1675,46 +1675,108 @@ fn show_recorder(app: &AppHandle) -> Result<(), SnaphubError> {
         return Ok(());
     }
 
-    let monitor = app
-        .primary_monitor()
+    // The frontend fits the window to its content before revealing it.
+    match WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
+        .title("CapKit Recorder")
+        .inner_size(724.0, 140.0)
+        .decorations(false)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(false)
+        .visible(false)
+        .build()
+    {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            // A fast double click (or the shortcut racing the button) can
+            // reach here after the first call already built the window.
+            if let Some(window) = app.get_webview_window("recorder") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                return Ok(());
+            }
+            Err(SnaphubError::Window(error.to_string()))
+        }
+    }
+}
+
+/// Computes the recorder window's physical frame from its logical content size.
+///
+/// All inputs are logical except `work_area`, which is physical. The window is
+/// bottom-anchored with `bottom_gap` logical px above the taskbar and centred
+/// horizontally. Content larger than the work area is clamped, and the frame
+/// never starts above the work area.
+fn dock_frame(
+    work_area: Rect,
+    scale: f64,
+    content_width: f64,
+    content_height: f64,
+    bottom_gap: f64,
+) -> Rect {
+    let width = (content_width * scale)
+        .round()
+        .min(work_area.width)
+        .max(1.0);
+    let height = (content_height * scale)
+        .round()
+        .min(work_area.height)
+        .max(1.0);
+    let x = work_area.x + (work_area.width - width) / 2.0;
+    let y =
+        (work_area.y + work_area.height - height - (bottom_gap * scale).round()).max(work_area.y);
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// Fits the recorder window to its content.
+///
+/// A sync command is safe here: it builds no window, and `set_size` and
+/// `set_position` do not deadlock.
+#[tauri::command]
+fn fit_recorder(app: AppHandle, width: f64, height: f64) -> Result<(), SnaphubError> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(SnaphubError::Window(
+            "Recorder size must be finite and positive".into(),
+        ));
+    }
+    let Some(window) = app.get_webview_window("recorder") else {
+        return Err(SnaphubError::Window(
+            "Recorder window is unavailable".into(),
+        ));
+    };
+    let monitor = window
+        .current_monitor()
         .ok()
         .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
         .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
-    let bounds = monitor.size();
-    let width = 720u32;
-    let height = 132u32;
-
-    let window =
-        match WebviewWindowBuilder::new(app, "recorder", WebviewUrl::App("index.html".into()))
-            .title("CapKit Recorder")
-            .inner_size(f64::from(width), f64::from(height))
-            .decorations(false)
-            .transparent(true)
-            .resizable(false)
-            .skip_taskbar(true)
-            .always_on_top(true)
-            .shadow(false)
-            .visible(false)
-            .build()
-        {
-            Ok(window) => window,
-            Err(error) => {
-                // A fast double click (or the shortcut racing the button) can
-                // reach here after the first call already built the window.
-                if let Some(window) = app.get_webview_window("recorder") {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    return Ok(());
-                }
-                return Err(SnaphubError::Window(error.to_string()));
-            }
-        };
-
-    let x = (bounds.width.saturating_sub(width)) / 2;
-    let y = bounds.height.saturating_sub(height + 72);
-    let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
-    let _ = window.set_size(PhysicalSize::new(width, height));
+    let area = monitor.work_area();
+    let work_area = Rect {
+        x: f64::from(area.position.x),
+        y: f64::from(area.position.y),
+        width: f64::from(area.size.width),
+        height: f64::from(area.size.height),
+    };
+    let frame = dock_frame(work_area, monitor.scale_factor(), width, height, 24.0);
+    window
+        .set_position(PhysicalPosition::new(
+            frame.x.round() as i32,
+            frame.y.round() as i32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    window
+        .set_size(PhysicalSize::new(
+            frame.width.round() as u32,
+            frame.height.round() as u32,
+        ))
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
     Ok(())
 }
 
@@ -1808,6 +1870,7 @@ pub fn run() {
             recording_status,
             set_capture_exclusion,
             recorder_ready,
+            fit_recorder,
             open_recorder,
             close_recorder,
             set_recording_paused,
@@ -2158,6 +2221,72 @@ mod shortcut_tests {
                 .cleanup_warning
                 .is_some_and(|warning| warning.contains("SH-WINDOW-001"))
         );
+    }
+}
+
+#[cfg(test)]
+mod recorder_layout_tests {
+    use super::*;
+
+    fn work_area(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn dock_frame_centres_above_the_taskbar_at_scale_one() {
+        let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 1040.0), 1.0, 724.0, 140.0, 24.0);
+        assert_eq!(
+            frame,
+            Rect {
+                x: 598.0,
+                y: 876.0,
+                width: 724.0,
+                height: 140.0,
+            }
+        );
+    }
+
+    #[test]
+    fn dock_frame_scales_content_at_fractional_scales() {
+        let frame = dock_frame(work_area(0.0, 0.0, 2880.0, 1560.0), 1.5, 724.0, 140.0, 24.0);
+        assert_eq!(
+            frame,
+            Rect {
+                x: 897.0,
+                y: 1314.0,
+                width: 1086.0,
+                height: 210.0,
+            }
+        );
+        let frame = dock_frame(work_area(0.0, 0.0, 3840.0, 2080.0), 2.0, 724.0, 140.0, 24.0);
+        assert_eq!(frame.width, 1448.0);
+        assert_eq!(frame.height, 280.0);
+    }
+
+    #[test]
+    fn dock_frame_handles_a_work_area_away_from_the_origin() {
+        // A taskbar on the left pushes the work area right.
+        let frame = dock_frame(
+            work_area(80.0, 0.0, 1840.0, 1040.0),
+            1.0,
+            724.0,
+            140.0,
+            24.0,
+        );
+        assert_eq!(frame.x, 80.0 + (1840.0 - 724.0) / 2.0);
+        assert_eq!(frame.y, 876.0);
+    }
+
+    #[test]
+    fn dock_frame_clamps_content_taller_than_the_work_area() {
+        let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 400.0), 1.0, 724.0, 900.0, 24.0);
+        assert_eq!(frame.height, 400.0);
+        assert_eq!(frame.y, 0.0);
     }
 }
 

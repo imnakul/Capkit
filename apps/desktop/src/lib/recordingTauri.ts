@@ -74,6 +74,11 @@ export async function setRecordingPaused(paused: boolean): Promise<boolean> {
   return Boolean(await invoke("set_recording_paused", { paused }));
 }
 
+/** Fits the recorder window to its content; the backend anchors and clamps it. */
+export async function fitRecorder(width: number, height: number): Promise<void> {
+  await invoke("fit_recorder", { width, height });
+}
+
 /**
  * Shows a click-through outline around exactly what is about to be, or is
  * being, recorded. Bounds are in physical desktop pixels, matching a source's

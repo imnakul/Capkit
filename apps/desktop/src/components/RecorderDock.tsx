@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   countdownSeconds,
@@ -23,6 +23,7 @@ import {
   closeRecorder,
   hideRecordingBorder,
   openCamera,
+  fitRecorder,
   listAudioDevices,
   listRecordingSources,
   recorderReady,
@@ -70,6 +71,8 @@ export function RecorderDock(): React.JSX.Element {
   const [camera, setCamera] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const dockSizeRef = useRef<HTMLDivElement | null>(null);
+  const sourceTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add("on-screen-surface");
@@ -80,18 +83,59 @@ export function RecorderDock(): React.JSX.Element {
     setSettings(readRecorderSettings(window.localStorage.getItem(recorderSettingsStorageKey)));
   }, []);
 
-  // The dock is revealed only once its first styled frame exists, matching the
-  // capture overlay's prepare-then-reveal lifecycle. No mounted guard: under
-  // StrictMode the cleanup runs before the second mount, and a guard would
-  // skip the reveal on the remount.
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      void recorderReady().catch((cause: unknown) => {
-        setError(describeInvokeError(cause, "The recorder could not be shown"));
-      });
-    });
-    return (): void => window.cancelAnimationFrame(frame);
+  // Measures the dock and fits the window to it. Skips zero sizes, which only
+  // happen where there is no layout (jsdom).
+  const fitDock = useCallback(async (): Promise<void> => {
+    const node = dockSizeRef.current;
+    if (node === null) return;
+    const rect = node.getBoundingClientRect();
+    const width = Math.ceil(rect.width);
+    const height = Math.ceil(rect.height);
+    if (width <= 0 || height <= 0) return;
+    await fitRecorder(width, height);
   }, []);
+
+  // Reveal ordering: the window is built hidden, the first fit runs, then the
+  // rAF fires and only then is the window revealed. A rejected fit still
+  // reveals, because a visible dock at the wrong size beats an invisible one.
+  useEffect(() => {
+    // The flag lives on an object because TypeScript narrows a plain `let` to
+    // its initial value inside the async closure below.
+    const lifetime = { active: true };
+    let frame: number | null = null;
+    void (async (): Promise<void> => {
+      try {
+        await fitDock();
+      } catch (cause: unknown) {
+        if (lifetime.active) {
+          setError(describeInvokeError(cause, "The recorder could not be resized."));
+        }
+      }
+      if (!lifetime.active) return;
+      frame = window.requestAnimationFrame(() => {
+        void recorderReady().catch((cause: unknown) => {
+          setError(describeInvokeError(cause, "The recorder could not be shown"));
+        });
+      });
+    })();
+    return (): void => {
+      lifetime.active = false;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [fitDock]);
+
+  // Later fits (picker open or close, phase change, error line appearing) run
+  // without waiting for anything. Each sets absolute geometry, so the last
+  // call wins and no ordering guard is needed.
+  useLayoutEffect(() => {
+    const node = dockSizeRef.current;
+    if (node === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      void fitDock().catch(() => undefined);
+    });
+    observer.observe(node);
+    return (): void => observer.disconnect();
+  }, [fitDock]);
 
   useEffect(() => {
     const unlisten = (): void => undefined;
@@ -128,8 +172,8 @@ export function RecorderDock(): React.JSX.Element {
   const active =
     visibleSources.find((source) => source.id === settings.sourceId) ?? visibleSources.at(0) ?? null;
 
-  // Closes the source picker on an outside click, since it floats over a
-  // window with almost no other chrome to click instead.
+  // Closes the source picker on a pointer down outside the dock card. The
+  // picker lives inside the card now, so the card is the boundary.
   useEffect(() => {
     if (!sourcePickerOpen) return;
     function onPointerDown(event: PointerEvent): void {
@@ -139,11 +183,17 @@ export function RecorderDock(): React.JSX.Element {
     return (): void => document.removeEventListener("pointerdown", onPointerDown);
   }, [sourcePickerOpen]);
 
+  const closePickerFocusTrigger = useCallback((): void => {
+    setSourcePickerOpen(false);
+    sourceTriggerRef.current?.focus();
+  }, []);
+
   const begin = useCallback(async (): Promise<void> => {
     if (active === null) {
       setError("Choose something to record first");
       return;
     }
+    setSourcePickerOpen(false);
     setError(null);
     try {
       // A window records as the crop of its display it currently occupies, so
@@ -162,6 +212,7 @@ export function RecorderDock(): React.JSX.Element {
       setError("Choose something to record first");
       return;
     }
+    setSourcePickerOpen(false);
     // Shown for the whole countdown, not just once recording starts, so the
     // target is visible before a single frame is captured.
     void showRecordingBorder(active.bounds).catch(() => undefined);
@@ -219,27 +270,67 @@ export function RecorderDock(): React.JSX.Element {
     await closeRecorder().catch(() => undefined);
   }
 
+  function handleCardKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === "Escape" && sourcePickerOpen) {
+      event.preventDefault();
+      closePickerFocusTrigger();
+    }
+  }
+
   if (phase === "counting") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-transparent">
-        <div
-          aria-live="assertive"
-          className="grid size-28 place-items-center rounded-full border border-white/12 bg-[#171815]/95 text-[44px] font-semibold text-white shadow-[0_22px_72px_rgba(0,0,0,0.5)]"
-          role="status"
-        >
-          {countdown}
+      <div className="w-[724px] bg-transparent p-3" ref={dockSizeRef}>
+        <div className="flex justify-center">
+          <div
+            aria-live="assertive"
+            className="grid size-28 place-items-center rounded-full border border-white/12 bg-[#171815]/95 text-[44px] font-semibold text-white shadow-[0_22px_72px_rgba(0,0,0,0.5)]"
+            role="status"
+          >
+            {countdown}
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen w-screen items-end justify-center bg-transparent p-3">
+    <div className="w-[724px] bg-transparent p-3" ref={dockSizeRef}>
       <div
         aria-label="Recorder"
-        className="flex w-full max-w-[700px] flex-col gap-2 rounded-2xl border border-white/12 bg-[#171815]/98 p-2.5 shadow-[0_22px_72px_rgba(0,0,0,0.48)]"
+        className="mx-auto flex w-full max-w-[700px] flex-col gap-2 rounded-2xl border border-white/12 bg-[#171815]/98 p-2.5 shadow-[0_22px_72px_rgba(0,0,0,0.48)]"
+        ref={pickerRef}
         role="toolbar"
+        onKeyDown={handleCardKeyDown}
       >
+        {sourcePickerOpen ? (
+          <div
+            aria-label="Available sources"
+            className="grid max-h-64 grid-cols-3 gap-1.5 overflow-y-auto"
+            role="listbox"
+          >
+            {visibleSources.length === 0 ? (
+              <p className="col-span-3 px-2 py-3 text-center text-[12px] text-stone-400">Nothing available to record</p>
+            ) : (
+              visibleSources.map((source) => (
+                <button
+                  aria-label={`Record ${source.title}`}
+                  aria-selected={source.id === active?.id}
+                  className="flex flex-col gap-1 rounded-md border border-transparent p-1 text-left outline-none transition hover:border-white/15 hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:border-[var(--snaphub-accent)] aria-selected:bg-white/8"
+                  key={source.id}
+                  role="option"
+                  type="button"
+                  onClick={() => {
+                    patch({ sourceId: source.id });
+                    setSourcePickerOpen(false);
+                  }}
+                >
+                  <SourceThumbnail className="aspect-video w-full rounded bg-black/40" source={source} iconSize={18} />
+                  <span className="truncate text-[11px] font-medium text-stone-200">{source.title}</span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
         {phase === "recording" || phase === "saving" ? (
           <div className="flex items-center gap-2.5">
             <span
@@ -315,12 +406,13 @@ export function RecorderDock(): React.JSX.Element {
                 })}
               </div>
 
-              <div className="relative" ref={pickerRef}>
+              <div>
                 <button
                   aria-expanded={sourcePickerOpen}
                   aria-haspopup="listbox"
                   aria-label="Choose what to record"
                   className={`${controlClass} max-w-[220px]`}
+                  ref={sourceTriggerRef}
                   type="button"
                   onClick={() => setSourcePickerOpen((value) => !value)}
                 >
@@ -334,36 +426,6 @@ export function RecorderDock(): React.JSX.Element {
                   )}
                   <ChevronDown aria-hidden="true" className={sourcePickerOpen ? "rotate-180" : ""} size={12} />
                 </button>
-
-                {sourcePickerOpen ? (
-                  <div
-                    aria-label="Available sources"
-                    className="absolute left-0 top-full z-10 mt-1.5 grid max-h-64 w-72 grid-cols-2 gap-1.5 overflow-y-auto rounded-lg border border-white/12 bg-[#171815]/98 p-1.5 shadow-[0_22px_72px_rgba(0,0,0,0.5)]"
-                    role="listbox"
-                  >
-                    {visibleSources.length === 0 ? (
-                      <p className="col-span-2 px-2 py-3 text-center text-[12px] text-stone-400">Nothing available to record</p>
-                    ) : (
-                      visibleSources.map((source) => (
-                        <button
-                          aria-label={`Record ${source.title}`}
-                          aria-selected={source.id === active?.id}
-                          className="flex flex-col gap-1 rounded-md border border-transparent p-1 text-left outline-none transition hover:border-white/15 hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:border-[var(--snaphub-accent)] aria-selected:bg-white/8"
-                          key={source.id}
-                          role="option"
-                          type="button"
-                          onClick={() => {
-                            patch({ sourceId: source.id });
-                            setSourcePickerOpen(false);
-                          }}
-                        >
-                          <SourceThumbnail className="aspect-video w-full rounded bg-black/40" source={source} iconSize={18} />
-                          <span className="truncate text-[11px] font-medium text-stone-200">{source.title}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                ) : null}
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">

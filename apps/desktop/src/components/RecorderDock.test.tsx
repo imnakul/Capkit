@@ -49,9 +49,11 @@ const mocks = {
   cancel: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   close: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   ready: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  fit: vi.fn<(width: number, height: number) => Promise<void>>(() => Promise.resolve()),
 };
 
 vi.mock("../lib/recordingTauri", () => ({
+  fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
   listRecordingSources: (): Promise<readonly RecordingSource[]> =>
     Promise.resolve([display, secondDisplay, editorWindow]),
   listAudioDevices: (): Promise<readonly { id: string; name: string; kind: string; isDefault: boolean }[]> =>
@@ -101,6 +103,60 @@ describe("RecorderDock", () => {
     // One frame is cancelled by the StrictMode cleanup; the remount schedules
     // again. Zero calls is the old readyRef bug.
     expect(mocks.ready.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it("fits the window before revealing it, and still reveals when fitting fails", async () => {
+    const rect = {
+      x: 0, y: 0, width: 724, height: 140, top: 0, left: 0, right: 724, bottom: 140,
+      toJSON: (): string => "{}",
+    } as DOMRect;
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      render(<RecorderDock />);
+      await waitFor(() => {
+        expect(mocks.ready).toHaveBeenCalled();
+      });
+      expect(mocks.fit).toHaveBeenCalledWith(724, 140);
+      const fitOrder = mocks.fit.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+      const readyOrder = mocks.ready.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY;
+      expect(fitOrder).toBeLessThan(readyOrder);
+    } finally {
+      measure.mockRestore();
+    }
+  });
+
+  it("shows the resize error but still reveals the dock when fitting fails", async () => {
+    const rect = {
+      x: 0, y: 0, width: 724, height: 140, top: 0, left: 0, right: 724, bottom: 140,
+      toJSON: (): string => "{}",
+    } as DOMRect;
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    mocks.fit.mockRejectedValueOnce(new Error("no monitor"));
+    try {
+      render(<RecorderDock />);
+      await waitFor(() => {
+        expect(mocks.ready).toHaveBeenCalled();
+      });
+      expect(await screen.findByText("The recorder could not be resized.")).toBeVisible();
+    } finally {
+      measure.mockRestore();
+    }
+  });
+
+  it("opens the source grid above the toolbar row and closes it with Escape", async () => {
+    render(<RecorderDock />);
+    const picker = await screen.findByRole("button", { name: "Choose what to record" });
+
+    fireEvent.click(picker);
+    const listbox = await screen.findByRole("listbox", { name: "Available sources" });
+    const toolbar = screen.getByRole("toolbar", { name: "Recorder" });
+    expect(toolbar.innerHTML.indexOf("Available sources")).toBeLessThan(
+      toolbar.innerHTML.indexOf("What to record"),
+    );
+
+    fireEvent.keyDown(listbox, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Available sources" })).not.toBeInTheDocument();
+    expect(picker).toHaveFocus();
   });
 
   it("offers the capture modes and lists sources for the chosen one, with a preview to pick from", async () => {
