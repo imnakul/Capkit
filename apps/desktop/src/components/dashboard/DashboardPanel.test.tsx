@@ -1,6 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardPanel } from "./DashboardPanel";
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(() => Promise.resolve("0.2.0")),
+}));
 
 describe("DashboardPanel", () => {
   afterEach(() => cleanup());
@@ -8,6 +12,12 @@ describe("DashboardPanel", () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");
+  });
+
+  it("shows the app version and commit in the sidebar", async () => {
+    render(<DashboardPanel />);
+
+    expect(await screen.findByText(/v0\.2\.0 ·/)).toBeVisible();
   });
 
   it("opens on the screenshots dashboard", async () => {

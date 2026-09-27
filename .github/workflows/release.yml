@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  detect:
+    name: Detect version change
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for a matching tag
+        id: check
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build and publish
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.detect.outputs.version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check version consistency
+        run: pnpm version:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Verify native application
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Build Windows installer
+        env:
+          CAPKIT_COMMIT: ${{ github.sha }}
+        run: pnpm bundle:windows
+
+      - name: Publish GitHub release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = "apps/desktop/src-tauri/target/release/bundle/nsis/CapKit_${{ env.VERSION }}_x64-setup.exe"
+          if (!(Test-Path -LiteralPath $installer)) {
+            throw "Missing installer at $installer"
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $installer).Hash.ToLowerInvariant()
+          $checksum = "$installer.sha256"
+          Set-Content -LiteralPath $checksum -Value $hash -NoNewline
+          gh api "repos/${{ github.repository }}/releases/generate-notes" -f tag_name="v${{ env.VERSION }}" -f target_commitish="${{ github.sha }}" --jq .body > notes.md
+          Add-Content -Path notes.md -Value ""
+          Add-Content -Path notes.md -Value "Full changelog: CHANGELOG-PUBLIC.md"
+          gh release create "v${{ env.VERSION }}" $installer $checksum --target "${{ github.sha }}" --title "CapKit ${{ env.VERSION }}" --notes-file notes.md
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CapKit-${{ env.VERSION }}-windows-x64
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/CapKit_${{ env.VERSION }}_x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0

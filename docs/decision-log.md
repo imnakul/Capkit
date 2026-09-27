@@ -6,6 +6,22 @@
 - **Removed:** Click-through is removed entirely. Once cursor events were ignored on Windows, the window could not receive mouse or keyboard focus, leaving no reachable way back for the user to disable click-through or interact with the pin.
 - **Rationale:** Moving the pin out of the way via a drag handle replaces the primary use case of click-through while keeping the window responsive and interactive.
 
+## 2026-09-26 - Releases are version-triggered on master
+
+- **Confirmed:** `apps/desktop/src-tauri/tauri.conf.json` `version` is the single source of truth; `package.json`, `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` must always match it, enforced by `pnpm version:check` in CI.
+- **Confirmed:** Semantic versioning: a patch is a fix only, a minor adds features, and a major is reserved for a 1.0 launch. The first automated release is `0.2.0`.
+- **Confirmed:** A push to `master` whose version has no matching `v<version>` tag builds the Windows NSIS installer with the repo's own `pnpm bundle:windows` script and publishes it with `gh release create` (preinstalled on runners), with generated notes plus a `CHANGELOG-PUBLIC.md` link. A push without a version change only runs the quick skip. No third-party release actions.
+- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), the in-app auto-updater (`tauri-plugin-updater`), pre-release channels, and Store (MSIX) versioning.
+- **Rationale:** Raising the version once should be enough to ship an identifiable installer; every installed copy reports its version and commit in the sidebar.
+
+## 2026-09-26 - Screen Draw defaults to Select
+
+- **Confirmed:** Screen Draw opens with the Select tool active, returns to Select after Clear, and recovers to Select after a snapshot-tool failure. This supersedes the 2026-07-25 Presentation Pointer default below; the pointer trail remains one click away for gesture-first presenting.
+- **Confirmed:** Select uses the normal arrow cursor and edits committed drawings in place: rectangle, ellipse and blur move, resize from 8 handles and delete; arrows move, drag either endpoint and delete; text moves, rescales 12–120 from the bottom-right handle and deletes; pencil moves and deletes. Delete/Backspace, arrow-key nudge (1px, 10 with Shift) and a clamped Delete button apply; Escape deselects first and only closes when nothing is selected. Clicking empty space deselects; the overlay keeps capturing input.
+- **Confirmed:** Select's shortcut is a fixed `V`, not configurable in Settings; digits stay configurable for the other tools and `S` stays Save screen.
+- **Think Later:** Click-through to the desktop from empty space, scaling pencil strokes, and editing the words of existing text.
+- **Rationale:** Presenters spend Screen Draw time adjusting what they already drew; a default that can move, resize and delete removes the erase-and-redraw loop without changing any drawing tool.
+
 ## 2026-09-26 - Monitor-sized overlays avoid full-screen treatment
 
 - **Confirmed:** Windows treats a borderless overlay whose physical rectangle exactly matches a monitor as a full-screen application; on the user's 120 Hz display this capped the capture cursor at 60 Hz. The `a49f689` release build became smooth when its height was extended one physical pixel, with the frozen snapshot still aligned.

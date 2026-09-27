@@ -126,8 +126,9 @@ describe("OnScreenOverlay", () => {
     render(<OnScreenOverlay />);
 
     expect(await screen.findByRole("toolbar", { name: "On-screen drawing tools" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Select, shortcut V" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Pencil, shortcut 1" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Blur, shortcut 0" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Clear all on-screen changes" })).toHaveClass("bg-[#ff5b4d]");
     expect(screen.queryByRole("group", { name: "Drawing colors" })).not.toBeInTheDocument();
@@ -195,6 +196,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     const initialRenderCount = onRender.mock.calls.length;
     const dot = screen.getByTestId("on-screen-pointer-dot");
 
@@ -223,6 +225,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     fireEvent.pointerDown(surface, {
       button: 0,
       clientX: 120,
@@ -258,6 +261,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     const pointerLayer = screen.getByTestId("on-screen-pointer-trail");
     const corePath = screen.getByTestId("on-screen-pointer-core");
 
@@ -311,6 +315,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     drawLaserStroke(surface, frames, 1);
 
     const fadingTrail = screen.getByTestId("on-screen-fading-trail");
@@ -334,6 +339,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     vi.useFakeTimers();
     const frames = createAnimationFrameQueue();
     drawLaserStroke(surface, frames, 2);
@@ -355,6 +361,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
 
     for (let pointerId = 1; pointerId <= 4; pointerId += 1) {
       drawLaserStroke(surface, frames, pointerId);
@@ -369,6 +376,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     drawLaserStroke(surface, frames, 1);
     expect(screen.getByTestId("on-screen-fading-trail")).toBeInTheDocument();
 
@@ -384,6 +392,7 @@ describe("OnScreenOverlay", () => {
     const surface = await screen.findByRole("application", {
       name: "On-screen annotation surface",
     });
+    fireEvent.click(screen.getByRole("button", { name: "Presentation pointer, shortcut 8" }));
     drawLaserStroke(surface, frames, 1);
 
     expect(screen.queryByTestId("on-screen-fading-trail")).not.toBeInTheDocument();
@@ -728,9 +737,245 @@ describe("OnScreenOverlay", () => {
     await screen.findByRole("toolbar", { name: "On-screen drawing tools" });
     const highlight = screen.getByTestId("on-screen-tool-highlight");
 
-    expect(highlight).toHaveStyle({ transform: "translate3d(350px, 0, 0)" });
+    expect(highlight).toHaveStyle({ transform: "translate3d(0px, 0, 0)" });
     fireEvent.pointerEnter(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
-    expect(highlight).toHaveStyle({ transform: "translate3d(50px, 0, 0)" });
+    expect(highlight).toHaveStyle({ transform: "translate3d(100px, 0, 0)" });
+  });
+
+  it("moves a selected rectangle with one update and restores it with undo", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 4 });
+    fireEvent.pointerMove(surface, { clientX: 240, clientY: 210, pointerId: 4 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 4 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 5 });
+    fireEvent.pointerMove(surface, { clientX: 130, clientY: 120, pointerId: 5 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+
+    const moved = document.querySelector("[data-onscreen-object]");
+    expect(moved?.getAttribute("x")).toBe("110");
+    expect(moved?.getAttribute("y")).toBe("110");
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo on-screen change" }));
+    const restored = document.querySelector("[data-onscreen-object]");
+    expect(restored?.getAttribute("x")).toBe("80");
+    expect(restored?.getAttribute("y")).toBe("90");
+  });
+
+  it("resizes a rectangle from its corner handle and drags only an arrow end", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 4 });
+    fireEvent.pointerMove(surface, { clientX: 240, clientY: 210, pointerId: 4 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 4 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 5 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+    // Bottom-right handle sits at (240, 210).
+    fireEvent.pointerDown(surface, { button: 0, clientX: 240, clientY: 210, pointerId: 6 });
+    fireEvent.pointerMove(surface, { clientX: 280, clientY: 250, pointerId: 6 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 6 });
+
+    const resized = document.querySelector("[data-onscreen-object]");
+    expect(resized?.getAttribute("width")).toBe("200");
+    expect(resized?.getAttribute("height")).toBe("160");
+
+    fireEvent.click(screen.getByRole("button", { name: "Arrow, shortcut 4" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 50, clientY: 50, pointerId: 7 });
+    fireEvent.pointerMove(surface, { clientX: 150, clientY: 150, pointerId: 7 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 7 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    const lines = document.querySelectorAll("[data-onscreen-object]");
+    const arrow = lines[lines.length - 1];
+    expect(arrow?.tagName.toLowerCase()).toBe("line");
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 8 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 8 });
+    // End handle sits at (150, 150).
+    fireEvent.pointerDown(surface, { button: 0, clientX: 150, clientY: 150, pointerId: 9 });
+    fireEvent.pointerMove(surface, { clientX: 180, clientY: 120, pointerId: 9 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 9 });
+
+    const movedArrow = document.querySelectorAll("[data-onscreen-object]");
+    const moved = movedArrow[movedArrow.length - 1];
+    expect(moved?.getAttribute("x1")).toBe("50");
+    expect(moved?.getAttribute("y1")).toBe("50");
+    expect(moved?.getAttribute("x2")).toBe("180");
+    expect(moved?.getAttribute("y2")).toBe("120");
+  });
+
+  it("resizes selected text within 12–120", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 180, clientY: 140, pointerId: 3 });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+    fireEvent.change(editor, { target: { value: "Hi" } });
+    fireEvent.blur(editor);
+    expect(await screen.findByText("Hi")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    const textElement = screen.getByText("Hi");
+    expect(textElement.getAttribute("font-size")).toBe("20");
+
+    fireEvent.pointerDown(surface, { button: 0, clientX: 190, clientY: 135, pointerId: 5 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
+
+    // Handle sits at the bottom-right of the text bounds: x=228, y=140.
+    fireEvent.pointerDown(surface, { button: 0, clientX: 228, clientY: 140, pointerId: 6 });
+    fireEvent.pointerMove(surface, { clientX: 228, clientY: 150, pointerId: 6 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 6 });
+
+    expect(screen.getByText("Hi").getAttribute("font-size")).toBe("30");
+  });
+
+  it("deletes a selected drawing with the keyboard and the delete button, undoing each", async () => {
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 4 });
+    fireEvent.pointerMove(surface, { clientX: 240, clientY: 210, pointerId: 4 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 4 });
+    expect(document.querySelector("[data-onscreen-object]")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 5 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(document.querySelector("[data-onscreen-object]")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo on-screen change" }));
+    expect(document.querySelector("[data-onscreen-object]")).not.toBeNull();
+
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 6 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 6 });
+    fireEvent.click(screen.getByRole("button", { name: "Delete selected drawing" }));
+    expect(document.querySelector("[data-onscreen-object]")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo on-screen change" }));
+    expect(document.querySelector("[data-onscreen-object]")).not.toBeNull();
+  });
+
+  it("deselects on empty space and only closes Screen Draw on the second Escape", async () => {
+    const { dismissOnScreen } = await import("../lib/tauri");
+    const frames = createAnimationFrameQueue();
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 4 });
+    fireEvent.pointerMove(surface, { clientX: 240, clientY: 210, pointerId: 4 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 4 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 5 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
+
+    fireEvent.pointerDown(surface, { button: 0, clientX: 1000, clientY: 600, pointerId: 6 });
+    expect(screen.queryByTestId("on-screen-selection")).not.toBeInTheDocument();
+
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 7 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 7 });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("on-screen-selection")).not.toBeInTheDocument();
+    expect(dismissOnScreen).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(dismissOnScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches to Select with V and ignores it while editing or with modifiers", async () => {
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    expect(screen.getByRole("button", { name: "Rectangle, shortcut 2" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.keyDown(window, { key: "v" });
+    expect(screen.getByRole("button", { name: "Select, shortcut V" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Text, shortcut 5" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 180, clientY: 140, pointerId: 3 });
+    const editor = screen.getByRole("textbox", { name: "On-screen text" });
+
+    fireEvent.keyDown(editor, { key: "v" });
+    expect(screen.getByRole("button", { name: "Text, shortcut 5" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "Text, shortcut 5" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("hides the selection chrome while saving the screen", async () => {
+    const frames = createAnimationFrameQueue();
+    const savedPath = deferred<string>();
+    vi.mocked(saveOnScreenCapture).mockReturnValueOnce(savedPath.promise);
+    render(<OnScreenOverlay />);
+    const surface = await screen.findByRole("application", {
+      name: "On-screen annotation surface",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle, shortcut 2" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 80, clientY: 90, pointerId: 4 });
+    fireEvent.pointerMove(surface, { clientX: 240, clientY: 210, pointerId: 4 });
+    frames.flushNextFrame();
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 4 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select, shortcut V" }));
+    fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 5 });
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 5 });
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "s" });
+    expect(screen.queryByTestId("on-screen-selection")).not.toBeInTheDocument();
+    expect(screen.getByTestId("on-screen-dock")).toHaveStyle({ visibility: "hidden" });
+
+    frames.flushNextFrame();
+    frames.flushNextFrame();
+    await waitFor(() => expect(saveOnScreenCapture).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      savedPath.resolve("C:/Captures/CapKit.png");
+      await savedPath.promise;
+    });
+    expect(screen.getByTestId("on-screen-selection")).toBeInTheDocument();
   });
 
   it("restores runtime-validated drawings when persistence is enabled", async () => {

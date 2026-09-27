@@ -10,6 +10,7 @@ import {
   Pencil,
   PresentationPointer,
   Redo,
+  SelectPointer,
   SquareShape,
   Text,
   Undo,
@@ -27,18 +28,26 @@ import {
 import type { Point } from "../domain/capture";
 import {
   onScreenToolIds,
+  type OnScreenDrawingToolId,
   type OnScreenToolId,
   useSnaphubSettings,
 } from "../domain/settings";
 import {
   initialOnScreenHistory,
+  moveArrowEndpoint,
   normalizedObjectRect,
   objectAtPoint,
+  objectBounds,
   onScreenHistoryReducer,
   parsePersistedOnScreenScene,
   pointsToSvgPath,
+  resizeShape,
+  resizeText,
+  translateObject,
+  type ArrowEndpoint,
   type OnScreenObject,
   type OnScreenShapeObject,
+  type ResizeHandle,
 } from "../domain/onScreen";
 import { onScreenCursor } from "../lib/cursor";
 import {
@@ -59,13 +68,14 @@ type SaveState =
   | { phase: "capturing" }
   | { phase: "message"; text: string; tone: "success" | "error" };
 const persistedSceneStorageKey = "capkit.onscreen.scene.v1";
-const defaultOnScreenTool: OnScreenToolId = "pointer";
+const defaultOnScreenTool: OnScreenToolId = "select";
 
 const toolCatalog: readonly {
   id: OnScreenToolId;
   label: string;
   icon: CapkitIconComponent;
 }[] = [
+  { id: "select", label: "Select", icon: SelectPointer },
   { id: "pencil", label: "Pencil", icon: Pencil },
   { id: "rectangle", label: "Rectangle", icon: SquareShape },
   { id: "ellipse", label: "Ellipse", icon: CircleShape },
@@ -77,6 +87,113 @@ const toolCatalog: readonly {
   { id: "eraser", label: "Eraser", icon: Eraser },
   { id: "blur", label: "Blur", icon: Blur },
 ];
+
+type SelectDrag =
+  | {
+      kind: "move";
+      origin: Point;
+      initial: OnScreenObject;
+    }
+  | {
+      kind: "resize";
+      handle: ResizeHandle | ArrowEndpoint;
+      origin: Point;
+      initial: OnScreenObject;
+    }
+  | null;
+
+const SELECT_HANDLE_SIZE = 10;
+const SELECT_HANDLE_HIT = 10;
+
+function resizeCursorForHandle(handle: ResizeHandle | ArrowEndpoint): string {
+  if (handle === "start" || handle === "end") return "move";
+  switch (handle) {
+    case "nw":
+    case "se":
+      return "nwse-resize";
+    case "ne":
+    case "sw":
+      return "nesw-resize";
+    case "n":
+    case "s":
+      return "ns-resize";
+    case "e":
+    case "w":
+      return "ew-resize";
+  }
+}
+
+function handlesForObject(object: OnScreenObject): readonly (ResizeHandle | ArrowEndpoint)[] {
+  if (object.kind === "arrow") return ["start", "end"];
+  if (object.kind === "text") return ["se"];
+  if (object.kind === "pencil") return [];
+  return ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+}
+
+function handlePosition(bounds: { x: number; y: number; width: number; height: number }, handle: ResizeHandle | ArrowEndpoint, object?: OnScreenObject): Point {
+  if ((handle === "start" || handle === "end") && object?.kind === "arrow") {
+    return handle === "start" ? object.start : object.end;
+  }
+  const x2 = bounds.x + bounds.width;
+  const y2 = bounds.y + bounds.height;
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  switch (handle) {
+    case "nw":
+      return { x: bounds.x, y: bounds.y };
+    case "n":
+      return { x: cx, y: bounds.y };
+    case "ne":
+      return { x: x2, y: bounds.y };
+    case "e":
+      return { x: x2, y: cy };
+    case "se":
+      return { x: x2, y: y2 };
+    case "s":
+      return { x: cx, y: y2 };
+    case "sw":
+      return { x: bounds.x, y: y2 };
+    case "w":
+      return { x: bounds.x, y: cy };
+    case "start":
+    case "end":
+      return { x: x2, y: y2 };
+  }
+}
+
+function handleAtPoint(object: OnScreenObject, point: Point): (ResizeHandle | ArrowEndpoint) | null {
+  const bounds = objectBounds(object);
+  for (const handle of handlesForObject(object)) {
+    const center = handlePosition(bounds, handle, object);
+    if (
+      Math.abs(point.x - center.x) <= SELECT_HANDLE_HIT &&
+      Math.abs(point.y - center.y) <= SELECT_HANDLE_HIT
+    ) {
+      return handle;
+    }
+  }
+  return null;
+}
+
+function previewSelectObject(initial: OnScreenObject, drag: Exclude<SelectDrag, null>, point: Point): OnScreenObject {
+  if (drag.kind === "move") {
+    return translateObject(initial, point.x - drag.origin.x, point.y - drag.origin.y);
+  }
+  if (drag.handle === "start" || drag.handle === "end") {
+    return moveArrowEndpoint(initial, drag.handle, point);
+  }
+  if (initial.kind === "text") {
+    return resizeText(initial, point.y);
+  }
+  if (
+    initial.kind === "rectangle" ||
+    initial.kind === "ellipse" ||
+    initial.kind === "blur"
+  ) {
+    return resizeShape(initial, drag.handle, point);
+  }
+  return initial;
+}
 
 const drawingTools: readonly DrawingTool[] = [
   "pencil",
@@ -103,6 +220,10 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const [pointerHeld, setPointerHeld] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectCursor, setSelectCursor] = useState<string>("default");
+  const selectDrag = useRef<SelectDrag>(null);
+  const selectPreviewRef = useRef<OnScreenObject | null>(null);
   const [fadingTrails, setFadingTrails] = useState<{ id: string; d: string }[]>([]);
   const [saveState, setSaveState] = useState<SaveState>({ phase: "idle" });
   const [error, setError] = useState<string | null>(null);
@@ -135,10 +256,6 @@ export function OnScreenOverlay(): React.JSX.Element {
   const cursor = useMemo(
     () => onScreenCursor(settings.onScreen.cursor, settings.accentColor),
     [settings.accentColor, settings.onScreen.cursor],
-  );
-  const blurObjects = useMemo(
-    () => history.present.filter(isBlurObject),
-    [history.present],
   );
   const textEditorOpen = textEditor !== null;
   const isCapturing = saveState.phase === "capturing";
@@ -206,6 +323,10 @@ export function OnScreenOverlay(): React.JSX.Element {
     lifecycleToken.current += 1;
     clearSaveMessageTimer();
     clearFadingTrails();
+    selectDrag.current = null;
+    selectPreviewRef.current = null;
+    setSelectedId(null);
+    setDraft(null);
     void dismissOnScreen();
   }, [clearFadingTrails, clearSaveMessageTimer]);
 
@@ -285,12 +406,16 @@ export function OnScreenOverlay(): React.JSX.Element {
     pendingDraft.current = null;
     drawingPointer.current = null;
     drawingTool.current = null;
+    selectDrag.current = null;
+    selectPreviewRef.current = null;
     setDraft(null);
     cancelText();
     pointerHeldRef.current = false;
     clearLivePointerPath();
     pointerDotRef.current?.setAttribute("visibility", "hidden");
     setPointerHeld(false);
+    setSelectedId(null);
+    setSelectCursor("default");
     setActiveTool(defaultOnScreenTool);
     dispatch({ type: "clear" });
   }, [cancelPointerFrame, cancelText, clearFadingTrails, clearLivePointerPath]);
@@ -298,6 +423,13 @@ export function OnScreenOverlay(): React.JSX.Element {
   const selectTool = useCallback(
     (tool: OnScreenToolId): void => {
       commitText();
+      selectDrag.current = null;
+      selectPreviewRef.current = null;
+      setSelectedId(null);
+      setSelectCursor("default");
+      draftRef.current = null;
+      pendingDraft.current = null;
+      setDraft(null);
       setActiveTool(tool);
     },
     [commitText],
@@ -398,6 +530,17 @@ export function OnScreenOverlay(): React.JSX.Element {
   }, [history.present, settings.onScreen.persistDrawings]);
 
   useEffect(() => {
+    if (selectedId === null) return;
+    if (!history.present.some((object) => object.id === selectedId)) {
+      selectDrag.current = null;
+      selectPreviewRef.current = null;
+      setSelectedId(null);
+      setSelectCursor("default");
+      setDraft(null);
+    }
+  }, [history.present, selectedId]);
+
+  useEffect(() => {
     if (
       session === null ||
       snapshotUrl !== null ||
@@ -446,6 +589,13 @@ export function OnScreenOverlay(): React.JSX.Element {
           cancelText();
           return;
         }
+        if (selectedId !== null) {
+          selectDrag.current = null;
+          setSelectedId(null);
+          setSelectCursor("default");
+          setDraft(null);
+          return;
+        }
         dismissScreenDraw();
         return;
       }
@@ -468,18 +618,64 @@ export function OnScreenOverlay(): React.JSX.Element {
         dispatch({ type: event.shiftKey ? "redo" : "undo" });
         return;
       }
+      const hasModifiers = event.ctrlKey || event.altKey || event.metaKey;
+      if (
+        event.key.toLowerCase() === "v"
+        && !hasModifiers
+        && !event.shiftKey
+        && textEditorRef.current === null
+      ) {
+        event.preventDefault();
+        commitText();
+        selectDrag.current = null;
+        setSelectedId(null);
+        setSelectCursor("default");
+        setActiveTool("select");
+        return;
+      }
+      if (textEditorRef.current !== null) return;
+      if (selectedId !== null && !hasModifiers) {
+        const selected = history.present.find((object) => object.id === selectedId) ?? null;
+        if (selected !== null) {
+          if (event.key === "Delete" || event.key === "Backspace") {
+            event.preventDefault();
+            selectDrag.current = null;
+            setSelectedId(null);
+            setSelectCursor("default");
+            setDraft(null);
+            dispatch({ type: "remove", id: selectedId });
+            return;
+          }
+          const nudge = event.shiftKey ? 10 : 1;
+          let delta: Point | null = null;
+          if (event.key === "ArrowLeft") delta = { x: -nudge, y: 0 };
+          else if (event.key === "ArrowRight") delta = { x: nudge, y: 0 };
+          else if (event.key === "ArrowUp") delta = { x: 0, y: -nudge };
+          else if (event.key === "ArrowDown") delta = { x: 0, y: nudge };
+          if (delta !== null) {
+            event.preventDefault();
+            dispatch({ type: "update", object: translateObject(selected, delta.x, delta.y) });
+            return;
+          }
+        }
+      }
+      if (hasModifiers || event.shiftKey) return;
       const tool = onScreenToolIds.find(
-        (candidate) => settings.onScreen.toolShortcuts[candidate] === event.key,
+        (candidate) =>
+          candidate !== "select" && settings.onScreen.toolShortcuts[candidate] === event.key,
       );
       if (tool !== undefined) {
         event.preventDefault();
         setActiveTool(tool);
         cancelText();
+        selectDrag.current = null;
+        setSelectedId(null);
+        setSelectCursor("default");
       }
     }
     window.addEventListener("keydown", handleKeyboard, true);
     return (): void => window.removeEventListener("keydown", handleKeyboard, true);
-  }, [cancelText, dismissScreenDraw, saveScreen, settings.onScreen.toolShortcuts]);
+  }, [cancelText, commitText, dismissScreenDraw, history.present, saveScreen, selectedId, settings.onScreen.toolShortcuts]);
 
   function localPoint(event: React.PointerEvent<HTMLDivElement>): Point {
     return { x: event.clientX, y: event.clientY };
@@ -549,6 +745,38 @@ export function OnScreenOverlay(): React.JSX.Element {
     const point = localPoint(event);
     if (toolTracksCursor(activeTool)) setCursorPoint(point);
     if (activeTool === "spotlight" || activeTool === "magnifier") return;
+    if (activeTool === "select") {
+      const selected = selectedId !== null
+        ? (history.present.find((object) => object.id === selectedId) ?? null)
+        : null;
+      if (selected !== null) {
+        const handle = handleAtPoint(selected, point);
+        if (handle !== null) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          drawingPointer.current = event.pointerId;
+          drawingTool.current = activeTool;
+          selectDrag.current = { kind: "resize", handle, origin: point, initial: selected };
+          setSelectCursor(resizeCursorForHandle(handle));
+          return;
+        }
+      }
+      const object = objectAtPoint(history.present, point);
+      if (object !== null) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drawingPointer.current = event.pointerId;
+        drawingTool.current = activeTool;
+        selectDrag.current = { kind: "move", origin: point, initial: object };
+        setSelectedId(object.id);
+        setSelectCursor("move");
+        return;
+      }
+      selectDrag.current = null;
+      selectPreviewRef.current = null;
+      setSelectedId(null);
+      setSelectCursor("default");
+      setDraft(null);
+      return;
+    }
     if (activeTool === "eraser") {
       const object = objectAtPoint(history.present, point);
       if (object !== null) dispatch({ type: "remove", id: object.id });
@@ -593,6 +821,28 @@ export function OnScreenOverlay(): React.JSX.Element {
       schedulePointerRender(points);
       return;
     }
+    if (activeTool === "select") {
+      const drag = selectDrag.current;
+      if (drag !== null && drawingPointer.current === event.pointerId) {
+        const preview = previewSelectObject(drag.initial, drag, point);
+        selectPreviewRef.current = preview;
+        scheduleDraftRender(preview);
+        return;
+      }
+      if (drawingPointer.current !== null) return;
+      const selected = selectedId !== null
+        ? (history.present.find((object) => object.id === selectedId) ?? null)
+        : null;
+      if (selected !== null) {
+        const handle = handleAtPoint(selected, point);
+        if (handle !== null) {
+          setSelectCursor(resizeCursorForHandle(handle));
+          return;
+        }
+      }
+      setSelectCursor(objectAtPoint(history.present, point) !== null ? "move" : "default");
+      return;
+    }
     if (toolTracksCursor(activeTool)) scheduleCursorRender(point);
     if (drawingPointer.current !== event.pointerId) return;
     const nextDraft = updateDraft(draftRef.current, point);
@@ -616,6 +866,26 @@ export function OnScreenOverlay(): React.JSX.Element {
       setPointerHeld(false);
       return;
     }
+    if (completedTool === "select") {
+      const drag = selectDrag.current;
+      selectDrag.current = null;
+      if (draftFrame.current !== null) {
+        window.cancelAnimationFrame(draftFrame.current);
+        draftFrame.current = null;
+      }
+      pendingDraft.current = null;
+      draftRef.current = null;
+      setDraft(null);
+      const preview = selectPreviewRef.current;
+      selectPreviewRef.current = null;
+      if (drag !== null && preview !== null && preview.id === drag.initial.id) {
+        if (JSON.stringify(preview) !== JSON.stringify(drag.initial)) {
+          dispatch({ type: "update", object: preview });
+        }
+      }
+      setSelectCursor("default");
+      return;
+    }
     const completedDraft = draftRef.current;
     draftRef.current = null;
     pendingDraft.current = null;
@@ -636,12 +906,34 @@ export function OnScreenOverlay(): React.JSX.Element {
   const displayWidth = session.display.bounds.width;
   const displayHeight = session.display.bounds.height;
 
+  const selectedObject = selectedId !== null
+    ? (history.present.find((object) => object.id === selectedId) ?? null)
+    : null;
+  const selectionPreview = selectedId !== null && draft !== null && draft.id === selectedId
+    ? draft
+    : null;
+  const previewingSelected = selectionPreview !== null;
+  const visiblePresent = previewingSelected
+    ? history.present.filter((object) => object.id !== selectedId)
+    : history.present;
+  const visibleBlurObjects = visiblePresent.filter(isBlurObject);
+  const surfaceCursor = activeTool === "select" ? selectCursor : cursor;
+
+  const deleteSelected = (): void => {
+    if (selectedId === null) return;
+    selectDrag.current = null;
+    setSelectedId(null);
+    setSelectCursor("default");
+    setDraft(null);
+    dispatch({ type: "remove", id: selectedId });
+  };
+
   return (
     <div
       aria-label="On-screen annotation surface"
       className="fixed inset-0 select-none overflow-hidden bg-transparent"
       role="application"
-      style={{ cursor }}
+      style={{ cursor: surfaceCursor }}
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={handlePointerUp}
       onPointerDown={handlePointerDown}
@@ -665,7 +957,7 @@ export function OnScreenOverlay(): React.JSX.Element {
       <BlurLayer
         displayHeight={displayHeight}
         displayWidth={displayWidth}
-        objects={blurObjects}
+        objects={visibleBlurObjects}
         snapshotUrl={snapshotUrl}
       />
       {draft?.kind === "blur" && snapshotUrl !== null ? (
@@ -679,9 +971,16 @@ export function OnScreenOverlay(): React.JSX.Element {
         />
       ) : null}
       <AnnotationLayer
-        objects={history.present}
+        objects={visiblePresent}
         draft={draft}
       />
+      {selectedObject !== null && !isCapturing ? (
+        <SelectionChrome
+          accent={settings.accentColor}
+          object={selectionPreview ?? selectedObject}
+          onDelete={deleteSelected}
+        />
+      ) : null}
       <PointerLayer
         active={activeTool === "pointer"}
         accent={settings.onScreen.color}
@@ -1102,6 +1401,73 @@ function Magnifier({
   return <div aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-30 overflow-hidden rounded-full border-4 border-white/90 bg-black shadow-[0_16px_52px_rgba(0,0,0,0.48)] ring-2 ring-black/45 will-change-transform" style={{ height: radius * 2, transform: `translate3d(${String(cursor.x - radius)}px, ${String(cursor.y - radius)}px, 0)`, width: radius * 2 }}><img alt="" className="pointer-events-none absolute left-0 top-0 max-w-none object-fill will-change-transform" src={snapshotUrl} style={{ height: displayHeight * zoom, transform: `translate3d(${String(radius - cursor.x * zoom)}px, ${String(radius - cursor.y * zoom)}px, 0)`, width: displayWidth * zoom }} /><span className="absolute bottom-2 right-3 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-white">1.85×</span></div>;
 }
 
+function SelectionChrome({
+  accent,
+  object,
+  onDelete,
+}: {
+  accent: string;
+  object: OnScreenObject;
+  onDelete: () => void;
+}): React.JSX.Element {
+  const bounds = objectBounds(object);
+  const handles = handlesForObject(object);
+  const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+  const deleteLeft = Math.max(8, Math.min(bounds.x + bounds.width - 16, viewportWidth - 40));
+  const deleteTop = Math.max(8, bounds.y - 40);
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed z-30 border-2 border-dashed"
+        data-testid="on-screen-selection"
+        style={{
+          left: bounds.x,
+          top: bounds.y,
+          width: Math.max(1, bounds.width),
+          height: Math.max(1, bounds.height),
+          borderColor: accent,
+        }}
+      >
+        {handles.map((handle) => {
+          const center = handlePosition(bounds, handle, object);
+          const isEndpoint = handle === "start" || handle === "end";
+          return (
+            <span
+              key={handle}
+              aria-hidden="true"
+              className={`absolute ${isEndpoint ? "rounded-full" : ""}`}
+              style={{
+                left: center.x - bounds.x - SELECT_HANDLE_SIZE / 2,
+                top: center.y - bounds.y - SELECT_HANDLE_SIZE / 2,
+                width: SELECT_HANDLE_SIZE,
+                height: SELECT_HANDLE_SIZE,
+                backgroundColor: accent,
+                borderRadius: isEndpoint ? "9999px" : "2px",
+                border: "1px solid rgb(0 0 0 / 45%)",
+                cursor: isEndpoint ? "move" : resizeCursorForHandle(handle),
+              }}
+            />
+          );
+        })}
+      </div>
+      <button
+        aria-label="Delete selected drawing"
+        className="fixed z-40 grid size-8 place-items-center rounded-md bg-[#ff5b4d] text-white shadow-xl outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-white"
+        data-onscreen-control="true"
+        data-testid="on-screen-delete-selection"
+        type="button"
+        style={{ left: deleteLeft, top: deleteTop }}
+        onClick={onDelete}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+      >
+        <Delete aria-hidden="true" size={16} />
+      </button>
+    </>
+  );
+}
+
 const OnScreenDock = memo(function OnScreenDock({
   activeTool,
   canUndo,
@@ -1120,7 +1486,7 @@ const OnScreenDock = memo(function OnScreenDock({
   canRedo: boolean;
   capturing: boolean;
   saveDisabled: boolean;
-  toolShortcuts: Record<OnScreenToolId, string>;
+  toolShortcuts: Record<OnScreenDrawingToolId, string>;
   onToolChange: (tool: OnScreenToolId) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -1142,7 +1508,7 @@ const OnScreenDock = memo(function OnScreenDock({
         />
         {toolCatalog.map((tool) => {
           const Icon = tool.icon;
-          const shortcut = toolShortcuts[tool.id];
+          const shortcut = tool.id === "select" ? "V" : toolShortcuts[tool.id];
           const highlighted = highlightedTool === tool.id;
           return <button aria-label={`${tool.label}${shortcut === "" ? "" : `, shortcut ${shortcut}`}`} aria-pressed={activeTool === tool.id} className={`relative z-10 grid size-11 shrink-0 place-items-center rounded-[11px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white ${highlighted ? "text-[#11130f]" : "text-stone-300 hover:text-white"}`} key={tool.id} title={tool.label} type="button" onClick={() => onToolChange(tool.id)} onFocus={() => setHoveredTool(tool.id)} onPointerEnter={() => setHoveredTool(tool.id)}><Icon aria-hidden="true" size={20} strokeWidth={2} />{shortcut === "" ? null : <kbd className="absolute right-1 top-1 font-mono text-[10px] font-bold opacity-65">{shortcut}</kbd>}</button>;
         })}
