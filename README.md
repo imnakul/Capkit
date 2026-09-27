@@ -17,6 +17,10 @@
   <a href="CHANGELOG-PUBLIC.md">What's new</a>
 </p>
 
+<p align="center">
+  <img src=".github/assets/capkit-showcase.png" alt="CapKit Showcase: a screenshot framed on a dark wallpaper with padding and a shadow, edited in the Showcase workspace" width="100%">
+</p>
+
 ---
 
 CapKit is a small desktop app that lives in your system tray. Press a shortcut, select part of the screen, mark it up right where it is, then copy, save, or pin it, and get back to work. No editor window, no account, no cloud.
