@@ -59,6 +59,37 @@ impl CaptureBackend for XcapPlatformBackend {
     }
 }
 
+/// Physical desktop bounds of one display, by the id `sources()` reports.
+///
+/// Cheap enumeration only: no thumbnails, no capture. Sync commands use this
+/// instead of the thumbnail-capturing `sources()` call, which must never run
+/// on the main thread.
+pub fn display_bounds(display_id: &str) -> Result<Rect, SnaphubError> {
+    let monitors = Monitor::all().map_err(SnaphubError::capture)?;
+    monitors
+        .iter()
+        .find(|monitor| {
+            monitor
+                .id()
+                .map(|id| id.to_string() == display_id)
+                .unwrap_or(false)
+        })
+        .and_then(|monitor| {
+            let (Ok(x), Ok(y), Ok(width), Ok(height)) =
+                (monitor.x(), monitor.y(), monitor.width(), monitor.height())
+            else {
+                return None;
+            };
+            Some(Rect {
+                x: f64::from(x),
+                y: f64::from(y),
+                width: f64::from(width),
+                height: f64::from(height),
+            })
+        })
+        .ok_or_else(|| SnaphubError::Window("The chosen display is unavailable".into()))
+}
+
 fn monitor_contains_point(monitor: &Monitor, point: Point) -> Result<bool, SnaphubError> {
     let bounds = Rect {
         x: f64::from(monitor.x().map_err(SnaphubError::capture)?),

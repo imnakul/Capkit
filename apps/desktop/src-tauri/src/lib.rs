@@ -18,7 +18,7 @@ use domain::{
     RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
 };
 use error::SnaphubError;
-use platform::xcap_backend::XcapPlatformBackend;
+use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
@@ -1728,7 +1728,7 @@ struct RecordRegionSelection {
     bounds: Rect,
 }
 
-struct RecordRegionRegistry(Mutex<Option<String>>);
+struct RecordRegionRegistry(Mutex<Option<(String, Rect)>>);
 
 /// Builds a WebView window: never call from a synchronous command or an event handler on Windows (deadlock). Use an async command or spawn_blocking.
 #[tauri::command]
@@ -1739,17 +1739,11 @@ async fn open_record_region(app: AppHandle, display_id: String) -> Result<(), Sn
         let _ = window.set_focus();
         return Ok(());
     }
-    // Reuse the service's own enumeration rather than adding a second one.
-    let bounds = app
-        .state::<RecordingService>()
-        .sources()
-        .map_err(|_| SnaphubError::Window("Recording sources are unavailable".into()))?
-        .into_iter()
-        .find(|source| source.kind == "display" && source.display_id == display_id)
-        .map(|source| source.bounds)
-        .ok_or_else(|| SnaphubError::Window("The chosen display is unavailable".into()))?;
+    // Cheap display enumeration only: the thumbnail-capturing sources() call
+    // must never run on the way to revealing the overlay.
+    let bounds = display_bounds(&display_id)?;
     if let Ok(mut registry) = app.state::<RecordRegionRegistry>().0.lock() {
-        *registry = Some(display_id);
+        *registry = Some((display_id, bounds));
     }
     WebviewWindowBuilder::new(&app, "record-region", WebviewUrl::App("index.html".into()))
         .title("CapKit Record Region")
@@ -1804,21 +1798,13 @@ fn confirm_record_region(
     let Some(window) = app.get_webview_window("record-region") else {
         return Err(SnaphubError::Window("Region window is unavailable".into()));
     };
-    let display_id = app
+    let (display_id, bounds) = app
         .state::<RecordRegionRegistry>()
         .0
         .lock()
         .map_err(|_| SnaphubError::Window("Region state is unavailable".into()))?
         .clone()
         .ok_or_else(|| SnaphubError::Window("No display was chosen for the region".into()))?;
-    let bounds = app
-        .state::<RecordingService>()
-        .sources()
-        .map_err(|_| SnaphubError::Window("Recording sources are unavailable".into()))?
-        .into_iter()
-        .find(|source| source.kind == "display" && source.display_id == display_id)
-        .map(|source| source.bounds)
-        .ok_or_else(|| SnaphubError::Window("The chosen display is unavailable".into()))?;
     let position = window
         .outer_position()
         .map_err(|error| SnaphubError::Window(error.to_string()))?;
