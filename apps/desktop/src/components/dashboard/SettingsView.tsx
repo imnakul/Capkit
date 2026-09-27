@@ -632,32 +632,37 @@ type SettingsSectionProps = {
 };
 
 /**
- * One collapsible settings group.
- *
- * The heading stays the accessible name of the toggle, so the control is
- * announced as "Shortcuts, collapsed" rather than as a bare button, and the
- * body is hidden with `hidden` instead of an animated height: a tab can hold
- * several open sections, and sliding them would fight each other.
+ * One collapsible settings group, following the ARIA accordion pattern: the
+ * `h2` wraps the toggle and holds nothing but the title, so the control is
+ * announced as "Shortcuts, collapsed" and heading navigation still lands on the
+ * section. The eyebrow and description stay outside the button because they are
+ * not part of what the control is called. The body is hidden with `hidden`
+ * rather than an animated height: a tab can hold several open sections, and
+ * sliding them would fight each other.
  */
 function SettingsSection({ id, open, onToggle, icon: Icon, eyebrow, title, description, children }: SettingsSectionProps): React.JSX.Element {
   const bodyId = `settings-section-${id}`;
   return (
     <section className="border-b border-stone-300/80 py-6 first:pt-0 dark:border-white/10">
-      <button
-        aria-controls={bodyId}
-        aria-expanded={open}
-        className="group flex w-full items-start gap-2.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)]"
-        type="button"
-        onClick={() => onToggle(id)}
-      >
+      <div className="flex gap-2.5">
         <span className="grid size-8 shrink-0 place-items-center rounded-md border border-stone-200 bg-white text-stone-600 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300"><Icon aria-hidden="true" size={15} /></span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[11px] font-bold uppercase tracking-[0.17em] text-stone-400 dark:text-stone-500">{eyebrow}</span>
-          <h2 className="mt-0.5 text-sm font-semibold tracking-tight dark:text-stone-100">{title}</h2>
-          <span className="mt-0.5 block text-[13px] leading-4.5 text-stone-500 dark:text-stone-400">{description}</span>
-        </span>
-        <ChevronDown aria-hidden="true" className={`mt-1 shrink-0 text-stone-400 transition-transform duration-150 group-hover:text-stone-700 motion-reduce:transition-none dark:text-stone-500 dark:group-hover:text-stone-300 ${open ? "rotate-180" : ""}`} size={15} />
-      </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-[0.17em] text-stone-400 dark:text-stone-500">{eyebrow}</p>
+          <h2 className="mt-0.5">
+            <button
+              aria-controls={bodyId}
+              aria-expanded={open}
+              className="group flex w-full items-center justify-between gap-2 rounded-md py-1 text-left text-sm font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-100"
+              type="button"
+              onClick={() => onToggle(id)}
+            >
+              {title}
+              <ChevronDown aria-hidden="true" className={`shrink-0 text-stone-400 transition-transform duration-150 group-hover:text-stone-700 motion-reduce:transition-none dark:text-stone-500 dark:group-hover:text-stone-300 ${open ? "rotate-180" : ""}`} size={15} />
+            </button>
+          </h2>
+          <p className="text-[13px] leading-4.5 text-stone-500 dark:text-stone-400">{description}</p>
+        </div>
+      </div>
       <div hidden={!open} id={bodyId}>
         <div className="mt-4">{children}</div>
       </div>
