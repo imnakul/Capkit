@@ -7,34 +7,29 @@ import { SettingsView } from "./SettingsView";
 import { SavedCapturesView } from "./SavedCapturesView";
 import { ShowcaseView } from "./ShowcaseView";
 import { RecordView } from "./RecordView";
-import { StudioView } from "./StudioView";
 import type { SavedCapture } from "../../domain/capture";
-import type { RecordingArtifacts } from "../../domain/recording";
 import {
-  Dashboard as LayoutDashboard,
-  Film,
-  Image as Images,
+  Image,
   Moon,
+  Presentation,
   Record,
   Scan as ScanLine,
   Settings,
   Sun,
 } from "../icons";
 
-type DashboardTab = "dashboard" | "record" | "showcase" | "studio" | "settings";
+type DashboardTab = "screenshots" | "showcase" | "record" | "settings";
 
 const navigation = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "screenshots", label: "Screenshots", icon: Image },
+  { id: "showcase", label: "Showcase", icon: Presentation },
   { id: "record", label: "Record", icon: Record },
-  { id: "showcase", label: "Showcase", icon: Images },
-  { id: "studio", label: "Studio", icon: Film },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const satisfies readonly { id: DashboardTab; label: string; icon: typeof Settings }[];
 
 export function DashboardPanel(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<DashboardTab>("dashboard");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("screenshots");
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
-  const [studioRecording, setStudioRecording] = useState<RecordingArtifacts | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const { settings, updateSettings } = useSnaphubSettings();
 
@@ -140,7 +135,7 @@ export function DashboardPanel(): React.JSX.Element {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {activeTab === "dashboard" ? (
+        {activeTab === "screenshots" ? (
           <SavedCapturesView
             onShowcase={(capture) => {
               setShowcaseCapture(capture ?? null);
@@ -151,15 +146,8 @@ export function DashboardPanel(): React.JSX.Element {
           <ShowcaseView initialCapture={showcaseCapture} />
         ) : activeTab === "settings" ? (
           <SettingsView />
-        ) : activeTab === "record" ? (
-          <RecordView
-            onEdit={(recording) => {
-              setStudioRecording(recording);
-              setActiveTab("studio");
-            }}
-          />
         ) : (
-          <StudioView initialRecording={studioRecording} />
+          <RecordView />
         )}
       </main>
     </div>

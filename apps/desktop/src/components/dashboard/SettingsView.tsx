@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ChevronDown,
+  Clock,
   FolderSettings as FolderCog,
   FolderOpen,
   VerticalScroll as GalleryVerticalEnd,
@@ -35,6 +36,7 @@ import {
   updateGlobalShortcuts,
 } from "../../lib/tauri";
 import { captureCursor, onScreenCursor } from "../../lib/cursor";
+import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
 
 const neonColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ff5b4d", "#ffb547", "#ffffff", "#171717"] as const;
@@ -59,6 +61,65 @@ const configurableOnScreenToolIds: readonly OnScreenDrawingToolId[] = onScreenTo
 
 type ShortcutField = keyof SnaphubSettings["shortcuts"];
 
+/**
+ * Settings are grouped by the task someone is doing when they look for them,
+ * so anything added later goes into one of these tabs rather than growing a new
+ * column. Colors and the pointer live under Screenshots because Screen Draw
+ * owns its own versions of both.
+ */
+const settingsTabs = [
+  { id: "general", label: "General" },
+  { id: "screenshots", label: "Screenshots" },
+  { id: "screen-draw", label: "Screen Draw" },
+  { id: "shortcuts", label: "Shortcuts" },
+] as const satisfies readonly { id: SettingsTabId; label: string }[];
+
+type SettingsSectionId =
+  | "startup"
+  | "save-location"
+  | "theme-accent"
+  | "capture-toolbar"
+  | "colors"
+  | "detection"
+  | "capture-cursor"
+  | "scrolling"
+  | "on-screen-toolbar"
+  | "shortcuts";
+
+const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
+  general: ["startup", "save-location", "theme-accent"],
+  screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
+  "screen-draw": ["on-screen-toolbar"],
+  shortcuts: ["shortcuts"],
+};
+
+/** Sections whose body holds a shortcut row that can be mid-recording. */
+const shortcutSections: ReadonlySet<SettingsSectionId> = new Set<SettingsSectionId>([
+  "shortcuts",
+  "on-screen-toolbar",
+]);
+
+/** One section per tab starts open, so a tab always shows what it is for. */
+function defaultOpenSections(): Record<SettingsSectionId, boolean> {
+  const open: Record<SettingsSectionId, boolean> = {
+    startup: false,
+    "save-location": false,
+    "theme-accent": false,
+    "capture-toolbar": false,
+    colors: false,
+    detection: false,
+    "capture-cursor": false,
+    scrolling: false,
+    "on-screen-toolbar": false,
+    shortcuts: false,
+  };
+  for (const sections of Object.values(settingsSections)) {
+    const first = sections[0];
+    if (first !== undefined) open[first] = true;
+  }
+  return open;
+}
+
 export function SettingsView(): React.JSX.Element {
   const { settings, updateSettings } = useSnaphubSettings();
   const [customColor, setCustomColor] = useState("#8b5cf6");
@@ -67,6 +128,8 @@ export function SettingsView(): React.JSX.Element {
   const [saveDirectory, setSaveDirectoryState] = useState("Pictures\\Capkit");
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [choosingDirectory, setChoosingDirectory] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  const [openSections, setOpenSections] = useState<Record<SettingsSectionId, boolean>>(defaultOpenSections);
 
   useEffect(() => {
     void getSaveDirectory()
@@ -298,13 +361,8 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
-  async function resetBehavior(): Promise<void> {
-    update({
-      ...settings,
-      detection: defaultSnaphubSettings.detection,
-      openAtStartup: false,
-      overlay: defaultSnaphubSettings.overlay,
-    });
+  async function resetStartup(): Promise<void> {
+    update({ ...settings, openAtStartup: false });
     if (!isTauri()) return;
     try {
       const plugin = await import("@tauri-apps/plugin-autostart");
@@ -312,6 +370,22 @@ export function SettingsView(): React.JSX.Element {
     } catch (error: unknown) {
       console.error("SH-AUTOSTART-RESET-001", error);
     }
+  }
+
+  function resetDetection(): void {
+    update({
+      ...settings,
+      detection: defaultSnaphubSettings.detection,
+      overlay: defaultSnaphubSettings.overlay,
+    });
+  }
+
+  function toggleSection(id: SettingsSectionId): void {
+    const nextOpen = !openSections[id];
+    setOpenSections((current) => ({ ...current, [id]: nextOpen }));
+    // A shortcut waiting for a keystroke has nowhere to land once the section
+    // holding it closes, so the wait ends with the section.
+    if (!nextOpen && shortcutSections.has(id)) setRecordingShortcut(null);
   }
 
   async function chooseSaveDirectory(): Promise<void> {
@@ -360,196 +434,247 @@ export function SettingsView(): React.JSX.Element {
         <div className="mb-0.5 flex items-center gap-1.5 text-[12px] font-medium text-stone-500 dark:text-stone-400"><Check aria-hidden="true" className="text-emerald-600" size={13} />Saved locally</div>
       </header>
 
-      <div>
-        <SettingsSection icon={Palette} eyebrow="Capture style" title="Colors & default size" description="Pick up to five colors to keep one click away while annotating.">
-          <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
-            <div>
-              <div className="mb-2.5 flex items-center justify-between"><FieldLabel>Quick colors</FieldLabel><span className="text-[12px] tabular-nums text-stone-400 dark:text-stone-500">{settings.palette.length} / 5 selected</span></div>
-              <div className="flex flex-wrap gap-2">
-                {[...neonColors, ...settings.customColors].filter((color, index, colors) => colors.indexOf(color) === index).map((color) => {
-                  const selected = settings.palette.includes(color);
-                  return <ColorButton color={color} key={color} label={`${selected ? "Remove" : "Add"} ${color}`} selected={selected} disabled={!selected && settings.palette.length === 5} onClick={() => togglePalette(color)} />;
-                })}
-                <label className="relative grid size-8 cursor-pointer place-items-center rounded-full border border-dashed border-stone-400 bg-white text-stone-500 transition hover:border-stone-700 hover:text-stone-800 dark:border-stone-600 dark:bg-[#30312e] dark:hover:border-stone-400 dark:hover:text-stone-200" aria-label="Choose a custom color">
-                  <Plus aria-hidden="true" size={15} />
-                  <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={customColor} onChange={(event) => setCustomColor(event.currentTarget.value)} />
-                </label>
-                <button aria-label="Add custom color" className="rounded-md border border-stone-300 bg-white px-2.5 text-[13px] font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={addCustomColor}>Add custom</button>
-           </div>
-              {settings.palette.length === 5 ? <p className="mt-2 text-[12px] text-stone-400 dark:text-stone-500">Remove one color before adding another.</p> : null}
+      <SettingsTabs active={activeTab} onSelect={setActiveTab} tabs={settingsTabs}>
+        {activeTab === "general" ? (
+          <>
+          <SettingsSection id="startup" onToggle={toggleSection} open={openSections.startup} icon={Clock} eyebrow="Startup" title="Open at startup" description="Keep Capkit ready in the system tray as soon as you sign in.">
+            <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
+            <SectionReset onClick={() => void resetStartup()} />
+          </SettingsSection>
+          <SettingsSection id="theme-accent" onToggle={toggleSection} open={openSections["theme-accent"]} icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
+            <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
+            <SectionReset onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor })} />
+          </SettingsSection>
+          <SettingsSection id="save-location" onToggle={toggleSection} open={openSections["save-location"]} icon={FolderCog} eyebrow="Storage" title="Saved captures" description="Choose one predictable location for toolbar saves, scrolling captures, pinned-image saves, and Capture & save.">
+            <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-3 dark:border-white/10 dark:bg-[#2b2c29]">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={15} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-semibold text-stone-800 dark:text-stone-200">Default save location</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-stone-500 dark:text-stone-400" title={saveDirectory}>{saveDirectory}</p>
+              </div>
+              <button aria-label="Choose default save location" className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={choosingDirectory} type="button" onClick={() => void chooseSaveDirectory()}>{choosingDirectory ? "Opening…" : "Choose folder"}</button>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><FieldLabel>Default color</FieldLabel><ColorSelect colors={settings.palette} value={settings.annotation.defaultColor} onChange={(defaultColor) => update({ ...settings, annotation: { ...settings.annotation, defaultColor } })} /></div>
-              <label className="block"><FieldLabel>Default size</FieldLabel><div className="mt-1.5 flex h-9 items-center gap-2.5 rounded-md border border-stone-300 bg-white px-2.5 dark:border-white/10 dark:bg-[#30312e]"><input aria-label="Default annotation size" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="24" min="1" type="range" value={settings.annotation.defaultSize} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, defaultSize: Number(event.currentTarget.value) } })} /><span className="w-8 text-right font-mono text-[12px] font-semibold text-stone-600 dark:text-stone-300">{settings.annotation.defaultSize}px</span></div></label>
-            </div>
-          </div>
-          <SectionReset onClick={() => update({ ...settings, palette: defaultSnaphubSettings.palette, customColors: [], annotation: defaultSnaphubSettings.annotation })} />
-        </SettingsSection>
-
-        <SettingsSection icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
-          <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
-          <SectionReset onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor })} />
-        </SettingsSection>
-
-        <SettingsSection icon={SlidersHorizontal} eyebrow="Capture toolbar" title="Choose what stays within reach" description="Use direct tools for speed, or build ordered groups around your workflow.">
-          <ToolbarConfiguration toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
-          <SectionReset onClick={() => update({ ...settings, toolbar: defaultSnaphubSettings.toolbar })} />
-        </SettingsSection>
-
-        <SettingsSection icon={Keyboard} eyebrow="Keyboard" title="Shortcuts" description="Click a shortcut, then press the key combination you want. Escape cancels recording.">
-          <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
-            <ShortcutRow label="Start capture" description="Open the selection overlay" value={settings.shortcuts.capture} defaultValue={defaultSnaphubSettings.shortcuts.capture} recording={recordingShortcut === "capture"} onRecord={() => setRecordingShortcut("capture")} onReset={() => void resetShortcut("capture")} />
-            <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
-            <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
-            <ShortcutRow label="Start recording" description="Open the recorder, ready to choose a source and record" value={settings.shortcuts.recordToggle} defaultValue={defaultSnaphubSettings.shortcuts.recordToggle} recording={recordingShortcut === "recordToggle"} onRecord={() => setRecordingShortcut("recordToggle")} onReset={() => void resetShortcut("recordToggle")} />
-          </div>
-           <div className="mt-3 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#2b2c29]">
-             <div className="border-b border-stone-200 px-3 py-2.5 dark:border-white/8">
-               <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">While in capture mode</p>
-               <p className="mt-0.5 text-[12px] text-stone-500 dark:text-stone-400">Single keys work only after a region is selected. They never change your global shortcuts.</p>
+            {storageMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{storageMessage}</p>}
+            <SectionReset onClick={() => void resetStorage()} />
+          </SettingsSection>
+          </>
+        ) : activeTab === "screenshots" ? (
+          <>
+          <SettingsSection id="capture-toolbar" onToggle={toggleSection} open={openSections["capture-toolbar"]} icon={SlidersHorizontal} eyebrow="Capture toolbar" title="Choose what stays within reach" description="Use direct tools for speed, or build ordered groups around your workflow.">
+            <ToolbarConfiguration toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
+            <SectionReset onClick={() => update({ ...settings, toolbar: defaultSnaphubSettings.toolbar })} />
+          </SettingsSection>
+          <SettingsSection id="colors" onToggle={toggleSection} open={openSections.colors} icon={Palette} eyebrow="Capture style" title="Colors & default size" description="Pick up to five colors to keep one click away while annotating.">
+            <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
+              <div>
+                <div className="mb-2.5 flex items-center justify-between"><FieldLabel>Quick colors</FieldLabel><span className="text-[12px] tabular-nums text-stone-400 dark:text-stone-500">{settings.palette.length} / 5 selected</span></div>
+                <div className="flex flex-wrap gap-2">
+                  {[...neonColors, ...settings.customColors].filter((color, index, colors) => colors.indexOf(color) === index).map((color) => {
+                    const selected = settings.palette.includes(color);
+                    return <ColorButton color={color} key={color} label={`${selected ? "Remove" : "Add"} ${color}`} selected={selected} disabled={!selected && settings.palette.length === 5} onClick={() => togglePalette(color)} />;
+                  })}
+                  <label className="relative grid size-8 cursor-pointer place-items-center rounded-full border border-dashed border-stone-400 bg-white text-stone-500 transition hover:border-stone-700 hover:text-stone-800 dark:border-stone-600 dark:bg-[#30312e] dark:hover:border-stone-400 dark:hover:text-stone-200" aria-label="Choose a custom color">
+                    <Plus aria-hidden="true" size={15} />
+                    <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={customColor} onChange={(event) => setCustomColor(event.currentTarget.value)} />
+                  </label>
+                  <button aria-label="Add custom color" className="rounded-md border border-stone-300 bg-white px-2.5 text-[13px] font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={addCustomColor}>Add custom</button>
              </div>
-              <ShortcutRow label="Copy selection" description="Copy the edited capture and exit" value={settings.shortcuts.captureModeCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopy} recording={recordingShortcut === "captureModeCopy"} onRecord={() => setRecordingShortcut("captureModeCopy")} onReset={() => void resetShortcut("captureModeCopy")} />
-              <ShortcutRow label="Copy & Save selection" description="Copy and save the edited capture, then exit" value={settings.shortcuts.captureModeCopyAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopyAndSave} recording={recordingShortcut === "captureModeCopyAndSave"} onRecord={() => setRecordingShortcut("captureModeCopyAndSave")} onReset={() => void resetShortcut("captureModeCopyAndSave")} />
-              <ShortcutRow label="Save selection" description="Save the edited capture and exit" value={settings.shortcuts.captureModeSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeSave} recording={recordingShortcut === "captureModeSave"} onRecord={() => setRecordingShortcut("captureModeSave")} onReset={() => void resetShortcut("captureModeSave")} />
-           </div>
-           {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[12px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
-          <SectionReset onClick={() => void resetShortcuts()} />
-        </SettingsSection>
+                {settings.palette.length === 5 ? <p className="mt-2 text-[12px] text-stone-400 dark:text-stone-500">Remove one color before adding another.</p> : null}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><FieldLabel>Default color</FieldLabel><ColorSelect colors={settings.palette} value={settings.annotation.defaultColor} onChange={(defaultColor) => update({ ...settings, annotation: { ...settings.annotation, defaultColor } })} /></div>
+                <label className="block"><FieldLabel>Default size</FieldLabel><div className="mt-1.5 flex h-9 items-center gap-2.5 rounded-md border border-stone-300 bg-white px-2.5 dark:border-white/10 dark:bg-[#30312e]"><input aria-label="Default annotation size" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="24" min="1" type="range" value={settings.annotation.defaultSize} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, defaultSize: Number(event.currentTarget.value) } })} /><span className="w-8 text-right font-mono text-[12px] font-semibold text-stone-600 dark:text-stone-300">{settings.annotation.defaultSize}px</span></div></label>
+              </div>
+            </div>
 
-        <SettingsSection icon={Presentation} eyebrow="Presentation" title="On-screen toolbar" description="Toggle a temporary drawing layer over the monitor under your pointer. Press the same global shortcut or Escape to leave instantly.">
-          <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
-            <ShortcutRow label="Toggle on-screen toolbar" description="Enter or leave presentation drawing mode" value={settings.shortcuts.onScreenToggle} defaultValue={defaultSnaphubSettings.shortcuts.onScreenToggle} recording={recordingShortcut === "onScreenToggle"} onRecord={() => setRecordingShortcut("onScreenToggle")} onReset={() => void resetShortcut("onScreenToggle")} />
-          </div>
-          <div className="mt-3 divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
-            <div className="px-3 py-3">
-              <ToggleField label="Keep desktop live" description="Continue animations and screen updates beneath your drawings. Turn this off to annotate a frozen frame." checked={settings.onScreen.liveDesktop} onChange={(liveDesktop) => update({ ...settings, onScreen: { ...settings.onScreen, liveDesktop } })} />
+            <SectionReset onClick={() => update({ ...settings, palette: defaultSnaphubSettings.palette, customColors: [], annotation: defaultSnaphubSettings.annotation })} />
+          </SettingsSection>
+          <SettingsSection id="detection" onToggle={toggleSection} open={openSections.detection} icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what Capkit recognizes and how the frozen screen is shaded.">
+            <div className="grid gap-x-7 gap-y-4 lg:grid-cols-2">
+              <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
+              <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
+              <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
+              <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[12px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
             </div>
-            <div className="px-3 py-3">
-              <ToggleField label="Keep drawings between toggles" description="Restore persistent annotations when you leave and reopen Screen Draw mode" checked={settings.onScreen.persistDrawings} onChange={(persistDrawings) => update({ ...settings, onScreen: { ...settings.onScreen, persistDrawings } })} />
-            </div>
-          </div>
-          <div className="mt-5">
-            <div>
-              <FieldLabel>Drawing appearance</FieldLabel>
-              <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Set these once here. The presentation dock stays clear of color and size controls.</p>
-            </div>
-            <div className="mt-2.5 grid gap-3 rounded-lg border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-[#2b2c29] lg:grid-cols-[1.2fr_1fr_1fr]">
-              <div>
-                <FieldLabel>Color</FieldLabel>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input aria-label="Custom on-screen drawing color" className="size-8 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#333431]" type="color" value={settings.onScreen.color} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, color: event.currentTarget.value } })} />
-                  {neonColors.slice(0, 8).map((color) => (
-                    <button aria-label={`Use ${color} for on-screen drawing`} aria-pressed={settings.onScreen.color.toLowerCase() === color.toLowerCase()} className="grid size-7 place-items-center rounded-full outline-none transition hover:scale-105 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:ring-2 aria-pressed:ring-stone-900 aria-pressed:ring-offset-2 dark:aria-pressed:ring-white dark:aria-pressed:ring-offset-[#2b2c29]" key={color} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, color } })}>
-                      <span className="size-5 rounded-full border border-black/15" style={{ backgroundColor: color }} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="block">
-                <span className="flex items-center justify-between gap-3">
-                  <FieldLabel>Stroke width</FieldLabel>
-                  <span className="font-mono text-[11px] text-stone-500 dark:text-stone-400">{settings.onScreen.strokeSize}px</span>
-                </span>
-                <input aria-label="On-screen stroke width" className="mt-3 w-full accent-[var(--snaphub-accent)]" max="18" min="1" type="range" value={settings.onScreen.strokeSize} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, strokeSize: Number(event.currentTarget.value) } })} />
-              </label>
-              <label className="block">
-                <span className="flex items-center justify-between gap-3">
-                  <FieldLabel>Spotlight size</FieldLabel>
-                  <span className="font-mono text-[11px] text-stone-500 dark:text-stone-400">{settings.onScreen.spotlightSize}px</span>
-                </span>
-                <input aria-label="On-screen spotlight size" className="mt-3 w-full accent-[var(--snaphub-accent)]" max="360" min="80" step="10" type="range" value={settings.onScreen.spotlightSize} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, spotlightSize: Number(event.currentTarget.value) } })} />
-              </label>
-            </div>
-          </div>
-          <div className="mt-5">
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <FieldLabel>Number keys</FieldLabel>
-                <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Assign 0–9 once each. The number appears on the matching dock tool.</p>
-              </div>
-              <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-400">While active</span>
-            </div>
-            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-              {configurableOnScreenToolIds.map((tool) => (
-                <label className="flex items-center gap-3 rounded-md border border-stone-200 bg-white/60 px-3 py-2 dark:border-white/8 dark:bg-white/[0.025]" key={tool}>
-                  <span className="min-w-0 flex-1 text-[13px] font-semibold text-stone-700 dark:text-stone-300">{onScreenToolLabels[tool]}</span>
-                  <select aria-label={`Shortcut for ${onScreenToolLabels[tool]}`} className="h-7 w-16 rounded border border-stone-300 bg-white px-2 font-mono text-[12px] text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-200" value={settings.onScreen.toolShortcuts[tool]} onChange={(event) => updateOnScreenToolShortcut(tool, event.currentTarget.value)}>
-                    <option value="">Off</option>
-                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((key) => <option key={key} value={key}>{key}</option>)}
-                  </select>
-                </label>
+            <SectionReset onClick={resetDetection} />
+          </SettingsSection>
+          <SettingsSection id="capture-cursor" onToggle={toggleSection} open={openSections["capture-cursor"]} icon={MousePointer2} eyebrow="Pointer" title="Capture cursor" description="Only changes the precision cursor used over the frozen screen.">
+            <ToggleField label="Use Capkit drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
+            <div className="mt-4 grid grid-cols-3 gap-2">{(["crosshair", "target", "precision"] as const).map((cursorStyle) => { const previewCursor = captureCursor({ enabled: true, style: cursorStyle, size: settings.cursor.size }, settings.accentColor); return <button aria-label={`Use ${cursorStyle} cursor`} aria-pressed={settings.cursor.style === cursorStyle} className="group rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={cursorStyle} style={{ cursor: previewCursor }} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, style: cursorStyle } })}><span className="block text-xs font-semibold capitalize">{cursorStyle}</span><span className="mt-1 block text-[11px] text-stone-400 transition-colors group-hover:text-stone-600 dark:text-stone-500 dark:group-hover:text-stone-300">Hover to preview</span></button>; })}</div>
+            <div className="mt-4 max-w-xs"><FieldLabel>Cursor size</FieldLabel><div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">{(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} cursor`} aria-pressed={settings.cursor.size === size} className="rounded px-2.5 py-1.5 text-[12px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, size } })}>{size}</button>)}</div></div>
+            <SectionReset onClick={() => update({ ...settings, cursor: defaultSnaphubSettings.cursor })} />
+          </SettingsSection>
+          <SettingsSection id="scrolling" onToggle={toggleSection} open={openSections.scrolling} icon={GalleryVerticalEnd} eyebrow="Scrolling" title="Default capture method" description="Skip the chooser for your usual workflow, or ask every time.">
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Default scrolling capture method">
+              {([
+                ["automatic", "Automatic", "Scroll and stitch immediately"],
+                ["manual", "Manual", "You advance every frame"],
+                ["choose", "Always ask", "Show the method chooser"],
+              ] as const).map(([value, label, description]) => (
+                <button aria-label={`Use ${label} scrolling capture`} aria-checked={settings.scrolling.defaultMode === value} className="rounded-lg border border-stone-200 bg-white p-3 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:border-stone-700 aria-checked:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-checked:border-[var(--snaphub-accent)]/55 dark:aria-checked:bg-white/5" key={value} role="radio" type="button" onClick={() => update({ ...settings, scrolling: { defaultMode: value } })}><span className="block text-[13px] font-semibold text-stone-800 dark:text-stone-200">{label}</span><span className="mt-1 block text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</span></button>
               ))}
             </div>
-          </div>
-          <div className="mt-5">
-            <FieldLabel>On-screen cursor</FieldLabel>
-            <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Hover a choice to preview the exact cursor used on the presentation layer.</p>
-            <div className="mt-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
-              {(["ring", "laser", "precision", "crosshair"] as const).map((style) => {
-                const preview = onScreenCursor({ style, size: settings.onScreen.cursor.size }, settings.accentColor);
-                return <button aria-label={`Use ${style} on-screen cursor`} aria-pressed={settings.onScreen.cursor.style === style} className="rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={style} style={{ cursor: preview }} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, cursor: { ...settings.onScreen.cursor, style } } })}><span className="block text-[13px] font-semibold capitalize">{style}</span><span className="mt-1 block text-[11px] text-stone-400">Hover to preview</span></button>;
-              })}
+            <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
+          </SettingsSection>
+          </>
+        ) : activeTab === "screen-draw" ? (
+          <SettingsSection id="on-screen-toolbar" onToggle={toggleSection} open={openSections["on-screen-toolbar"]} icon={Presentation} eyebrow="Presentation" title="On-screen toolbar" description="Toggle a temporary drawing layer over the monitor under your pointer. Press the same global shortcut or Escape to leave instantly.">
+            <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
+              <ShortcutRow label="Toggle on-screen toolbar" description="Enter or leave presentation drawing mode" value={settings.shortcuts.onScreenToggle} defaultValue={defaultSnaphubSettings.shortcuts.onScreenToggle} recording={recordingShortcut === "onScreenToggle"} onRecord={() => setRecordingShortcut("onScreenToggle")} onReset={() => void resetShortcut("onScreenToggle")} />
             </div>
-            <div className="mt-3 max-w-xs">
-              <FieldLabel>Cursor size</FieldLabel>
-              <div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">
-                {(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} on-screen cursor`} aria-pressed={settings.onScreen.cursor.size === size} className="rounded px-2.5 py-1.5 text-[12px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, cursor: { ...settings.onScreen.cursor, size } } })}>{size}</button>)}
+            <div className="mt-3 divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
+              <div className="px-3 py-3">
+                <ToggleField label="Keep desktop live" description="Continue animations and screen updates beneath your drawings. Turn this off to annotate a frozen frame." checked={settings.onScreen.liveDesktop} onChange={(liveDesktop) => update({ ...settings, onScreen: { ...settings.onScreen, liveDesktop } })} />
+              </div>
+              <div className="px-3 py-3">
+                <ToggleField label="Keep drawings between toggles" description="Restore persistent annotations when you leave and reopen Screen Draw mode" checked={settings.onScreen.persistDrawings} onChange={(persistDrawings) => update({ ...settings, onScreen: { ...settings.onScreen, persistDrawings } })} />
               </div>
             </div>
-          </div>
-          <SectionReset onClick={() => void resetOnScreenSettings()} />
-        </SettingsSection>
-
-        <SettingsSection icon={FolderCog} eyebrow="Storage" title="Saved captures" description="Choose one predictable location for toolbar saves, scrolling captures, pinned-image saves, and Capture & save.">
-          <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-3 dark:border-white/10 dark:bg-[#2b2c29]">
-            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={15} /></span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold text-stone-800 dark:text-stone-200">Default save location</p>
-              <p className="mt-0.5 truncate font-mono text-[11px] text-stone-500 dark:text-stone-400" title={saveDirectory}>{saveDirectory}</p>
+            <div className="mt-5">
+              <div>
+                <FieldLabel>Drawing appearance</FieldLabel>
+                <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Set these once here. The presentation dock stays clear of color and size controls.</p>
+              </div>
+              <div className="mt-2.5 grid gap-3 rounded-lg border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-[#2b2c29] lg:grid-cols-[1.2fr_1fr_1fr]">
+                <div>
+                  <FieldLabel>Color</FieldLabel>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input aria-label="Custom on-screen drawing color" className="size-8 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#333431]" type="color" value={settings.onScreen.color} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, color: event.currentTarget.value } })} />
+                    {neonColors.slice(0, 8).map((color) => (
+                      <button aria-label={`Use ${color} for on-screen drawing`} aria-pressed={settings.onScreen.color.toLowerCase() === color.toLowerCase()} className="grid size-7 place-items-center rounded-full outline-none transition hover:scale-105 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:ring-2 aria-pressed:ring-stone-900 aria-pressed:ring-offset-2 dark:aria-pressed:ring-white dark:aria-pressed:ring-offset-[#2b2c29]" key={color} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, color } })}>
+                        <span className="size-5 rounded-full border border-black/15" style={{ backgroundColor: color }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="block">
+                  <span className="flex items-center justify-between gap-3">
+                    <FieldLabel>Stroke width</FieldLabel>
+                    <span className="font-mono text-[11px] text-stone-500 dark:text-stone-400">{settings.onScreen.strokeSize}px</span>
+                  </span>
+                  <input aria-label="On-screen stroke width" className="mt-3 w-full accent-[var(--snaphub-accent)]" max="18" min="1" type="range" value={settings.onScreen.strokeSize} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, strokeSize: Number(event.currentTarget.value) } })} />
+                </label>
+                <label className="block">
+                  <span className="flex items-center justify-between gap-3">
+                    <FieldLabel>Spotlight size</FieldLabel>
+                    <span className="font-mono text-[11px] text-stone-500 dark:text-stone-400">{settings.onScreen.spotlightSize}px</span>
+                  </span>
+                  <input aria-label="On-screen spotlight size" className="mt-3 w-full accent-[var(--snaphub-accent)]" max="360" min="80" step="10" type="range" value={settings.onScreen.spotlightSize} onChange={(event) => update({ ...settings, onScreen: { ...settings.onScreen, spotlightSize: Number(event.currentTarget.value) } })} />
+                </label>
+              </div>
             </div>
-            <button aria-label="Choose default save location" className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={choosingDirectory} type="button" onClick={() => void chooseSaveDirectory()}>{choosingDirectory ? "Opening…" : "Choose folder"}</button>
-          </div>
-          {storageMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{storageMessage}</p>}
-          <SectionReset onClick={() => void resetStorage()} />
-        </SettingsSection>
-
-        <SettingsSection icon={GalleryVerticalEnd} eyebrow="Scrolling" title="Default capture method" description="Skip the chooser for your usual workflow, or ask every time.">
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Default scrolling capture method">
-            {([
-              ["automatic", "Automatic", "Scroll and stitch immediately"],
-              ["manual", "Manual", "You advance every frame"],
-              ["choose", "Always ask", "Show the method chooser"],
-            ] as const).map(([value, label, description]) => (
-              <button aria-label={`Use ${label} scrolling capture`} aria-checked={settings.scrolling.defaultMode === value} className="rounded-lg border border-stone-200 bg-white p-3 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:border-stone-700 aria-checked:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-checked:border-[var(--snaphub-accent)]/55 dark:aria-checked:bg-white/5" key={value} role="radio" type="button" onClick={() => update({ ...settings, scrolling: { defaultMode: value } })}><span className="block text-[13px] font-semibold text-stone-800 dark:text-stone-200">{label}</span><span className="mt-1 block text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</span></button>
-            ))}
-          </div>
-          <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
-        </SettingsSection>
-
-        <SettingsSection icon={ScanSearch} eyebrow="Behavior" title="Detection & overlay" description="Tune what Capkit recognizes and how the frozen screen is shaded.">
-          <div className="grid gap-x-7 gap-y-4 lg:grid-cols-2">
-            <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
-            <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
-          <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
-            <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[12px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
-          </div>
-          <SectionReset onClick={() => void resetBehavior()} />
-        </SettingsSection>
-
-        <SettingsSection icon={MousePointer2} eyebrow="Pointer" title="Capture cursor" description="Only changes the precision cursor used over the frozen screen.">
-          <ToggleField label="Use Capkit drawing cursor" description="Turn off to use the standard system crosshair" checked={settings.cursor.enabled} onChange={(enabled) => update({ ...settings, cursor: { ...settings.cursor, enabled } })} />
-          <div className="mt-4 grid grid-cols-3 gap-2">{(["crosshair", "target", "precision"] as const).map((cursorStyle) => { const previewCursor = captureCursor({ enabled: true, style: cursorStyle, size: settings.cursor.size }, settings.accentColor); return <button aria-label={`Use ${cursorStyle} cursor`} aria-pressed={settings.cursor.style === cursorStyle} className="group rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={cursorStyle} style={{ cursor: previewCursor }} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, style: cursorStyle } })}><span className="block text-xs font-semibold capitalize">{cursorStyle}</span><span className="mt-1 block text-[11px] text-stone-400 transition-colors group-hover:text-stone-600 dark:text-stone-500 dark:group-hover:text-stone-300">Hover to preview</span></button>; })}</div>
-          <div className="mt-4 max-w-xs"><FieldLabel>Cursor size</FieldLabel><div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">{(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} cursor`} aria-pressed={settings.cursor.size === size} className="rounded px-2.5 py-1.5 text-[12px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, cursor: { ...settings.cursor, size } })}>{size}</button>)}</div></div>
-          <SectionReset onClick={() => update({ ...settings, cursor: defaultSnaphubSettings.cursor })} />
-        </SettingsSection>
-      </div>
+            <div className="mt-5">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <FieldLabel>Number keys</FieldLabel>
+                  <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Assign 0–9 once each. The number appears on the matching dock tool.</p>
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone-400">While active</span>
+              </div>
+              <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                {configurableOnScreenToolIds.map((tool) => (
+                  <label className="flex items-center gap-3 rounded-md border border-stone-200 bg-white/60 px-3 py-2 dark:border-white/8 dark:bg-white/[0.025]" key={tool}>
+                    <span className="min-w-0 flex-1 text-[13px] font-semibold text-stone-700 dark:text-stone-300">{onScreenToolLabels[tool]}</span>
+                    <select aria-label={`Shortcut for ${onScreenToolLabels[tool]}`} className="h-7 w-16 rounded border border-stone-300 bg-white px-2 font-mono text-[12px] text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-200" value={settings.onScreen.toolShortcuts[tool]} onChange={(event) => updateOnScreenToolShortcut(tool, event.currentTarget.value)}>
+                      <option value="">Off</option>
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((key) => <option key={key} value={key}>{key}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="mt-5">
+              <FieldLabel>On-screen cursor</FieldLabel>
+              <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">Hover a choice to preview the exact cursor used on the presentation layer.</p>
+              <div className="mt-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                {(["ring", "laser", "precision", "crosshair"] as const).map((style) => {
+                  const preview = onScreenCursor({ style, size: settings.onScreen.cursor.size }, settings.accentColor);
+                  return <button aria-label={`Use ${style} on-screen cursor`} aria-pressed={settings.onScreen.cursor.style === style} className="rounded-lg border border-stone-200 bg-white p-2.5 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-700 aria-pressed:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-pressed:border-stone-500 dark:aria-pressed:bg-white/6" key={style} style={{ cursor: preview }} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, cursor: { ...settings.onScreen.cursor, style } } })}><span className="block text-[13px] font-semibold capitalize">{style}</span><span className="mt-1 block text-[11px] text-stone-400">Hover to preview</span></button>;
+                })}
+              </div>
+              <div className="mt-3 max-w-xs">
+                <FieldLabel>Cursor size</FieldLabel>
+                <div className="mt-1.5 grid grid-cols-3 rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#2b2c29]">
+                  {(["small", "medium", "large"] as const).map((size) => <button aria-label={`Use ${size} on-screen cursor`} aria-pressed={settings.onScreen.cursor.size === size} className="rounded px-2.5 py-1.5 text-[12px] font-semibold capitalize text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:bg-stone-900 aria-pressed:text-white dark:text-stone-400 dark:hover:text-white dark:aria-pressed:bg-white/10" key={size} type="button" onClick={() => update({ ...settings, onScreen: { ...settings.onScreen, cursor: { ...settings.onScreen.cursor, size } } })}>{size}</button>)}
+                </div>
+              </div>
+            </div>
+            <SectionReset onClick={() => void resetOnScreenSettings()} />
+          </SettingsSection>
+        ) : (
+          <SettingsSection id="shortcuts" onToggle={toggleSection} open={openSections.shortcuts} icon={Keyboard} eyebrow="Keyboard" title="Shortcuts" description="Click a shortcut, then press the key combination you want. Escape cancels recording.">
+            <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
+              <ShortcutRow label="Start capture" description="Open the selection overlay" value={settings.shortcuts.capture} defaultValue={defaultSnaphubSettings.shortcuts.capture} recording={recordingShortcut === "capture"} onRecord={() => setRecordingShortcut("capture")} onReset={() => void resetShortcut("capture")} />
+              <ShortcutRow label="Capture & copy" description="Capture, then place the result on your clipboard" value={settings.shortcuts.captureAndCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureAndCopy} recording={recordingShortcut === "captureAndCopy"} onRecord={() => setRecordingShortcut("captureAndCopy")} onReset={() => void resetShortcut("captureAndCopy")} />
+              <ShortcutRow label="Capture & save" description="Capture, then save using your default location" value={settings.shortcuts.captureAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureAndSave} recording={recordingShortcut === "captureAndSave"} onRecord={() => setRecordingShortcut("captureAndSave")} onReset={() => void resetShortcut("captureAndSave")} />
+              <ShortcutRow label="Start recording" description="Open the recorder, ready to choose a source and record" value={settings.shortcuts.recordToggle} defaultValue={defaultSnaphubSettings.shortcuts.recordToggle} recording={recordingShortcut === "recordToggle"} onRecord={() => setRecordingShortcut("recordToggle")} onReset={() => void resetShortcut("recordToggle")} />
+            </div>
+             <div className="mt-3 rounded-lg border border-stone-200 bg-white dark:border-white/10 dark:bg-[#2b2c29]">
+               <div className="border-b border-stone-200 px-3 py-2.5 dark:border-white/8">
+                 <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">While in capture mode</p>
+                 <p className="mt-0.5 text-[12px] text-stone-500 dark:text-stone-400">Single keys work only after a region is selected. They never change your global shortcuts.</p>
+               </div>
+                <ShortcutRow label="Copy selection" description="Copy the edited capture and exit" value={settings.shortcuts.captureModeCopy} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopy} recording={recordingShortcut === "captureModeCopy"} onRecord={() => setRecordingShortcut("captureModeCopy")} onReset={() => void resetShortcut("captureModeCopy")} />
+                <ShortcutRow label="Copy & Save selection" description="Copy and save the edited capture, then exit" value={settings.shortcuts.captureModeCopyAndSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeCopyAndSave} recording={recordingShortcut === "captureModeCopyAndSave"} onRecord={() => setRecordingShortcut("captureModeCopyAndSave")} onReset={() => void resetShortcut("captureModeCopyAndSave")} />
+                <ShortcutRow label="Save selection" description="Save the edited capture and exit" value={settings.shortcuts.captureModeSave} defaultValue={defaultSnaphubSettings.shortcuts.captureModeSave} recording={recordingShortcut === "captureModeSave"} onRecord={() => setRecordingShortcut("captureModeSave")} onReset={() => void resetShortcut("captureModeSave")} />
+             </div>
+             {shortcutMessage === null ? null : <p aria-live="polite" className="mt-2.5 text-[12px] text-stone-500 dark:text-stone-400">{shortcutMessage}</p>}
+            <SectionReset onClick={() => void resetShortcuts()} />
+          </SettingsSection>
+        )}
+      </SettingsTabs>
     </div>
   );
 }
 
-type SettingsSectionProps = { icon: typeof Palette; eyebrow: string; title: string; description: string; children: React.ReactNode };
-function SettingsSection({ icon: Icon, eyebrow, title, description, children }: SettingsSectionProps): React.JSX.Element {
-  return <section className="border-b border-stone-300/80 py-6 first:pt-0 dark:border-white/10"><div className="mb-4 flex gap-2.5"><div className="grid size-8 shrink-0 place-items-center rounded-md border border-stone-200 bg-white text-stone-600 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300"><Icon aria-hidden="true" size={15} /></div><div><p className="text-[11px] font-bold uppercase tracking-[0.17em] text-stone-400 dark:text-stone-500">{eyebrow}</p><h2 className="mt-0.5 text-sm font-semibold tracking-tight dark:text-stone-100">{title}</h2><p className="mt-0.5 text-[13px] leading-4.5 text-stone-500 dark:text-stone-400">{description}</p></div></div>{children}</section>;
+type SettingsSectionProps = {
+  id: SettingsSectionId;
+  open: boolean;
+  onToggle: (id: SettingsSectionId) => void;
+  icon: typeof Palette;
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+};
+
+/**
+ * One collapsible settings group, following the ARIA accordion pattern: the
+ * `h2` wraps the toggle and holds nothing but the title, so the control is
+ * announced as "Shortcuts, collapsed" and heading navigation still lands on the
+ * section. The eyebrow and description stay outside the button because they are
+ * not part of what the control is called. The body is hidden with `hidden`
+ * rather than an animated height: a tab can hold several open sections, and
+ * sliding them would fight each other.
+ */
+function SettingsSection({ id, open, onToggle, icon: Icon, eyebrow, title, description, children }: SettingsSectionProps): React.JSX.Element {
+  const bodyId = `settings-section-${id}`;
+  return (
+    <section className="border-b border-stone-300/80 py-6 first:pt-0 dark:border-white/10">
+      <div className="flex gap-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-md border border-stone-200 bg-white text-stone-600 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-300"><Icon aria-hidden="true" size={15} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-[0.17em] text-stone-400 dark:text-stone-500">{eyebrow}</p>
+          <h2 className="mt-0.5">
+            <button
+              aria-controls={bodyId}
+              aria-expanded={open}
+              className="group flex w-full items-center justify-between gap-2 rounded-md py-1 text-left text-sm font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-100"
+              type="button"
+              onClick={() => onToggle(id)}
+            >
+              {title}
+              <ChevronDown aria-hidden="true" className={`shrink-0 text-stone-400 transition-transform duration-150 group-hover:text-stone-700 motion-reduce:transition-none dark:text-stone-500 dark:group-hover:text-stone-300 ${open ? "rotate-180" : ""}`} size={15} />
+            </button>
+          </h2>
+          <p className="text-[13px] leading-4.5 text-stone-500 dark:text-stone-400">{description}</p>
+        </div>
+      </div>
+      <div hidden={!open} id={bodyId}>
+        <div className="mt-4">{children}</div>
+      </div>
+    </section>
+  );
 }
 
 type ColorSelectProps = {

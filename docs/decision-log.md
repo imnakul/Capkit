@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-26 - Pinned images move by a drag handle; click-through removed
+
+- **Confirmed:** Pinned images are moved via a drag handle in their corner, supporting pointer drag and keyboard nudges with arrow keys (10 physical px, or 50 with Shift).
+- **Removed:** Click-through is removed entirely. Once cursor events were ignored on Windows, the window could not receive mouse or keyboard focus, leaving no reachable way back for the user to disable click-through or interact with the pin.
+- **Rationale:** Moving the pin out of the way via a drag handle replaces the primary use case of click-through while keeping the window responsive and interactive.
+
 ## 2026-09-26 - Releases are version-triggered on master
 
 - **Confirmed:** `apps/desktop/src-tauri/tauri.conf.json` `version` is the single source of truth; `package.json`, `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` must always match it, enforced by `pnpm version:check` in CI.

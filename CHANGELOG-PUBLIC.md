@@ -13,24 +13,22 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 ### Improved
 
 - Capture opens faster and closes instantly.
+- Settings are organized into General, Screenshots, Screen Draw and Shortcuts tabs.
+- Record now holds your recordings and editing; Dashboard is renamed Screenshots.
+- Drag pinned images anywhere with the handle in their corner.
 
 ### Fixed
 
 - Closing capture no longer leaves a black screen.
 - Text in Screen Draw now appears where you click.
+- Recording opens again from Record and its shortcut.
 - The capture screen no longer shifts slightly when it opens, and saved screenshots match the selected area exactly.
 - Capture no longer flashes dark when it opens.
 - The Screen Draw laser follows the cursor smoothly and fades out after you release it.
 
-## 2026-09-26
+### Removed
 
-### Fixed
-
-- Text in Screen Draw now appears where you click.
-
-### Improved
-
-- Capture opens faster and closes instantly.
+- Click-through for pinned images.
 
 ## 2026-09-25
 
