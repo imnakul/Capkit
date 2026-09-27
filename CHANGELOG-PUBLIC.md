@@ -2,6 +2,21 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.2.1 — 2026-09-28
+
+### Fixed
+
+- The recorder opens on the first click.
+- The source previews are visible.
+- The Screenshots page is full width.
+- The cursor shows in recordings.
+- Camera access can be retried.
+
+### Added
+
+- Draw an area to record.
+- Choose the microphone and speaker.
+
 ## 0.2.0 — 2026-09-26
 
 ### Added

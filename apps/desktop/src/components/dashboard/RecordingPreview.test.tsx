@@ -72,25 +72,27 @@ describe("RecordingPreview", () => {
     render(<RecordingPreview item={item} />);
     expect(loadTrack).not.toHaveBeenCalled();
 
-    const video = screen.getByLabelText("Recording 0:10");
-    stubMedia(video);
-    fireEvent.play(video);
+    const preview = screen.getByLabelText("Recording 0:10");
+    if (!(preview instanceof HTMLVideoElement)) throw new Error("preview video must render");
+    stubMedia(preview);
+    fireEvent.play(preview);
     await vi.waitFor(() => expect(loadTrack).toHaveBeenCalledTimes(1));
 
-    fireEvent.pause(video);
-    fireEvent.play(video);
+    fireEvent.pause(preview);
+    fireEvent.play(preview);
     expect(loadTrack).toHaveBeenCalledTimes(1);
   });
 
   it("plays plainly with no overlay work when there is no cursor track", () => {
     render(<RecordingPreview item={{ ...item, cursorPath: null }} />);
 
-    const video = screen.getByLabelText("Recording 0:10");
-    stubMedia(video);
-    fireEvent.play(video);
+    const preview = screen.getByLabelText("Recording 0:10");
+    if (!(preview instanceof HTMLVideoElement)) throw new Error("preview video must render");
+    stubMedia(preview);
+    fireEvent.play(preview);
 
     expect(loadTrack).not.toHaveBeenCalled();
-    expect(video).toHaveAttribute("src", item.videoPath);
+    expect(preview).toHaveAttribute("src", item.videoPath);
   });
 
   it("maps a wide video into a tall box and a tall video into a wide box", () => {
