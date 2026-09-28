@@ -1694,6 +1694,9 @@ fn close_recorder(
     if let Some(window) = app.get_webview_window("record-region") {
         let _ = window.destroy();
     }
+    if let Some(window) = app.get_webview_window("camera") {
+        let _ = window.destroy();
+    }
     if let Some(window) = app.get_webview_window("recorder") {
         let _ = window.destroy();
     }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cameraShapes, type CameraShape } from "../domain/videoScene";
+import { Cancel, CircleShape, RoundedSquareShape, SquareShape } from "./icons";
 import {
   cameraReady,
   closeCamera,
@@ -11,6 +13,26 @@ const shapeClass: Readonly<Record<CameraShape, string>> = {
   circle: "rounded-full",
   rounded: "rounded-[22%]",
   square: "rounded-none",
+};
+
+/** Hard clip for the live image. A transformed video escapes `overflow:
+ * hidden` + radius in Chromium, so the clip follows the border shape. */
+const shapeClip: Readonly<Record<CameraShape, string>> = {
+  circle: "[clip-path:circle(50%)]",
+  rounded: "[clip-path:inset(0_round_22%)]",
+  square: "",
+};
+
+const shapeIcon: Readonly<Record<CameraShape, typeof CircleShape>> = {
+  circle: CircleShape,
+  rounded: RoundedSquareShape,
+  square: SquareShape,
+};
+
+const shapeLabel: Readonly<Record<CameraShape, string>> = {
+  circle: "Circle camera",
+  rounded: "Rounded camera",
+  square: "Square camera",
 };
 
 type CameraFailure =
@@ -119,41 +141,55 @@ export function CameraPreview(): React.JSX.Element {
   return (
     <div className="group flex h-screen w-screen items-center justify-center bg-transparent p-1">
       {failure === null ? (
-        <div className={`relative size-full overflow-hidden border-2 border-white/70 bg-black shadow-[0_18px_48px_rgba(0,0,0,0.5)] ${shapeClass[shape]}`}>
-          <video
-            aria-label="Camera preview"
-            autoPlay
-            className="size-full -scale-x-100 object-cover"
-            muted
-            playsInline
-            ref={videoRef}
-          />
+        <div className={`relative size-full border-2 border-white/70 bg-black shadow-[0_18px_48px_rgba(0,0,0,0.5)] ${shapeClass[shape]}`}>
+          <div
+            className={`size-full ${shapeClip[shape]}`}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              if (event.target instanceof Element && event.target.closest("[data-camera-control]") !== null) return;
+              event.preventDefault();
+              void getCurrentWindow().startDragging().catch(() => undefined);
+            }}
+          >
+            <video
+              aria-label="Camera preview"
+              autoPlay
+              className="size-full -scale-x-100 object-cover"
+              muted
+              playsInline
+              ref={videoRef}
+            />
+          </div>
           {/* Controls stay hidden until hover so the preview reads as a camera,
               not a widget, while the presenter is on screen. */}
           <div
             aria-label="Camera shape"
             className="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-black/55 p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            data-camera-control="true"
             role="group"
           >
-            {cameraShapes.map((option) => (
-              <button
-                aria-label={`Use a ${option} camera`}
-                aria-pressed={shape === option}
-                className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-stone-300 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white aria-pressed:bg-white aria-pressed:text-stone-900"
-                key={option}
-                type="button"
-                onClick={() => setShape(option)}
-              >
-                {option}
-              </button>
-            ))}
+            {cameraShapes.map((option) => {
+              const Icon = shapeIcon[option];
+              return (
+                <button
+                  aria-label={shapeLabel[option]}
+                  aria-pressed={shape === option}
+                  className="grid size-[22px] place-items-center rounded text-stone-300 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white aria-pressed:bg-white aria-pressed:text-stone-900"
+                  key={option}
+                  type="button"
+                  onClick={() => setShape(option)}
+                >
+                  <Icon aria-hidden="true" size={12} />
+                </button>
+              );
+            })}
             <button
               aria-label="Close the camera"
-              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#ff8a80] outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white"
+              className="grid size-[22px] place-items-center rounded text-[#ff8a80] outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-white"
               type="button"
               onClick={() => void closeCamera()}
             >
-              close
+              <Cancel aria-hidden="true" size={12} />
             </button>
           </div>
         </div>

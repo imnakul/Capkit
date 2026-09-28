@@ -8,7 +8,14 @@ const mocks = {
   prepare: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   settings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   stream: vi.fn<() => Promise<MediaStream>>(),
+  drag: vi.fn<() => Promise<void>>(() => Promise.resolve()),
 };
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: (): { startDragging: () => Promise<void> } => ({
+    startDragging: (): Promise<void> => mocks.drag(),
+  }),
+}));
 
 vi.mock("../lib/recordingTauri", () => ({
   cameraReady: (mode: string): Promise<void> => mocks.ready(mode),
@@ -79,6 +86,56 @@ describe("CameraPreview", () => {
       expect(screen.getByRole("button", { name: "Close the camera" })).toBeVisible();
     },
   );
+
+  it("shows shape glyphs with pressed state and no text", async () => {
+    mocks.stream.mockResolvedValue({ getTracks: () => [] } as unknown as MediaStream);
+    render(<CameraPreview />);
+    await screen.findByLabelText("Camera preview");
+
+    for (const name of ["Circle camera", "Rounded camera", "Square camera"] as const) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveTextContent("");
+      expect(button.querySelector("svg")).not.toBeNull();
+    }
+    expect(screen.getByRole("button", { name: "Circle camera" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Square camera" }));
+    expect(screen.getByRole("button", { name: "Square camera" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const close = screen.getByRole("button", { name: "Close the camera" });
+    expect(close.querySelector("svg")).not.toBeNull();
+    expect(close).not.toHaveTextContent("close");
+  });
+
+  it("clips the bubble per shape", async () => {
+    mocks.stream.mockResolvedValue({ getTracks: () => [] } as unknown as MediaStream);
+    render(<CameraPreview />);
+    const video = await screen.findByLabelText("Camera preview");
+    const wrapper = video.parentElement;
+    expect(wrapper?.className).toContain("[clip-path:circle(50%)]");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rounded camera" }));
+    expect(video.parentElement?.className).toContain("[clip-path:inset(0_round_22%)]");
+
+    fireEvent.click(screen.getByRole("button", { name: "Square camera" }));
+    expect(video.parentElement?.className).not.toContain("clip-path");
+  });
+
+  it("drags the bubble but not from its controls", async () => {
+    mocks.stream.mockResolvedValue({ getTracks: () => [] } as unknown as MediaStream);
+    render(<CameraPreview />);
+    const video = await screen.findByLabelText("Camera preview");
+
+    fireEvent.pointerDown(video, { button: 0 });
+    expect(mocks.drag).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Circle camera" }), { button: 0 });
+    expect(mocks.drag).toHaveBeenCalledTimes(1);
+  });
 
   it("retries in place and reveals the live bubble on success", async () => {
     mocks.stream.mockImplementation(failingStream("NotAllowedError"));
