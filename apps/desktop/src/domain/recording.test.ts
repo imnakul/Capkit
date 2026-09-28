@@ -17,6 +17,7 @@ const display: RecordingSource = {
   displayId: "1",
   scaleFactor: 1,
   isPrimary: true,
+  refreshRate: 144,
   thumbnailPath: null,
 };
 
@@ -93,6 +94,26 @@ describe("requests", () => {
       toRecordingRequest({ ...parsed, systemAudioDeviceId: "speakers-2" }, display, null)
         .systemAudioDeviceId,
     ).toBe("speakers-2");
+  });
+
+  it("resolves native to the display rate, floored at 60", () => {
+    expect(
+      toRecordingRequest({ ...defaultRecorderSettings, fps: "native" }, display, null).fps,
+    ).toBe(144);
+    expect(
+      toRecordingRequest(
+        { ...defaultRecorderSettings, fps: "native" },
+        { ...display, refreshRate: 50 },
+        null,
+      ).fps,
+    ).toBe(60);
+    expect(toRecordingRequest(defaultRecorderSettings, display, null).fps).toBe(30);
+  });
+
+  it("parses settings saved before native existed", () => {
+    const legacy = JSON.parse(JSON.stringify(defaultRecorderSettings)) as Record<string, unknown>;
+    const parsed = readRecorderSettings(JSON.stringify(legacy));
+    expect(parsed.fps).toBe(30);
   });
 
   it("leaves the hardware cursor out of the frames by default", () => {

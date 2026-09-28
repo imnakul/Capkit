@@ -117,7 +117,7 @@ describe("DashboardPanel", () => {
       resets += screen.getAllByRole("button", { name: "Reset this section" }).length;
     }
 
-    expect(resets).toBe(10);
+    expect(resets).toBe(11);
   });
 
   it("provides inline resets for overlay tint and individual shortcuts", () => {
@@ -391,7 +391,7 @@ describe("DashboardPanel", () => {
 
 /** Section titles per tab, in the order each tab shows them. */
 const sectionTitles = {
-  General: ["Open at startup", "Theme accent", "Saved captures"],
+  General: ["Open at startup", "Theme accent", "Saved captures", "Saved recordings"],
   Screenshots: [
     "Choose what stays within reach",
     "Colors & default size",

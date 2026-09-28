@@ -77,6 +77,15 @@ function seek(video: HTMLVideoElement, time: number): Promise<void> {
   });
 }
 
+/** Seeks the main video and, when present, the camera to the same time. */
+export async function seekAll(
+  request: Pick<ExportRequest, "video" | "camera">,
+  time: number,
+): Promise<void> {
+  await seek(request.video, time);
+  if (request.camera !== null) await seek(request.camera, time);
+}
+
 /**
  * Renders and encodes the trimmed composition.
  *
@@ -135,7 +144,7 @@ export async function exportVideo(request: ExportRequest): Promise<Blob> {
       throw new DOMException("Export cancelled", "AbortError");
     }
     const time = index / fps;
-    await seek(video, scene.trim.start + time);
+    await seekAll(request, scene.trim.start + time);
     drawOne(context, scene, request, { width, height }, mediaSize, keyframes, cursorPath, events, time);
 
     const frame = new VideoFrame(canvas, { timestamp: Math.round(time * 1e6), duration: Math.round(1e6 / fps) });
@@ -189,7 +198,7 @@ async function exportGif(gif: GifContext): Promise<Blob> {
   for (let index = 0; index < total; index += 1) {
     if (gif.signal?.aborted === true) throw new DOMException("Export cancelled", "AbortError");
     const time = index / gifFps;
-    await seek(gif.video, gif.scene.trim.start + time);
+    await seekAll(gif, gif.scene.trim.start + time);
     drawOne(gif.context, gif.scene, gif, { width: gif.width, height: gif.height }, gif.mediaSize, gif.keyframes, gif.cursorPath, gif.events, time);
     outContext.drawImage(gif.canvas, 0, 0, width, height);
     encoder.addFrame(outContext.getImageData(0, 0, width, height), Math.round(100 / gifFps));

@@ -68,6 +68,7 @@ import {
   SplinePointerIcon,
   SpotlightIcon,
   SquareIcon,
+  SquareRoundCornerIcon,
   Sun03Icon,
   Tablet01Icon,
   TextIcon,
@@ -177,6 +178,7 @@ export const Smartphone = createCapkitIcon(SmartPhone01Icon);
 export const Sparkles = createCapkitIcon(SparklesIcon);
 export const Spotlight = createCapkitIcon(SpotlightIcon);
 export const SquareShape = createCapkitIcon(SquareIcon);
+export const RoundedSquareShape = createCapkitIcon(SquareRoundCornerIcon);
 export const Sun = createCapkitIcon(Sun03Icon);
 export const Tablet = createCapkitIcon(Tablet01Icon);
 export const Text = createCapkitIcon(TextIcon);

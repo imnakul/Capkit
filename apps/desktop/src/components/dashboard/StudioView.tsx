@@ -9,6 +9,7 @@ import {
 } from "../../domain/recording";
 import { fitRatioBox, stageAspectRatio, type Look, type Size } from "../../domain/showcase";
 import {
+  cameraRect,
   defaultVideoScene,
   storedVideoScenesSchema,
   trimmedDuration,
@@ -67,9 +68,12 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
   const [areaSize, setAreaSize] = useState<Size>({ width: 960, height: 540 });
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const areaRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef(0);
+  const cameraDragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const [cameraHover, setCameraHover] = useState(false);
 
   useEffect(() => {
     const entries = readLibrary();
@@ -133,6 +137,8 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     [track],
   );
 
+  const hasCameraTrack = selected?.cameraPath != null;
+
   // One renderer for preview and export, driven here at animation rate.
   const draw = useCallback(
     (at: number) => {
@@ -152,7 +158,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
           media: video,
           mediaSize,
           background: null,
-          camera: null,
+          camera: hasCameraTrack ? cameraRef.current : null,
           cursor: cursorPath.length === 0 ? null : cursorAt(cursorPath, at),
           clickPulse: clickPulseAt(track?.events ?? [], at),
         },
@@ -161,26 +167,42 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
         at,
       );
     },
-    [scene, mediaSize, stageBox, keyframes, cursorPath, track],
+    [scene, mediaSize, stageBox, keyframes, cursorPath, track, hasCameraTrack],
   );
 
   useEffect(() => {
     draw(time);
   }, [draw, time]);
 
+  const syncCamera = useCallback((to: number, play: boolean): void => {
+    const camera = cameraRef.current;
+    if (camera === null) return;
+    if (Math.abs(camera.currentTime - to) > 0.05 || camera.paused === play) {
+      camera.currentTime = to;
+    }
+    if (play) void camera.play().catch(() => undefined);
+    else camera.pause();
+  }, []);
+
   useEffect(() => {
     if (!playing) return;
     const video = videoRef.current;
     if (video === null) return;
+    syncCamera(video.currentTime, true);
     void video.play().catch(() => setPlaying(false));
 
     const tick = (): void => {
       const current = video.currentTime;
       if (current >= scene.trim.end) {
         video.pause();
+        syncCamera(current, false);
         setPlaying(false);
         setTime(scene.trim.end);
         return;
+      }
+      const camera = cameraRef.current;
+      if (camera !== null && Math.abs(camera.currentTime - current) > 0.15) {
+        camera.currentTime = current;
       }
       setTime(current);
       draw(current);
@@ -190,13 +212,15 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     return (): void => {
       window.cancelAnimationFrame(frameRef.current);
       video.pause();
+      syncCamera(video.currentTime, false);
     };
-  }, [playing, scene.trim.end, draw]);
+  }, [playing, scene.trim.end, draw, syncCamera]);
 
   function seek(next: number): void {
     const video = videoRef.current;
     setTime(next);
     if (video !== null) video.currentTime = next;
+    syncCamera(next, false);
   }
 
   function togglePlay(): void {
@@ -204,11 +228,65 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     if (video === null) return;
     if (playing) {
       video.pause();
+      syncCamera(video.currentTime, false);
       setPlaying(false);
       return;
     }
     if (time >= scene.trim.end - 0.05) seek(scene.trim.start);
     setPlaying(true);
+  }
+
+  function stagePoint(event: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number } | null {
+    const canvas = canvasRef.current;
+    if (canvas === null) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * stageBox.width,
+      y: ((event.clientY - rect.top) / rect.height) * stageBox.height,
+    };
+  }
+
+  function inCameraBubble(point: { x: number; y: number }): { x: number; y: number; width: number; height: number } | null {
+    if (!hasCameraTrack || !scene.camera.show) return null;
+    const bubble = cameraRect(scene.camera, stageBox);
+    if (point.x < bubble.x || point.x > bubble.x + bubble.width) return null;
+    if (point.y < bubble.y || point.y > bubble.y + bubble.height) return null;
+    return bubble;
+  }
+
+  function handlePreviewPointerDown(event: React.PointerEvent<HTMLCanvasElement>): void {
+    if (event.button !== 0) return;
+    const point = stagePoint(event);
+    if (point === null) return;
+    const bubble = inCameraBubble(point);
+    if (bubble === null) return;
+    cameraDragRef.current = { dx: point.x - bubble.x, dy: point.y - bubble.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePreviewPointerMove(event: React.PointerEvent<HTMLCanvasElement>): void {
+    const point = stagePoint(event);
+    if (point === null) return;
+    const drag = cameraDragRef.current;
+    if (drag !== null) {
+      patch({
+        camera: {
+          ...scene.camera,
+          position: {
+            x: (point.x - drag.dx) / stageBox.width,
+            y: (point.y - drag.dy) / stageBox.height,
+          },
+        },
+      });
+      return;
+    }
+    setCameraHover(inCameraBubble(point) !== null);
+  }
+
+  function handlePreviewPointerUp(): void {
+    cameraDragRef.current = null;
+    setCameraHover(false);
   }
 
   const patch = useCallback((next: Partial<VideoScene>): void => {
@@ -234,7 +312,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     try {
       const blob = await exportVideo({
         video,
-        camera: null,
+        camera: cameraRef.current,
         background: null,
         scene,
         track,
@@ -288,6 +366,17 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
         src={recordingSrc(selected.videoPath)}
         onLoadedMetadata={() => draw(time)}
       />
+      {selected.cameraPath === null ? null : (
+        <video
+          aria-hidden="true"
+          className="hidden"
+          muted
+          playsInline
+          preload="auto"
+          ref={cameraRef}
+          src={recordingSrc(selected.cameraPath)}
+        />
+      )}
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] gap-3">
         <main aria-label="Studio preview" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-stone-300/80 bg-[#dfe0da] dark:border-white/10 dark:bg-[#191b19]">
@@ -349,6 +438,16 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
               className="max-h-full max-w-full rounded-md shadow-lg"
               ref={canvasRef}
               role="img"
+              style={{
+                cursor: cameraDragRef.current !== null
+                  ? "grabbing"
+                  : cameraHover && hasCameraTrack && scene.camera.show
+                    ? "grab"
+                    : undefined,
+              }}
+              onPointerDown={handlePreviewPointerDown}
+              onPointerMove={handlePreviewPointerMove}
+              onPointerUp={handlePreviewPointerUp}
             />
           </div>
 
@@ -392,6 +491,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
             {tab === "motion" ? (
               <MotionPanel
                 clickCount={clickTimes.length}
+                hasCameraTrack={hasCameraTrack}
                 hasCursorTrack={track !== null}
                 scene={scene}
                 onPatchCamera={(next: Partial<CameraLayout>) => patch({ camera: { ...scene.camera, ...next } })}

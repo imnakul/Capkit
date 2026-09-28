@@ -11,6 +11,7 @@ const item: RecordingArtifacts = {
   cursorPath: "C:/Temp/CapKit/recordings/one/cursor.json",
   systemAudioPath: null,
   microphonePath: null,
+  cameraPath: null,
   width: 1920,
   height: 1080,
   fps: 30,

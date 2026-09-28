@@ -16,6 +16,7 @@ export const recordingSourceSchema = z.object({
   displayId: z.string(),
   scaleFactor: z.number(),
   isPrimary: z.boolean(),
+  refreshRate: z.number().default(60),
   /** A one-off downscaled preview; absent when that source could not be captured. */
   thumbnailPath: z.string().nullable(),
 });
@@ -48,6 +49,7 @@ export const recordingArtifactsSchema = z.object({
   cursorPath: z.string().nullable(),
   systemAudioPath: z.string().nullable(),
   microphonePath: z.string().nullable(),
+  cameraPath: z.string().nullable().default(null),
   width: z.number(),
   height: z.number(),
   fps: z.number(),
@@ -71,7 +73,7 @@ export const captureModeSchema = z.enum(["display", "window", "region"]);
 export type CaptureMode = z.infer<typeof captureModeSchema>;
 
 export const frameRates = [24, 30, 60] as const;
-export type FrameRate = (typeof frameRates)[number];
+export type FrameRate = (typeof frameRates)[number] | "native";
 
 export const countdownSeconds = [0, 3, 5, 10] as const;
 export type CountdownSeconds = (typeof countdownSeconds)[number];
@@ -79,7 +81,7 @@ export type CountdownSeconds = (typeof countdownSeconds)[number];
 export const recorderSettingsSchema = z.object({
   mode: captureModeSchema,
   sourceId: z.string(),
-  fps: z.union([z.literal(24), z.literal(30), z.literal(60)]),
+  fps: z.union([z.literal(24), z.literal(30), z.literal(60), z.literal("native")]),
   countdown: z.union([z.literal(0), z.literal(3), z.literal(5), z.literal(10)]),
   systemAudio: z.boolean(),
   microphone: z.boolean(),
@@ -156,6 +158,13 @@ export function repeatRatio(stats: RecordingStats): number {
   return total <= 0 ? 0 : stats.droppedFrames / total;
 }
 
+/** Resolves a frame-rate setting against a display: "native" follows the
+ * monitor's refresh rate, floored at 60. */
+export function resolveFrameRate(fps: FrameRate, refreshRate: number): number {
+  if (fps !== "native") return fps;
+  return Math.max(60, Math.round(refreshRate));
+}
+
 /** Turns a chosen source and mode into the payload the backend expects. */
 export function toRecordingRequest(
   settings: RecorderSettings,
@@ -177,7 +186,7 @@ export function toRecordingRequest(
   return {
     displayId: source.displayId,
     region: crop,
-    fps: settings.fps,
+    fps: resolveFrameRate(settings.fps, source.refreshRate),
     captureCursor: settings.captureCursor,
     systemAudio: settings.systemAudio,
     microphone: settings.microphone,

@@ -53,6 +53,9 @@ export const cameraLayoutSchema = z.object({
   size: z.number(),
   margin: z.number(),
   mirrored: z.boolean(),
+  /** Free bubble position: top-left corner as fractions of the stage (0-1).
+   * Choosing a corner resets it to null. */
+  position: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
 });
 
 export type CameraLayout = z.infer<typeof cameraLayoutSchema>;
@@ -64,6 +67,7 @@ export const defaultCameraLayout: CameraLayout = {
   size: 24,
   margin: 32,
   mirrored: true,
+  position: null,
 };
 
 /* -------------------------------------------------------------------------- */
@@ -173,12 +177,24 @@ export function trimmedDuration(trim: Trim): number {
   return Math.max(0, trim.end - trim.start);
 }
 
-/** Where the camera sits inside the stage, in pixels. */
+/** Where the camera sits inside the stage, in pixels. A free `position` wins;
+ * otherwise the corner is used, as before. */
 export function cameraRect(
   layout: CameraLayout,
   stage: Size,
 ): { x: number; y: number; width: number; height: number } {
   const diameter = (Math.min(stage.width, stage.height) * layout.size) / 100;
+  if (layout.position !== null) {
+    const x = Math.min(
+      Math.max(0, layout.position.x * stage.width),
+      Math.max(0, stage.width - diameter),
+    );
+    const y = Math.min(
+      Math.max(0, layout.position.y * stage.height),
+      Math.max(0, stage.height - diameter),
+    );
+    return { x, y, width: diameter, height: diameter };
+  }
   const margin = layout.margin;
   const right = stage.width - diameter - margin;
   const bottom = stage.height - diameter - margin;

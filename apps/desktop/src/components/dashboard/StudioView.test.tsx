@@ -11,6 +11,7 @@ const recording: RecordingArtifacts = {
   cursorPath: "C:/Temp/CapKit/recordings/one/cursor.json",
   systemAudioPath: "C:/Temp/CapKit/recordings/one/audio-system.m4a",
   microphonePath: null,
+  cameraPath: null,
   width: 1920,
   height: 1080,
   fps: 30,
@@ -88,6 +89,16 @@ describe("StudioView", () => {
     await waitFor(() => {
       expect(screen.getByText(/Trim 0:00/)).toBeVisible();
     });
+  });
+
+  it("shows the camera empty state and disables its toggle without a track", async () => {
+    render(<StudioView />);
+    await screen.findByRole("img", { name: "Composed preview" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Motion controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Camera" }));
+    expect(await screen.findByText("This recording has no camera")).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Show camera" })).toBeDisabled();
   });
 
   it("exposes the stage, motion, and audio panels", async () => {

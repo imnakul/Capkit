@@ -270,6 +270,9 @@ pub struct RecordingSourceDto {
     pub display_id: String,
     pub scale_factor: f64,
     pub is_primary: bool,
+    /// Monitor refresh rate in Hz, rounded. Windows report their owning
+    /// display's rate.
+    pub refresh_rate: u32,
     /// A one-off downscaled preview, so the picker never asks the user to
     /// choose a source blind. Absent when the capture failed for that source
     /// (e.g. a protected window); the source is still selectable.
@@ -320,6 +323,7 @@ pub struct RecordingArtifactsDto {
     pub cursor_path: Option<String>,
     pub system_audio_path: Option<String>,
     pub microphone_path: Option<String>,
+    pub camera_path: Option<String>,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -382,6 +386,26 @@ pub struct CursorTrackDto {
 #[cfg(test)]
 mod request_tests {
     use super::RecordingRequestDto;
+
+    #[test]
+    fn camera_path_serializes_in_camel_case() {
+        let value = serde_json::to_value(super::RecordingArtifactsDto {
+            id: "rec-1".into(),
+            directory: "dir".into(),
+            video_path: "video.mp4".into(),
+            cursor_path: None,
+            system_audio_path: None,
+            microphone_path: None,
+            camera_path: Some("camera.mp4".into()),
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            duration_seconds: 1.0,
+            stats: super::RecordingStatsDto::default(),
+        })
+        .expect("artifacts serialize");
+        assert_eq!(value["cameraPath"], "camera.mp4");
+    }
 
     #[test]
     fn system_audio_device_id_defaults_to_none() {
