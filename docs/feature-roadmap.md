@@ -70,7 +70,9 @@ The Phase 1 dashboard's on-demand view of the configured save folder is a conven
 - A cursor and click metadata track recorded alongside the video, which cannot be reconstructed afterwards
 - Smooth interpolated cursor motion and automatic zoom on click, editable as keyframes
 - The Showcase treatment applied to video: background, padding, corner radius, and shadow
-- Webcam as a separate track, croppable to circle, square, or rounded shapes
+- Webcam as a separate track, croppable to circle, square, or rounded shapes, freely placeable in Studio and included in exports
+- Native frame rate following the display's refresh rate, capped by the H.264 level 5.2 macroblock rate
+- Recordings saved under `Videos\CapKit`, configurable in Settings
 - MP4 and GIF export
 
 ## Think Later
