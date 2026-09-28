@@ -230,6 +230,11 @@ impl ScreenRecordingBackend for WindowsRecorderBackend {
                 display_id,
                 scale_factor: f64::from(monitor.scale_factor().unwrap_or(1.0)),
                 is_primary: monitor.is_primary().unwrap_or(false),
+                refresh_rate: monitor
+                    .frequency()
+                    .ok()
+                    .map(|hertz| hertz.round() as u32)
+                    .unwrap_or(60),
                 thumbnail_path,
             });
         }
@@ -281,6 +286,11 @@ impl ScreenRecordingBackend for WindowsRecorderBackend {
                 display_id,
                 scale_factor: f64::from(monitor.scale_factor().unwrap_or(1.0)),
                 is_primary: false,
+                refresh_rate: monitor
+                    .frequency()
+                    .ok()
+                    .map(|hertz| hertz.round() as u32)
+                    .unwrap_or(60),
                 thumbnail_path,
             });
         }
@@ -361,13 +371,16 @@ impl WindowsRecordingSession {
             )
         });
 
-        let fps = request.fps.clamp(10, 120);
+        let fps = request.fps.clamp(10, 240);
         let id = uuid::Uuid::new_v4().to_string();
         let video_path = directory.join("video.mp4");
 
         let stream = CaptureStream::start(monitor, region, request.capture_cursor)?;
         let width = stream.width;
         let height = stream.height;
+        // High refresh rates can exceed what H.264 level 5.2 allows at this
+        // size, so the recording uses the highest allowed rate instead.
+        let fps = fps.min(encoder::max_fps_for(width, height));
         // The request region is in desktop coordinates; the area is computed
         // from its display-local form, matching the frame pool above.
         let local = request.region.map(|region| Rect {

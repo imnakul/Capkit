@@ -240,6 +240,7 @@ export function RecorderDock(): React.JSX.Element {
   // silently stay active once its mode is no longer the one shown.
   const active =
     visibleSources.find((source) => source.id === settings.sourceId) ?? visibleSources.at(0) ?? null;
+  const nativeFps = Math.round(active?.refreshRate ?? 60);
 
   // Closes the source picker on a pointer down outside the dock card. The
   // picker lives inside the card now, so the card is the boundary.
@@ -671,12 +672,21 @@ export function RecorderDock(): React.JSX.Element {
                 <select
                   aria-label="Frame rate"
                   className={selectClass}
-                  value={String(settings.fps)}
-                  onChange={(event) => patch({ fps: Number(event.currentTarget.value) as FrameRate })}
+                  value={settings.fps === "native" ? "native" : String(settings.fps)}
+                  onChange={(event) =>
+                    patch(
+                      event.currentTarget.value === "native"
+                        ? { fps: "native" }
+                        : { fps: Number(event.currentTarget.value) as Exclude<FrameRate, "native"> },
+                    )
+                  }
                 >
                   {frameRates.map((rate) => (
                     <option key={rate} value={String(rate)}>{`${String(rate)} fps`}</option>
                   ))}
+                  {nativeFps > 60 ? (
+                    <option value="native">{`Native (${String(nativeFps)} fps)`}</option>
+                  ) : null}
                 </select>
               </label>
 

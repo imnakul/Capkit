@@ -11,6 +11,7 @@ const display: RecordingSource = {
   displayId: "1",
   scaleFactor: 1,
   isPrimary: true,
+  refreshRate: 144,
   thumbnailPath: null,
 };
 
@@ -19,6 +20,7 @@ const secondDisplay: RecordingSource = {
   id: "display:2",
   title: "Side monitor",
   isPrimary: false,
+  refreshRate: 60,
 };
 
 const editorWindow: RecordingSource = {
@@ -320,21 +322,6 @@ describe("RecorderDock", () => {
     ).toBeVisible();
   });
 
-  it("warns when a requested audio track cannot be opened", async () => {
-    render(<RecorderDock />);
-    await screen.findByRole("button", { name: "Choose what to record" });
-
-    audioFailedListeners.handlers.forEach((handler) => handler("microphone"));
-    expect(
-      await screen.findByText("The microphone could not be recorded. The video is still recording."),
-    ).toBeVisible();
-
-    audioFailedListeners.handlers.forEach((handler) => handler("system"));
-    expect(
-      await screen.findByText("System audio could not be recorded. The video is still recording."),
-    ).toBeVisible();
-  });
-
   it("flushes the camera track before stopping, then closes", async () => {
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
@@ -367,6 +354,40 @@ describe("RecorderDock", () => {
     const finishIndex = emittedEvents.events.indexOf("snaphub://camera-track-finish");
     expect(finishIndex).toBeGreaterThanOrEqual(0);
     expect(mocks.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Native on a fast display and hides it on a 60 Hz one", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    const quality = screen.getByRole("combobox", { name: "Frame rate" });
+    expect(quality.textContent).toContain("Native (144 fps)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose what to record" }));
+    fireEvent.click(screen.getByRole("option", { name: "Record Side monitor" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Choose what to record" })).toHaveTextContent(
+        "Side monitor",
+      );
+    });
+    expect(screen.getByRole("combobox", { name: "Frame rate" }).textContent).not.toContain(
+      "Native",
+    );
+  });
+
+  it("warns when a requested audio track cannot be opened", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    audioFailedListeners.handlers.forEach((handler) => handler("microphone"));
+    expect(
+      await screen.findByText("The microphone could not be recorded. The video is still recording."),
+    ).toBeVisible();
+
+    audioFailedListeners.handlers.forEach((handler) => handler("system"));
+    expect(
+      await screen.findByText("System audio could not be recorded. The video is still recording."),
+    ).toBeVisible();
   });
 
   it("re-enables drawing with no error when the overlay is cancelled", async () => {

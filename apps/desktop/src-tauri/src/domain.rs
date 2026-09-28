@@ -270,6 +270,9 @@ pub struct RecordingSourceDto {
     pub display_id: String,
     pub scale_factor: f64,
     pub is_primary: bool,
+    /// Monitor refresh rate in Hz, rounded. Windows report their owning
+    /// display's rate.
+    pub refresh_rate: u32,
     /// A one-off downscaled preview, so the picker never asks the user to
     /// choose a source blind. Absent when the capture failed for that source
     /// (e.g. a protected window); the source is still selectable.

@@ -23,14 +23,24 @@ const HNS_PER_SECOND: i64 = 10_000_000;
 /// Screen recordings are mostly flat colour and text, so they compress far
 /// better than camera footage; these are deliberately generous rather than
 /// tuned, since a soft screenshot is the one artefact users notice immediately.
-fn target_bitrate(width: u32, height: u32) -> u32 {
+/// Scales the base bitrate with the frame rate, capped at 80 Mbps, so high
+/// refresh recordings stay sharp without unbounded files.
+fn target_bitrate_for_fps(width: u32, height: u32, fps: u32) -> u32 {
     let pixels = u64::from(width) * u64::from(height);
-    match pixels {
+    let base = match pixels {
         p if p <= 1_280 * 720 => 8_000_000,
         p if p <= 1_920 * 1_080 => 12_000_000,
         p if p <= 2_560 * 1_440 => 24_000_000,
         _ => 40_000_000,
-    }
+    };
+    let scale = f64::from(fps).max(60.0) / 60.0;
+    ((base as f64 * scale).round() as u64).clamp(1, 80_000_000) as u32
+}
+
+/// Highest frame rate the H.264 level 5.2 macroblock rate allows.
+pub(crate) fn max_fps_for(width: u32, height: u32) -> u32 {
+    let blocks = width.div_ceil(16) as u64 * height.div_ceil(16) as u64;
+    (2_073_600 / blocks.max(1)) as u32
 }
 
 fn pack_u64(high: u32, low: u32) -> u64 {
@@ -117,7 +127,7 @@ impl VideoEncoder {
             width,
             height,
             fps,
-            Some(target_bitrate(width, height)),
+            Some(target_bitrate_for_fps(width, height, fps)),
         )?;
         // SAFETY: `output` is a fully configured media type.
         let stream = unsafe { writer.AddStream(&output) }.map_err(SnaphubError::encode)?;
@@ -228,5 +238,30 @@ impl VideoEncoder {
     pub fn finish(self) -> Result<(), SnaphubError> {
         // SAFETY: the writer is live and has not been finalized yet.
         unsafe { self.writer.Finalize() }.map_err(SnaphubError::encode)
+    }
+}
+
+#[cfg(test)]
+mod bitrate_tests {
+    use super::{max_fps_for, target_bitrate_for_fps};
+
+    #[test]
+    fn max_fps_follows_the_level_52_macroblock_rate() {
+        assert_eq!(max_fps_for(1920, 1080), 254);
+        assert_eq!(max_fps_for(2560, 1440), 144);
+        assert_eq!(max_fps_for(3840, 2160), 64);
+    }
+
+    #[test]
+    fn bitrate_holds_at_60_and_scales_above() {
+        assert_eq!(target_bitrate_for_fps(1920, 1080, 30), 12_000_000);
+        assert_eq!(target_bitrate_for_fps(1920, 1080, 60), 12_000_000);
+        assert_eq!(target_bitrate_for_fps(1920, 1080, 120), 24_000_000);
+        assert_eq!(target_bitrate_for_fps(1920, 1080, 144), 28_800_000);
+    }
+
+    #[test]
+    fn bitrate_caps_at_80_mbps() {
+        assert_eq!(target_bitrate_for_fps(3840, 2160, 240), 80_000_000);
     }
 }
