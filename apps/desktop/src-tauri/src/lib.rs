@@ -1441,10 +1441,40 @@ async fn cancel_recording(app: AppHandle) -> Result<(), SnaphubError> {
 /// Pauses or resumes the recording; paused time is omitted from the output.
 #[tauri::command]
 fn set_recording_paused(
+    app: AppHandle,
     service: tauri::State<'_, RecordingService>,
     paused: bool,
 ) -> Result<bool, SnaphubError> {
-    service.set_paused(paused)
+    let settled = service.set_paused(paused)?;
+    let _ = app.emit(
+        "snaphub://recording-paused",
+        serde_json::json!({ "paused": settled }),
+    );
+    Ok(settled)
+}
+
+/// Starts the camera sidecar for the recording in flight.
+#[tauri::command]
+fn begin_camera_track(
+    service: tauri::State<'_, RecordingService>,
+    extension: String,
+) -> Result<(), SnaphubError> {
+    service.begin_camera_track(&extension)
+}
+
+/// Appends one camera chunk. The frontend ignores the error when no track is
+/// active.
+#[tauri::command]
+fn append_camera_chunk(
+    service: tauri::State<'_, RecordingService>,
+    request: tauri::ipc::Request,
+) -> Result<(), SnaphubError> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(SnaphubError::Record(
+            "Camera chunk must be raw bytes".into(),
+        ));
+    };
+    service.append_camera_chunk(bytes)
 }
 
 /// Opens the webcam window, excluded from capture so the preview cannot end up
@@ -2112,6 +2142,8 @@ pub fn run() {
             stop_recording,
             cancel_recording,
             recording_status,
+            begin_camera_track,
+            append_camera_chunk,
             set_capture_exclusion,
             recorder_ready,
             fit_recorder,

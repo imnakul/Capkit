@@ -23,6 +23,7 @@ import {
   cancelRecording,
   closeCamera,
   closeRecorder,
+  finishCameraTrack,
   hideRecordingBorder,
   listenForAudioFailure,
   listenForRecordRegion,
@@ -381,6 +382,9 @@ export function RecorderDock(): React.JSX.Element {
     setPhase("saving");
     await hideRecordingBorder();
     try {
+      if (camera) {
+        await finishCameraTrack();
+      }
       const artifacts = await stopRecording();
       const raw = window.localStorage.getItem(recordingLibraryStorageKey);
       const parsed = raw === null ? null : recordingLibrarySchema.safeParse(JSON.parse(raw) as unknown);

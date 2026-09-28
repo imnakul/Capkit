@@ -48,6 +48,7 @@ export const recordingArtifactsSchema = z.object({
   cursorPath: z.string().nullable(),
   systemAudioPath: z.string().nullable(),
   microphonePath: z.string().nullable(),
+  cameraPath: z.string().nullable().default(null),
   width: z.number(),
   height: z.number(),
   fps: z.number(),

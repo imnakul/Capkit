@@ -36,6 +36,7 @@ const artifacts: RecordingArtifacts = {
   cursorPath: "C:/Temp/CapKit/recordings/one/cursor.json",
   systemAudioPath: null,
   microphonePath: null,
+  cameraPath: null,
   width: 2560,
   height: 1440,
   fps: 30,
@@ -62,6 +63,8 @@ const mocks = {
   stop: vi.fn<() => Promise<RecordingArtifacts>>(() => Promise.resolve(artifacts)),
   cancel: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   close: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  cameraOpen: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  cameraClose: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   ready: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   fit: vi.fn<(width: number, height: number) => Promise<void>>(() => Promise.resolve()),
   border: vi.fn<(bounds: unknown) => Promise<void>>(() => Promise.resolve()),
@@ -77,8 +80,30 @@ const audioFailedListeners = vi.hoisted(() => ({
   handlers: [] as ((kind: string) => void)[],
 }));
 
-vi.mock("../lib/recordingTauri", () => ({
-  fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
+const dockEvents = vi.hoisted((): { finished: (() => void) | null } => ({
+  finished: null,
+}));
+
+const emittedEvents = vi.hoisted(() => ({
+  events: [] as string[],
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (event: string, handler: never): Promise<() => void> => {
+    if (event === "snaphub://camera-track-finished") dockEvents.finished = handler;
+    return Promise.resolve((): void => undefined);
+  },
+  emit: (event: string): Promise<void> => {
+    emittedEvents.events.push(event);
+    return Promise.resolve();
+  },
+}));
+
+vi.mock("../lib/recordingTauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/recordingTauri")>();
+  return {
+    ...actual,
+    fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
   openRecordRegion: (): Promise<void> => mocks.openRegion(),
   listenForRecordRegion: (
     onSelected: (selection: { displayId: string; bounds: { x: number; y: number; width: number; height: number } }) => void,
@@ -101,12 +126,15 @@ vi.mock("../lib/recordingTauri", () => ({
   stopRecording: (): Promise<RecordingArtifacts> => mocks.stop(),
   cancelRecording: (): Promise<void> => mocks.cancel(),
   closeRecorder: (): Promise<void> => mocks.close(),
+  openCamera: (): Promise<void> => mocks.cameraOpen(),
+  closeCamera: (): Promise<void> => mocks.cameraClose(),
   recorderReady: (): Promise<void> => mocks.ready(),
   recordingStatus: (): Promise<null> => Promise.resolve(null),
   showRecordingBorder: (bounds: unknown): Promise<void> => mocks.border(bounds),
   hideRecordingBorder: (): Promise<void> => Promise.resolve(),
   recordingSrc: (path: string): string => path,
-}));
+  };
+});
 
 vi.mock("../lib/tauri", () => ({
   describeInvokeError: (_error: unknown, fallback: string): string => fallback,
@@ -123,6 +151,8 @@ describe("RecorderDock", () => {
     regionListeners.selected = null;
     regionListeners.cancelled = null;
     audioFailedListeners.handlers.length = 0;
+    dockEvents.finished = null;
+    emittedEvents.events.length = 0;
   });
 
   it("reveals itself only after its first frame, so a hidden window never flashes", async () => {
@@ -303,6 +333,40 @@ describe("RecorderDock", () => {
     expect(
       await screen.findByText("System audio could not be recorded. The video is still recording."),
     ).toBeVisible();
+  });
+
+  it("flushes the camera track before stopping, then closes", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
+      target: { value: "0" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show the camera" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await screen.findByRole("button", { name: "Stop and save this recording" });
+
+    const order: string[] = [];
+    mocks.stop.mockImplementationOnce(() => {
+      order.push("stop");
+      return Promise.resolve(artifacts);
+    });
+    mocks.close.mockImplementationOnce(() => {
+      order.push("close");
+      return Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop and save this recording" }));
+    await waitFor(() => {
+      expect(emittedEvents.events).toContain("snaphub://camera-track-finish");
+    });
+    dockEvents.finished?.();
+    await waitFor(() => {
+      expect(order).toEqual(["stop", "close"]);
+    });
+    const finishIndex = emittedEvents.events.indexOf("snaphub://camera-track-finish");
+    expect(finishIndex).toBeGreaterThanOrEqual(0);
+    expect(mocks.stop).toHaveBeenCalledTimes(1);
   });
 
   it("re-enables drawing with no error when the overlay is cancelled", async () => {

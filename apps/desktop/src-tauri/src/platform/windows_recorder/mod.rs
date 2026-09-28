@@ -579,6 +579,8 @@ impl RecordingSession for WindowsRecordingSession {
             cursor_path: cursor_path.map(|path| path.to_string_lossy().into_owned()),
             system_audio_path: system_audio_path.map(|path| path.to_string_lossy().into_owned()),
             microphone_path: microphone_path.map(|path| path.to_string_lossy().into_owned()),
+            // The service sets the real path after the camera file closes.
+            camera_path: None,
             width: self.width,
             height: self.height,
             fps: self.fps,

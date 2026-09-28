@@ -11,6 +11,7 @@ const recording: RecordingArtifacts = {
   cursorPath: null,
   systemAudioPath: null,
   microphonePath: null,
+  cameraPath: null,
   width: 1920,
   height: 1080,
   fps: 30,
