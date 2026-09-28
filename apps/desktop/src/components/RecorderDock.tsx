@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   countdownSeconds,
   defaultRecorderSettings,
@@ -41,7 +42,7 @@ import {
   stopRecording,
 } from "../lib/recordingTauri";
 import { describeInvokeError } from "../lib/tauri";
-import { Cancel, ChevronDown, Computer, Crop, Delete, Mic, Pause, Play, Record, Speaker, Stop, Video } from "./icons";
+import { Cancel, ChevronDown, Computer, Crop, Delete, Grip, Mic, Pause, Play, Record, Settings, Speaker, Stop, Video } from "./icons";
 
 type Phase = "setup" | "counting" | "recording" | "saving";
 
@@ -56,6 +57,23 @@ const controlClass =
 
 const selectClass =
   "h-7 rounded-md border border-white/12 bg-[#22231f] px-1.5 text-[12px] font-semibold text-stone-200 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)]";
+
+// Icon-only toolbar buttons. Same borders and focus as the text controls,
+// sized for the single setup row.
+const iconControlClass =
+  "inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-white/12 bg-white/6 text-stone-200 outline-none transition hover:border-white/25 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:border-white aria-pressed:bg-white aria-pressed:text-stone-900";
+
+// The joined halves of an audio split button. Separate constants (rather than
+// overriding `iconControlClass`) so the corner radius never depends on which
+// utility the cascade happens to prefer.
+const splitToggleClass =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-l-md rounded-r-none border border-white/12 bg-white/6 text-stone-200 outline-none transition hover:border-white/25 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:border-white aria-pressed:bg-white aria-pressed:text-stone-900";
+
+const splitChevronClass =
+  "inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-l-none rounded-r-md border border-l-0 border-white/12 bg-white/6 text-stone-200 outline-none transition hover:border-white/25 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40";
+
+/** Which popover is open above the setup row. Only one is ever open. */
+type DockMenu = "source" | "system" | "mic" | "options";
 
 /**
  * The recorder's floating dock.
@@ -76,12 +94,17 @@ export function RecorderDock(): React.JSX.Element {
   const [excluded, setExcluded] = useState(true);
   const [paused, setPaused] = useState(false);
   const [camera, setCamera] = useState(false);
-  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<DockMenu | null>(null);
+  const [dragged, setDragged] = useState(false);
   const [region, setRegion] = useState<RecordRegionSelection | null>(null);
   const [drawingRegion, setDrawingRegion] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const dockSizeRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const sourceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const systemTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const micTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const pendingDisplayRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -94,7 +117,8 @@ export function RecorderDock(): React.JSX.Element {
   }, []);
 
   // Measures the dock and fits the window to it. Skips zero sizes, which only
-  // happen where there is no layout (jsdom).
+  // happen where there is no layout (jsdom). After the first drag the
+  // backend keeps the dock's bottom-centre point instead of re-docking it.
   const fitDock = useCallback(async (): Promise<void> => {
     const node = dockSizeRef.current;
     if (node === null) return;
@@ -102,7 +126,21 @@ export function RecorderDock(): React.JSX.Element {
     const width = Math.ceil(rect.width);
     const height = Math.ceil(rect.height);
     if (width <= 0 || height <= 0) return;
-    await fitRecorder(width, height);
+    await fitRecorder(width, height, dragged);
+  }, [dragged]);
+
+  // Re-asserts the kept position right after a drag, so the backend learns
+  // it before the next resize fit runs.
+  useEffect(() => {
+    if (!dragged) return;
+    void fitDock().catch(() => undefined);
+  }, [dragged, fitDock]);
+
+  // Dragging either the grip or the camera bubble moves its window. The
+  // flag marks the dock as user-placed, so later fits keep its position.
+  const startWindowDrag = useCallback((): void => {
+    setDragged(true);
+    void getCurrentWindow().startDragging().catch(() => undefined);
   }, []);
 
   // Reveal ordering: the window is built hidden, the first fit runs, then the
@@ -242,21 +280,45 @@ export function RecorderDock(): React.JSX.Element {
     visibleSources.find((source) => source.id === settings.sourceId) ?? visibleSources.at(0) ?? null;
   const nativeFps = Math.round(active?.refreshRate ?? 60);
 
-  // Closes the source picker on a pointer down outside the dock card. The
-  // picker lives inside the card now, so the card is the boundary.
+  // Ref objects are stable, so the mapping outlives every render.
+  const menuTriggerRefs = useMemo(
+    () => ({
+      source: sourceTriggerRef,
+      system: systemTriggerRef,
+      mic: micTriggerRef,
+      options: optionsTriggerRef,
+    }) as const,
+    [],
+  );
+
+  const closeMenuFocusTrigger = useCallback((): void => {
+    setOpenMenu((current) => {
+      if (current !== null) menuTriggerRefs[current].current?.focus();
+      return null;
+    });
+  }, [menuTriggerRefs]);
+
+  function toggleMenu(menu: DockMenu): void {
+    setOpenMenu((current) => (current === menu ? null : menu));
+  }
+
+  // Closes the open popover on a pointer down outside it, and on a trigger
+  // the click toggles instead. Every popover lives inside the card, so a
+  // menu opening never moves the dock on its own.
   useEffect(() => {
-    if (!sourcePickerOpen) return;
+    if (openMenu === null) return;
     function onPointerDown(event: PointerEvent): void {
-      if (pickerRef.current?.contains(event.target as Node) === false) setSourcePickerOpen(false);
+      const target = event.target as Node | null;
+      if (target === null) return;
+      if (menuRef.current?.contains(target) === true) return;
+      const onTrigger = Object.values(menuTriggerRefs).some(
+        (ref) => ref.current?.contains(target) === true,
+      );
+      if (!onTrigger) closeMenuFocusTrigger();
     }
     document.addEventListener("pointerdown", onPointerDown);
     return (): void => document.removeEventListener("pointerdown", onPointerDown);
-  }, [sourcePickerOpen]);
-
-  const closePickerFocusTrigger = useCallback((): void => {
-    setSourcePickerOpen(false);
-    sourceTriggerRef.current?.focus();
-  }, []);
+  }, [openMenu, closeMenuFocusTrigger]);
 
   // Region overlay results. A selection for a display that is no longer
   // current is ignored, but drawing always ends. No isTauri guard: the dock
@@ -314,7 +376,7 @@ export function RecorderDock(): React.JSX.Element {
       setError("Choose something to record first");
       return;
     }
-    setSourcePickerOpen(false);
+    setOpenMenu(null);
     setError(null);
     try {
       // A window records as the crop of its display it currently occupies, so
@@ -344,7 +406,7 @@ export function RecorderDock(): React.JSX.Element {
       setError("Choose something to record first");
       return;
     }
-    setSourcePickerOpen(false);
+    setOpenMenu(null);
     // Shown for the whole countdown, not just once recording starts, so the
     // target is visible before a single frame is captured.
     const bounds =
@@ -408,9 +470,9 @@ export function RecorderDock(): React.JSX.Element {
   }
 
   function handleCardKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
-    if (event.key === "Escape" && sourcePickerOpen) {
+    if (event.key === "Escape" && openMenu !== null) {
       event.preventDefault();
-      closePickerFocusTrigger();
+      closeMenuFocusTrigger();
     }
   }
 
@@ -439,37 +501,9 @@ export function RecorderDock(): React.JSX.Element {
         role="toolbar"
         onKeyDown={handleCardKeyDown}
       >
-        {sourcePickerOpen ? (
-          <div
-            aria-label="Available sources"
-            className="grid max-h-64 grid-cols-3 gap-1.5 overflow-y-auto"
-            role="listbox"
-          >
-            {visibleSources.length === 0 ? (
-              <p className="col-span-3 px-2 py-3 text-center text-[12px] text-stone-400">Nothing available to record</p>
-            ) : (
-              visibleSources.map((source) => (
-                <button
-                  aria-label={`Record ${source.title}`}
-                  aria-selected={source.id === active?.id}
-                  className="flex flex-col gap-1 rounded-md border border-transparent p-1 text-left outline-none transition hover:border-white/15 hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:border-[var(--snaphub-accent)] aria-selected:bg-white/8"
-                  key={source.id}
-                  role="option"
-                  type="button"
-                  onClick={() => {
-                    patch({ sourceId: source.id });
-                    setSourcePickerOpen(false);
-                  }}
-                >
-                  <SourceThumbnail className="aspect-video w-full rounded bg-black/40" source={source} iconSize={18} />
-                  <span className="truncate text-[11px] font-medium text-stone-200">{source.title}</span>
-                </button>
-              ))
-            )}
-          </div>
-        ) : null}
         {phase === "recording" || phase === "saving" ? (
           <div className="flex items-center gap-2.5">
+            <DragGrip onDrag={startWindowDrag} />
             <span
               aria-hidden="true"
               className={`size-2.5 shrink-0 rounded-full ${paused ? "bg-amber-300" : "animate-pulse bg-[#ff5b4d]"}`}
@@ -523,35 +557,151 @@ export function RecorderDock(): React.JSX.Element {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <div aria-label="What to record" className="flex items-center gap-1" role="group">
+            {openMenu === null ? null : (
+              <div ref={menuRef}>
+                {openMenu === "source" ? (
+                  <div
+                    aria-label="Available sources"
+                    className="grid max-h-64 grid-cols-3 gap-1.5 overflow-y-auto"
+                    role="listbox"
+                  >
+                    {visibleSources.length === 0 ? (
+                      <p className="col-span-3 px-2 py-3 text-center text-[12px] text-stone-400">
+                        Nothing available to record
+                      </p>
+                    ) : (
+                      visibleSources.map((source) => (
+                        <button
+                          aria-label={`Record ${source.title}`}
+                          aria-selected={source.id === active?.id}
+                          className="flex flex-col gap-1 rounded-md border border-transparent p-1 text-left outline-none transition hover:border-white/15 hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:border-[var(--snaphub-accent)] aria-selected:bg-white/8"
+                          key={source.id}
+                          role="option"
+                          type="button"
+                          onClick={() => {
+                            patch({ sourceId: source.id });
+                            closeMenuFocusTrigger();
+                          }}
+                        >
+                          <SourceThumbnail
+                            className="aspect-video w-full rounded bg-black/40"
+                            source={source}
+                            iconSize={18}
+                          />
+                          <span className="truncate text-[11px] font-medium text-stone-200">
+                            {source.title}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+                {openMenu === "system" ? (
+                  <DeviceMenu
+                    devices={speakers}
+                    emptyLabel="No speakers found"
+                    label="Speaker device"
+                    value={settings.systemAudioDeviceId}
+                    onPick={(systemAudioDeviceId) => {
+                      patch({ systemAudioDeviceId });
+                      closeMenuFocusTrigger();
+                    }}
+                  />
+                ) : null}
+                {openMenu === "mic" ? (
+                  <DeviceMenu
+                    devices={microphones}
+                    emptyLabel="No microphones found"
+                    label="Microphone device"
+                    value={settings.microphoneDeviceId}
+                    onPick={(microphoneDeviceId) => {
+                      patch({ microphoneDeviceId });
+                      closeMenuFocusTrigger();
+                    }}
+                  />
+                ) : null}
+                {openMenu === "options" ? (
+                  <div className="flex flex-wrap items-center gap-3 px-1 py-1">
+                    <label className="flex items-center gap-1.5 text-[12px] font-semibold text-stone-400">
+                      Quality
+                      <select
+                        aria-label="Frame rate"
+                        className={selectClass}
+                        value={settings.fps === "native" ? "native" : String(settings.fps)}
+                        onChange={(event) =>
+                          patch(
+                            event.currentTarget.value === "native"
+                              ? { fps: "native" }
+                              : {
+                                  fps: Number(event.currentTarget.value) as Exclude<
+                                    FrameRate,
+                                    "native"
+                                  >,
+                                },
+                          )
+                        }
+                      >
+                        {frameRates.map((rate) => (
+                          <option key={rate} value={String(rate)}>{`${String(rate)} fps`}</option>
+                        ))}
+                        {nativeFps > 60 ? (
+                          <option value="native">{`Native (${String(nativeFps)} fps)`}</option>
+                        ) : null}
+                      </select>
+                    </label>
+
+                    <label className="flex items-center gap-1.5 text-[12px] font-semibold text-stone-400">
+                      Countdown
+                      <select
+                        aria-label="Countdown before recording"
+                        className={selectClass}
+                        value={String(settings.countdown)}
+                        onChange={(event) =>
+                          patch({ countdown: Number(event.currentTarget.value) as CountdownSeconds })
+                        }
+                      >
+                        {countdownSeconds.map((value) => (
+                          <option key={value} value={String(value)}>
+                            {value === 0 ? "None" : `${String(value)}s`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5" data-testid="setup-row">
+              <DragGrip onDrag={startWindowDrag} />
+
+              <div aria-label="What to record" className="flex shrink-0 items-center gap-1" role="group">
                 {modes.map((mode) => {
                   const Icon = mode.icon;
                   return (
                     <button
                       aria-label={`Record a ${mode.label.toLowerCase()}`}
                       aria-pressed={settings.mode === mode.id}
-                      className={controlClass}
+                      className={iconControlClass}
                       key={mode.id}
+                      title={mode.label}
                       type="button"
                       onClick={() => patch({ mode: mode.id })}
                     >
                       <Icon aria-hidden="true" size={14} />
-                      {mode.label}
                     </button>
                   );
                 })}
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <button
-                  aria-expanded={sourcePickerOpen}
+                  aria-expanded={openMenu === "source"}
                   aria-haspopup="listbox"
                   aria-label="Choose what to record"
-                  className={`${controlClass} max-w-[220px]`}
+                  className={`${controlClass} max-w-[180px]`}
                   ref={sourceTriggerRef}
                   type="button"
-                  onClick={() => setSourcePickerOpen((value) => !value)}
+                  onClick={() => toggleMenu("source")}
                 >
                   {active === null ? (
                     <span className="text-stone-400">Nothing available</span>
@@ -561,7 +711,11 @@ export function RecorderDock(): React.JSX.Element {
                       <span className="min-w-0 flex-1 truncate text-left">{active.title}</span>
                     </>
                   )}
-                  <ChevronDown aria-hidden="true" className={sourcePickerOpen ? "rotate-180" : ""} size={12} />
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={openMenu === "source" ? "rotate-180" : ""}
+                    size={12}
+                  />
                 </button>
               </div>
 
@@ -569,91 +723,85 @@ export function RecorderDock(): React.JSX.Element {
                 region === null ? (
                   <button
                     aria-label="Draw area to record"
-                    className={controlClass}
+                    className={iconControlClass}
                     disabled={active === null || drawingRegion}
+                    title={drawingRegion ? "Drawing…" : "Draw area"}
                     type="button"
                     onClick={drawArea}
                   >
                     <Crop aria-hidden="true" size={14} />
-                    {drawingRegion ? "Drawing…" : "Draw area"}
                   </button>
                 ) : (
                   <button
                     aria-label="Redraw area to record"
-                    className={controlClass}
+                    className={iconControlClass}
                     disabled={drawingRegion}
+                    title={`${String(Math.round(region.bounds.width))} × ${String(Math.round(region.bounds.height))} · Redraw`}
                     type="button"
                     onClick={drawArea}
                   >
                     <Crop aria-hidden="true" size={14} />
-                    {`${String(Math.round(region.bounds.width))} × ${String(Math.round(region.bounds.height))} · Redraw`}
                   </button>
                 )
               ) : null}
 
-              <div className="ml-auto flex items-center gap-1.5">
+              <span aria-hidden="true" className="h-5 w-px shrink-0 bg-white/12" />
+
+              <div className="flex shrink-0 items-center">
                 <button
-                  aria-label="Close the recorder"
-                  className={controlClass}
+                  aria-label="Record system audio"
+                  aria-pressed={settings.systemAudio}
+                  className={splitToggleClass}
+                  title="Record system audio"
                   type="button"
-                  onClick={() => void closeRecorder()}
+                  onClick={() => patch({ systemAudio: !settings.systemAudio })}
                 >
-                  <Cancel aria-hidden="true" size={14} />
+                  <Speaker aria-hidden="true" size={14} />
                 </button>
                 <button
-                  aria-label="Start recording"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--snaphub-accent)] px-3.5 py-1.5 text-[12px] font-bold text-[#171815] outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-                  disabled={active === null || (settings.mode === "region" && region === null)}
+                  aria-expanded={openMenu === "system"}
+                  aria-haspopup="listbox"
+                  aria-label="Choose speaker"
+                  className={splitChevronClass}
+                  ref={systemTriggerRef}
+                  title="Choose speaker"
                   type="button"
-                  onClick={requestStart}
+                  onClick={() => toggleMenu("system")}
                 >
-                  <Record aria-hidden="true" size={14} />
-                  Record
+                  <ChevronDown aria-hidden="true" className={openMenu === "system" ? "rotate-180" : ""} size={12} />
                 </button>
               </div>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-white/8 pt-2">
-              <button
-                aria-label="Record system audio"
-                aria-pressed={settings.systemAudio}
-                className={controlClass}
-                type="button"
-                onClick={() => patch({ systemAudio: !settings.systemAudio })}
-              >
-                <Speaker aria-hidden="true" size={14} />
-                System
-              </button>
-              <DeviceSelect
-                devices={speakers}
-                disabled={!settings.systemAudio}
-                emptyLabel="No speakers found"
-                label="Speaker device"
-                value={settings.systemAudioDeviceId}
-                onChange={(systemAudioDeviceId) => patch({ systemAudioDeviceId })}
-              />
-              <button
-                aria-label="Record the microphone"
-                aria-pressed={settings.microphone}
-                className={controlClass}
-                type="button"
-                onClick={() => patch({ microphone: !settings.microphone })}
-              >
-                <Mic aria-hidden="true" size={14} />
-                Mic
-              </button>
-              <DeviceSelect
-                devices={microphones}
-                disabled={!settings.microphone}
-                emptyLabel="No microphones found"
-                label="Microphone device"
-                value={settings.microphoneDeviceId}
-                onChange={(microphoneDeviceId) => patch({ microphoneDeviceId })}
-              />
+              <div className="flex shrink-0 items-center">
+                <button
+                  aria-label="Record the microphone"
+                  aria-pressed={settings.microphone}
+                  className={splitToggleClass}
+                  title="Record the microphone"
+                  type="button"
+                  onClick={() => patch({ microphone: !settings.microphone })}
+                >
+                  <Mic aria-hidden="true" size={14} />
+                </button>
+                <button
+                  aria-expanded={openMenu === "mic"}
+                  aria-haspopup="listbox"
+                  aria-label="Choose microphone"
+                  className={splitChevronClass}
+                  ref={micTriggerRef}
+                  title="Choose microphone"
+                  type="button"
+                  onClick={() => toggleMenu("mic")}
+                >
+                  <ChevronDown aria-hidden="true" className={openMenu === "mic" ? "rotate-180" : ""} size={12} />
+                </button>
+              </div>
+
               <button
                 aria-label="Show the camera"
                 aria-pressed={camera}
-                className={controlClass}
+                className={iconControlClass}
+                title="Camera"
                 type="button"
                 onClick={() => {
                   const next = !camera;
@@ -662,51 +810,41 @@ export function RecorderDock(): React.JSX.Element {
                 }}
               >
                 <Video aria-hidden="true" size={14} />
-                Camera
               </button>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-white/8 pt-2">
-              <label className="flex items-center gap-1.5 text-[12px] font-semibold text-stone-400">
-                Quality
-                <select
-                  aria-label="Frame rate"
-                  className={selectClass}
-                  value={settings.fps === "native" ? "native" : String(settings.fps)}
-                  onChange={(event) =>
-                    patch(
-                      event.currentTarget.value === "native"
-                        ? { fps: "native" }
-                        : { fps: Number(event.currentTarget.value) as Exclude<FrameRate, "native"> },
-                    )
-                  }
-                >
-                  {frameRates.map((rate) => (
-                    <option key={rate} value={String(rate)}>{`${String(rate)} fps`}</option>
-                  ))}
-                  {nativeFps > 60 ? (
-                    <option value="native">{`Native (${String(nativeFps)} fps)`}</option>
-                  ) : null}
-                </select>
-              </label>
+              <button
+                aria-expanded={openMenu === "options"}
+                aria-label="Recording options"
+                className={iconControlClass}
+                ref={optionsTriggerRef}
+                title="Recording options"
+                type="button"
+                onClick={() => toggleMenu("options")}
+              >
+                <Settings aria-hidden="true" size={14} />
+              </button>
 
-              <label className="flex items-center gap-1.5 text-[12px] font-semibold text-stone-400">
-                Countdown
-                <select
-                  aria-label="Countdown before recording"
-                  className={selectClass}
-                  value={String(settings.countdown)}
-                  onChange={(event) =>
-                    patch({ countdown: Number(event.currentTarget.value) as CountdownSeconds })
-                  }
-                >
-                  {countdownSeconds.map((value) => (
-                    <option key={value} value={String(value)}>
-                      {value === 0 ? "None" : `${String(value)}s`}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <span aria-hidden="true" className="h-5 w-px shrink-0 bg-white/12" />
+
+              <button
+                aria-label="Close the recorder"
+                className={iconControlClass}
+                title="Close"
+                type="button"
+                onClick={() => void closeRecorder()}
+              >
+                <Cancel aria-hidden="true" size={14} />
+              </button>
+              <button
+                aria-label="Start recording"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--snaphub-accent)] px-3.5 py-1.5 text-[12px] font-bold text-[#171815] outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+                disabled={active === null || (settings.mode === "region" && region === null)}
+                type="button"
+                onClick={requestStart}
+              >
+                <Record aria-hidden="true" size={14} />
+                Record
+              </button>
             </div>
           </>
         )}
@@ -733,47 +871,79 @@ export function RecorderDock(): React.JSX.Element {
 }
 
 /**
- * An audio device choice. The first option always follows the OS default; a
- * missing device list leaves a single disabled option and the toggle usable.
+ * The dock's drag handle. Pointer down on the primary button starts a window
+ * drag and marks the dock as user-placed, so later fits keep its position.
  */
-function DeviceSelect({
+function DragGrip({ onDrag }: { onDrag: () => void }): React.JSX.Element {
+  return (
+    <button
+      aria-label="Move the recorder"
+      className={`${iconControlClass} cursor-grab active:cursor-grabbing`}
+      title="Move the recorder"
+      type="button"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        onDrag();
+      }}
+    >
+      <Grip aria-hidden="true" size={14} />
+    </button>
+  );
+}
+
+/**
+ * An audio device choice inside a popover. The first option always follows
+ * the OS default; a missing device list leaves an explanatory line and the
+ * toggle usable.
+ */
+function DeviceMenu({
   devices,
-  disabled,
   emptyLabel,
   label,
   value,
-  onChange,
+  onPick,
 }: {
   devices: readonly AudioDevice[];
-  disabled: boolean;
   emptyLabel: string;
   label: string;
   value: string;
-  onChange: (id: string) => void;
+  onPick: (id: string) => void;
 }): React.JSX.Element {
-  const fallback = devices.find((device) => device.isDefault) ?? null;
   if (devices.length === 0) {
     return (
-      <select aria-label={label} className={`${selectClass} max-w-[180px] truncate`} disabled value="">
-        <option value="">{emptyLabel}</option>
-      </select>
+      <p className="px-2 py-3 text-center text-[12px] text-stone-400" role="status">
+        {emptyLabel}
+      </p>
     );
   }
+  const fallback = devices.find((device) => device.isDefault) ?? null;
+  const options = [
+    { id: "", name: fallback === null ? "Default" : `Default (${fallback.name})` },
+    ...devices,
+  ];
   return (
-    <select
+    <div
       aria-label={label}
-      className={`${selectClass} max-w-[180px] truncate`}
-      disabled={disabled}
-      value={value}
-      onChange={(event) => onChange(event.currentTarget.value)}
+      className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+      role="listbox"
     >
-      <option value="">{fallback === null ? "Default" : `Default (${fallback.name})`}</option>
-      {devices.map((device) => (
-        <option key={device.id} value={device.id}>
-          {device.name}
-        </option>
+      {options.map((device) => (
+        <button
+          aria-label={device.id === "" ? "Use the default device" : `Use ${device.name}`}
+          aria-selected={device.id === value}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-stone-200 outline-none transition hover:bg-white/6 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:bg-white/8 aria-selected:text-white"
+          key={device.id === "" ? "default" : device.id}
+          role="option"
+          type="button"
+          onClick={() => onPick(device.id)}
+        >
+          <span className="min-w-0 flex-1 truncate">{device.name}</span>
+          {device.id === value ? (
+            <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-[var(--snaphub-accent)]" />
+          ) : null}
+        </button>
       ))}
-    </select>
+    </div>
   );
 }
 

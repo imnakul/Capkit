@@ -76,9 +76,17 @@ export async function setRecordingPaused(paused: boolean): Promise<boolean> {
   return Boolean(await invoke("set_recording_paused", { paused }));
 }
 
-/** Fits the recorder window to its content; the backend anchors and clamps it. */
-export async function fitRecorder(width: number, height: number): Promise<void> {
-  await invoke("fit_recorder", { width, height });
+/**
+ * Fits the recorder window to its content. Once the user has dragged the
+ * dock (`keepPosition`), the backend keeps its bottom-centre point and grows
+ * upward instead of re-docking it, and clamps it inside the work area.
+ */
+export async function fitRecorder(
+  width: number,
+  height: number,
+  keepPosition: boolean,
+): Promise<void> {
+  await invoke("fit_recorder", { width, height, keepPosition });
 }
 
 /**

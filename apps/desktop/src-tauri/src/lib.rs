@@ -1968,6 +1968,46 @@ fn dock_frame(
     }
 }
 
+/// Computes the recorder frame after the user has dragged it.
+///
+/// The window's current bottom-centre point stays fixed and the frame grows
+/// upward around the new content size, so opening a menu never pushes a
+/// dragged dock back to the default spot. The result is clamped inside the
+/// work area. `current` is the physical outer frame; the content size is
+/// logical.
+fn dock_frame_keep_position(
+    work_area: Rect,
+    current: Rect,
+    scale: f64,
+    content_width: f64,
+    content_height: f64,
+) -> Rect {
+    let width = (content_width * scale)
+        .round()
+        .min(work_area.width)
+        .max(1.0);
+    let height = (content_height * scale)
+        .round()
+        .min(work_area.height)
+        .max(1.0);
+    let bottom_centre_x = current.x + current.width / 2.0;
+    let bottom = current.y + current.height;
+    let x = (bottom_centre_x - width / 2.0).clamp(
+        work_area.x,
+        (work_area.x + work_area.width - width).max(work_area.x),
+    );
+    let y = (bottom - height).clamp(
+        work_area.y,
+        (work_area.y + work_area.height - height).max(work_area.y),
+    );
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
 /// Computes the camera window's physical frame.
 ///
 /// `live` is the 260 logical px bottom-left bubble, 24 px from the work area's
@@ -2024,7 +2064,12 @@ fn window_work_area(app: &AppHandle, window: &WebviewWindow) -> Option<(Rect, f6
 /// A sync command is safe here: it builds no window, and `set_size` and
 /// `set_position` do not deadlock.
 #[tauri::command]
-fn fit_recorder(app: AppHandle, width: f64, height: f64) -> Result<(), SnaphubError> {
+fn fit_recorder(
+    app: AppHandle,
+    width: f64,
+    height: f64,
+    keep_position: bool,
+) -> Result<(), SnaphubError> {
     if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
         return Err(SnaphubError::Window(
             "Recorder size must be finite and positive".into(),
@@ -2037,7 +2082,26 @@ fn fit_recorder(app: AppHandle, width: f64, height: f64) -> Result<(), SnaphubEr
     };
     let (work_area, scale) = window_work_area(&app, &window)
         .ok_or_else(|| SnaphubError::Window("No display available for the recorder".into()))?;
-    let frame = dock_frame(work_area, scale, width, height, 24.0);
+    // A dragged dock keeps its bottom-centre point and grows upward; a window
+    // that cannot report its frame falls back to the default placement.
+    let frame = if keep_position {
+        let current = window
+            .outer_position()
+            .ok()
+            .zip(window.outer_size().ok())
+            .map(|(position, size)| Rect {
+                x: f64::from(position.x),
+                y: f64::from(position.y),
+                width: f64::from(size.width),
+                height: f64::from(size.height),
+            });
+        current.map_or_else(
+            || dock_frame(work_area, scale, width, height, 24.0),
+            |current| dock_frame_keep_position(work_area, current, scale, width, height),
+        )
+    } else {
+        dock_frame(work_area, scale, width, height, 24.0)
+    };
     window
         .set_position(PhysicalPosition::new(
             frame.x.round() as i32,
@@ -2567,6 +2631,49 @@ mod recorder_layout_tests {
     #[test]
     fn dock_frame_clamps_content_taller_than_the_work_area() {
         let frame = dock_frame(work_area(0.0, 0.0, 1920.0, 400.0), 1.0, 724.0, 900.0, 24.0);
+        assert_eq!(frame.height, 400.0);
+        assert_eq!(frame.y, 0.0);
+    }
+
+    #[test]
+    fn keep_position_holds_the_bottom_centre_and_grows_upward() {
+        // The dock was dragged left of centre; opening a taller menu keeps
+        // the bottom-centre point and extends the top.
+        let current = work_area(300.0, 800.0, 724.0, 140.0);
+        let frame = dock_frame_keep_position(
+            work_area(0.0, 0.0, 1920.0, 1040.0),
+            current,
+            1.0,
+            724.0,
+            300.0,
+        );
+        assert_eq!(frame.x, 300.0);
+        assert_eq!(frame.width, 724.0);
+        assert_eq!(frame.height, 300.0);
+        assert_eq!(frame.y, 800.0 + 140.0 - 300.0);
+    }
+
+    #[test]
+    fn keep_position_clamps_inside_the_work_area() {
+        // Dragged into the bottom-right corner, then grown past both edges.
+        let current = work_area(1800.0, 900.0, 724.0, 140.0);
+        let frame = dock_frame_keep_position(
+            work_area(0.0, 0.0, 1920.0, 1040.0),
+            current,
+            1.0,
+            900.0,
+            300.0,
+        );
+        assert_eq!(frame.x, 1920.0 - 900.0);
+        assert_eq!(frame.y, 900.0 + 140.0 - 300.0);
+        // Content taller than the work area fills it from the top.
+        let frame = dock_frame_keep_position(
+            work_area(0.0, 0.0, 1920.0, 400.0),
+            current,
+            1.0,
+            724.0,
+            900.0,
+        );
         assert_eq!(frame.height, 400.0);
         assert_eq!(frame.y, 0.0);
     }

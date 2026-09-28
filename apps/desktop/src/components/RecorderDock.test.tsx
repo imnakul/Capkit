@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RecordingArtifacts, RecordingSource } from "../domain/recording";
 import { RecorderDock } from "./RecorderDock";
@@ -68,7 +68,10 @@ const mocks = {
   cameraOpen: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   cameraClose: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   ready: vi.fn<() => Promise<void>>(() => Promise.resolve()),
-  fit: vi.fn<(width: number, height: number) => Promise<void>>(() => Promise.resolve()),
+  fit: vi.fn<(width: number, height: number, keepPosition: boolean) => Promise<void>>(
+    () => Promise.resolve(),
+  ),
+  drag: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   border: vi.fn<(bounds: unknown) => Promise<void>>(() => Promise.resolve()),
   openRegion: vi.fn<() => Promise<void>>(() => Promise.resolve()),
 };
@@ -105,7 +108,8 @@ vi.mock("../lib/recordingTauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/recordingTauri")>();
   return {
     ...actual,
-    fitRecorder: (width: number, height: number): Promise<void> => mocks.fit(width, height),
+    fitRecorder: (width: number, height: number, keepPosition: boolean): Promise<void> =>
+    mocks.fit(width, height, keepPosition),
   openRecordRegion: (): Promise<void> => mocks.openRegion(),
   listenForRecordRegion: (
     onSelected: (selection: { displayId: string; bounds: { x: number; y: number; width: number; height: number } }) => void,
@@ -141,6 +145,17 @@ vi.mock("../lib/recordingTauri", async (importOriginal) => {
 vi.mock("../lib/tauri", () => ({
   describeInvokeError: (_error: unknown, fallback: string): string => fallback,
 }));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: (): { startDragging: () => Promise<void> } => ({
+    startDragging: (): Promise<void> => mocks.drag(),
+  }),
+}));
+
+async function openOptions(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "Recording options" }));
+  await screen.findByRole("combobox", { name: "Frame rate" });
+}
 
 describe("RecorderDock", () => {
   beforeEach(() => {
@@ -190,7 +205,7 @@ describe("RecorderDock", () => {
       await waitFor(() => {
         expect(mocks.ready).toHaveBeenCalled();
       });
-      expect(mocks.fit).toHaveBeenCalledWith(724, 140);
+      expect(mocks.fit).toHaveBeenCalledWith(724, 140, false);
       const fitOrder = mocks.fit.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
       const readyOrder = mocks.ready.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY;
       expect(fitOrder).toBeLessThan(readyOrder);
@@ -247,6 +262,7 @@ describe("RecorderDock", () => {
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
     fireEvent.click(screen.getByRole("button", { name: "Record a region" }));
+    await openOptions();
     fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
       target: { value: "0" },
     });
@@ -259,7 +275,7 @@ describe("RecorderDock", () => {
 
     regionListeners.selected?.({ displayId: "1", bounds: { x: 10, y: 20, width: 640, height: 360 } });
     const redraw = await screen.findByRole("button", { name: "Redraw area to record" });
-    expect(redraw).toHaveTextContent("640 × 360 · Redraw");
+    expect(redraw).toHaveAttribute("title", "640 × 360 · Redraw");
     expect(screen.getByRole("button", { name: "Start recording" })).not.toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
@@ -273,24 +289,34 @@ describe("RecorderDock", () => {
     );
   });
 
-  it("lists both device kinds with defaults and disables selects with their toggles", async () => {
+  it("lists both device kinds with defaults in their menus and remembers the pick", async () => {
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
 
-    const microphone = screen.getByRole("combobox", { name: "Microphone device" });
-    const speaker = screen.getByRole("combobox", { name: "Speaker device" });
-    expect(microphone).toBeDisabled();
-    expect(speaker).not.toBeDisabled();
-    for (const [select, names] of [
-      [microphone, ["Default (Headset)", "Headset", "USB Mic"]],
-      [speaker, ["Default (Speakers)", "Speakers", "Headphones"]],
-    ] as const) {
-      const options = Array.from(select.querySelectorAll("option")).map((option) => option.textContent);
-      expect(options).toEqual(names);
-    }
+    fireEvent.click(screen.getByRole("button", { name: "Choose microphone" }));
+    const micMenu = await screen.findByRole("listbox", { name: "Microphone device" });
+    expect(
+      within(micMenu).getByRole("option", { name: "Use the default device" }),
+    ).toHaveTextContent("Default (Headset)");
+    expect(
+      within(micMenu).getByRole("option", { name: "Use the default device" }),
+    ).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(within(micMenu).getByRole("option", { name: "Use USB Mic" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("listbox", { name: "Microphone device" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(window.localStorage.getItem("capkit.recorder.settings.v1")).toContain(
+      '"microphoneDeviceId":"mic-2"',
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Record the microphone" }));
-    expect(screen.getByRole("combobox", { name: "Microphone device" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose speaker" }));
+    const speakerMenu = await screen.findByRole("listbox", { name: "Speaker device" });
+    const names = within(speakerMenu)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(names).toEqual(["Default (Speakers)", "Speakers", "Headphones"]);
   });
 
   it("resets a missing device on refocus and shows the fallback message", async () => {
@@ -310,21 +336,32 @@ describe("RecorderDock", () => {
     );
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
-    expect(screen.getByRole("combobox", { name: "Microphone device" })).toHaveValue("mic-1");
+    fireEvent.click(screen.getByRole("button", { name: "Choose microphone" }));
+    const micMenu = await screen.findByRole("listbox", { name: "Microphone device" });
+    expect(within(micMenu).getByRole("option", { name: "Use Headset" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.keyDown(screen.getByRole("toolbar", { name: "Recorder" }), { key: "Escape" });
 
     mocks.devices.mockResolvedValueOnce(audioDeviceList.filter((device) => device.id !== "mic-1"));
     fireEvent(window, new Event("focus"));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "Microphone device" })).toHaveValue("");
+      expect(
+        screen.getByText("Your chosen microphone is not connected, so the default will be used."),
+      ).toBeVisible();
     });
+    fireEvent.click(screen.getByRole("button", { name: "Choose microphone" }));
+    const fallbackMenu = await screen.findByRole("listbox", { name: "Microphone device" });
     expect(
-      screen.getByText("Your chosen microphone is not connected, so the default will be used."),
-    ).toBeVisible();
+      within(fallbackMenu).getByRole("option", { name: "Use the default device" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 
   it("flushes the camera track before stopping, then closes", async () => {
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
+    await openOptions();
     fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
       target: { value: "0" },
     });
@@ -360,8 +397,10 @@ describe("RecorderDock", () => {
     render(<RecorderDock />);
     await screen.findByRole("button", { name: "Choose what to record" });
 
-    const quality = screen.getByRole("combobox", { name: "Frame rate" });
-    expect(quality.textContent).toContain("Native (144 fps)");
+    await openOptions();
+    expect(screen.getByRole("combobox", { name: "Frame rate" }).textContent).toContain(
+      "Native (144 fps)",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Choose what to record" }));
     fireEvent.click(screen.getByRole("option", { name: "Record Side monitor" }));
@@ -370,6 +409,7 @@ describe("RecorderDock", () => {
         "Side monitor",
       );
     });
+    await openOptions();
     expect(screen.getByRole("combobox", { name: "Frame rate" }).textContent).not.toContain(
       "Native",
     );
@@ -459,6 +499,7 @@ describe("RecorderDock", () => {
       expect(screen.getByRole("button", { name: "Start recording" })).toBeEnabled();
     });
 
+    await openOptions();
     fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
       target: { value: "0" },
     });
@@ -477,6 +518,7 @@ describe("RecorderDock", () => {
     });
 
     // Skip the countdown so the test exercises stop, not the timer.
+    await openOptions();
     fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
       target: { value: "0" },
     });
@@ -497,6 +539,7 @@ describe("RecorderDock", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Start recording" })).toBeEnabled();
     });
+    await openOptions();
     fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
       target: { value: "0" },
     });
@@ -517,5 +560,92 @@ describe("RecorderDock", () => {
     fireEvent.click(mic);
     expect(screen.getByRole("button", { name: "Record the microphone" })).toHaveAttribute("aria-pressed", "true");
     expect(window.localStorage.getItem("capkit.recorder.settings.v1")).toContain('"microphone":true');
+  });
+
+  it("fits the setup phase in a single row without inline device or quality controls", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    const row = screen.getByTestId("setup-row");
+    for (const name of [
+      "Move the recorder",
+      "Record a screen",
+      "Record a window",
+      "Record a region",
+      "Choose what to record",
+      "Record system audio",
+      "Choose speaker",
+      "Record the microphone",
+      "Choose microphone",
+      "Show the camera",
+      "Recording options",
+      "Close the recorder",
+      "Start recording",
+    ]) {
+      expect(within(row).getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.queryByRole("combobox", { name: "Frame rate" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: "Countdown before recording" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Microphone device" })).not.toBeInTheDocument();
+  });
+
+  it("moves the dock from either grip and keeps its position on later fits", async () => {
+    const rect = {
+      x: 0, y: 0, width: 724, height: 140, top: 0, left: 0, right: 724, bottom: 140,
+      toJSON: (): string => "{}",
+    } as DOMRect;
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    try {
+      render(<RecorderDock />);
+      const grip = await screen.findByRole("button", { name: "Move the recorder" });
+      fireEvent.pointerDown(grip);
+      expect(mocks.drag).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(mocks.fit).toHaveBeenCalledWith(724, 140, true);
+      });
+
+      // A non-primary button never starts a drag.
+      mocks.drag.mockClear();
+      fireEvent.pointerDown(grip, { button: 2 });
+      expect(mocks.drag).not.toHaveBeenCalled();
+
+      // Pointer down on a control does not drag either.
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Start recording" }));
+      expect(mocks.drag).not.toHaveBeenCalled();
+    } finally {
+      measure.mockRestore();
+    }
+  });
+
+  it("closes a menu with Escape and returns focus to its trigger", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    const trigger = screen.getByRole("button", { name: "Choose microphone" });
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("listbox", { name: "Microphone device" })).toBeVisible();
+
+    fireEvent.keyDown(screen.getByRole("toolbar", { name: "Recorder" }), { key: "Escape" });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("listbox", { name: "Microphone device" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps only one menu open at a time", async () => {
+    render(<RecorderDock />);
+    await screen.findByRole("button", { name: "Choose what to record" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose microphone" }));
+    expect(await screen.findByRole("listbox", { name: "Microphone device" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Recording options" }));
+    expect(
+      screen.queryByRole("listbox", { name: "Microphone device" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Frame rate" })).toBeVisible();
   });
 });
