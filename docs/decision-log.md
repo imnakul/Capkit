@@ -1,5 +1,24 @@
 # Decision Log
 
+## 2026-09-28 - Recordings play from the asset protocol via a narrow media-src
+
+- **Confirmed:** the CSP gains `media-src 'self' asset: http://asset.localhost blob:` and nothing else, so `<video>` loads recordings from `convertFileSrc` URLs on Windows while images keep working through `img-src`. A config test pins the directive.
+- **Rejected:** widening `default-src`, which would loosen every other content type too.
+- **Rationale:** without `media-src`, video falls back to `default-src`, which lacks `http://asset.localhost`, and every recording shows 0:00. This also unblocks the Studio source video, preview, and export.
+
+## 2026-09-28 - Native frame rate is capped by the H.264 level 5.2 macroblock rate
+
+- **Confirmed:** the requested fps is clamped to `floor(2_073_600 / (ceil(w/16) * ceil(h/16)))` before the encoder is created, so 1080p can record at 144 Hz while 4K stays near 60; the bitrate scales by `max(1.0, fps / 60)` up to 80 Mbps. The Record list shows the real fps.
+- **Rejected:** a fixed 120 fps option, which would lengthen the Quality menu for little benefit; uncapped native, which fails the sink writer at high resolutions.
+- **Rationale:** a fixed 144 fps request at 4K exceeds what H.264 level 5.2 allows; capping keeps one Native option that always produces a playable file.
+
+## 2026-09-28 - Camera Stop handshake waits up to 3 s and never fails
+
+- **Confirmed:** on Stop the dock emits `snaphub://camera-track-finish` and waits for `snaphub://camera-track-finished` or 3000 ms, whichever comes first; a timeout is not an error and the track keeps whatever 1 s chunks were flushed. A failed chunk append stops the MediaRecorder and leaves the preview running.
+- **Rejected:** blocking Stop indefinitely on a stuck camera webview; skipping the wait and losing the tail second.
+- **Rationale:** the camera records in the camera webview with MediaRecorder, so Stop must flush the tail before the backend closes the file; hanging Stop forever is worse than a track missing its last second.
+- **Provisional:** camera/screen start offset of up to about 150 ms is accepted; there is no frame-accurate sync.
+
 ## 2026-09-26 - Pinned images move by a drag handle; click-through removed
 
 - **Confirmed:** Pinned images are moved via a drag handle in their corner, supporting pointer drag and keyboard nudges with arrow keys (10 physical px, or 50 with Shift).
