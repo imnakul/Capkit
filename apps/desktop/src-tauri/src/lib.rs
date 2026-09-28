@@ -1438,6 +1438,50 @@ async fn cancel_recording(app: AppHandle) -> Result<(), SnaphubError> {
         .and_then(|result| result)
 }
 
+/// Where new screen recordings are saved. The folder is opted into the asset
+/// protocol scope at startup and after every change, so recordings keep
+/// playing after a restart wherever the user puts them.
+#[tauri::command]
+fn get_recording_directory(
+    service: tauri::State<'_, RecordingService>,
+) -> Result<String, SnaphubError> {
+    service
+        .recording_directory()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn set_recording_directory(app: AppHandle, directory: String) -> Result<String, SnaphubError> {
+    let path = app
+        .state::<RecordingService>()
+        .set_recording_directory(PathBuf::from(directory))?;
+    let _ = app.asset_protocol_scope().allow_directory(&path, true);
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn reset_recording_directory(app: AppHandle) -> Result<String, SnaphubError> {
+    let path = app
+        .state::<RecordingService>()
+        .reset_recording_directory()?;
+    let _ = app.asset_protocol_scope().allow_directory(&path, true);
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn open_recording_directory(
+    service: tauri::State<'_, RecordingService>,
+) -> Result<(), SnaphubError> {
+    let directory = service.recording_directory()?;
+    std::fs::create_dir_all(&directory).map_err(|error| SnaphubError::Record(error.to_string()))?;
+    #[cfg(target_os = "windows")]
+    return platform::windows_shell::open_path(&directory, false);
+    #[cfg(not(target_os = "windows"))]
+    Err(SnaphubError::Window(
+        "Opening folders is not implemented on this platform".into(),
+    ))
+}
+
 /// Pauses or resumes the recording; paused time is omitted from the output.
 #[tauri::command]
 fn set_recording_paused(
@@ -2205,6 +2249,10 @@ pub fn run() {
             start_recording,
             stop_recording,
             cancel_recording,
+            get_recording_directory,
+            set_recording_directory,
+            reset_recording_directory,
+            open_recording_directory,
             recording_status,
             begin_camera_track,
             append_camera_chunk,
@@ -2241,6 +2289,13 @@ pub fn run() {
             let _ = app
                 .asset_protocol_scope()
                 .allow_directory(std::env::temp_dir().join("CapKit"), true);
+
+            // A user-chosen recordings folder lives outside the temp scope,
+            // so it is opted in too. Without this, recordings there would
+            // stop playing after a restart.
+            if let Ok(directory) = app.state::<RecordingService>().recording_directory() {
+                let _ = app.asset_protocol_scope().allow_directory(directory, true);
+            }
 
             let configured = app
                 .state::<ShortcutConfiguration>()

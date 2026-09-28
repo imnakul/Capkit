@@ -11,6 +11,9 @@ use crate::error::SnaphubError;
 use crate::platform::{
     AudioDeviceBackend, RecordingSession, ScreenRecordingBackend, WindowCaptureExclusionBackend,
 };
+use crate::services::capture::{
+    default_recording_directory, load_recording_directory, persist_recording_directory,
+};
 
 /// Owns the one recording that can be in flight at a time.
 ///
@@ -29,7 +32,7 @@ pub struct RecordingService {
     active: Mutex<Option<Box<dyn RecordingSession>>>,
     camera: Mutex<Option<CameraTrack>>,
     camera_dir: Mutex<Option<PathBuf>>,
-    root: PathBuf,
+    root: Mutex<PathBuf>,
 }
 
 impl RecordingService {
@@ -38,6 +41,8 @@ impl RecordingService {
         audio: Arc<dyn AudioDeviceBackend>,
         exclusion: Arc<dyn WindowCaptureExclusionBackend>,
     ) -> Self {
+        let root = load_recording_directory();
+        let _ = std::fs::create_dir_all(&root);
         Self {
             recorder,
             audio,
@@ -45,7 +50,7 @@ impl RecordingService {
             active: Mutex::new(None),
             camera: Mutex::new(None),
             camera_dir: Mutex::new(None),
-            root: recordings_root(),
+            root: Mutex::new(root),
         }
     }
 
@@ -75,7 +80,11 @@ impl RecordingService {
                 "A recording is already in progress".into(),
             ));
         }
-        let directory = self.root.join(session_stamp());
+        let root =
+            self.root.lock().map(|root| root.clone()).map_err(|_| {
+                SnaphubError::Record("The recording location is unavailable".into())
+            })?;
+        let directory = root.join(session_stamp());
         let (session, audio_failures) = self.recorder.start(request, &directory)?;
         *active = Some(session);
         if let Ok(mut camera_dir) = self.camera_dir.lock() {
@@ -183,6 +192,39 @@ impl RecordingService {
         Ok(session.is_paused())
     }
 
+    /// The folder new recordings are saved in. It starts as the Videos
+    /// default and follows whatever the user picks in Settings.
+    pub fn recording_directory(&self) -> Result<PathBuf, SnaphubError> {
+        self.root
+            .lock()
+            .map(|root| root.clone())
+            .map_err(|_| SnaphubError::Record("The recording location is unavailable".into()))
+    }
+
+    pub fn set_recording_directory(&self, directory: PathBuf) -> Result<PathBuf, SnaphubError> {
+        if !directory.is_absolute() {
+            return Err(SnaphubError::Record(
+                "Choose an absolute folder for recordings".into(),
+            ));
+        }
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| SnaphubError::Record(error.to_string()))?;
+        let directory = directory
+            .canonicalize()
+            .map_err(|error| SnaphubError::Record(error.to_string()))?;
+        persist_recording_directory(&directory)?;
+        *self
+            .root
+            .lock()
+            .map_err(|_| SnaphubError::Record("The recording location is unavailable".into()))? =
+            directory.clone();
+        Ok(directory)
+    }
+
+    pub fn reset_recording_directory(&self) -> Result<PathBuf, SnaphubError> {
+        self.set_recording_directory(default_recording_directory())
+    }
+
     pub fn cancel(&self) -> Result<(), SnaphubError> {
         if let Some(session) = self.lock()?.take() {
             session.cancel();
@@ -203,12 +245,6 @@ impl RecordingService {
             .lock()
             .map_err(|_| SnaphubError::Record("The recording registry was poisoned".into()))
     }
-}
-
-/// Recordings are large and disposable until exported, so they live beside the
-/// other temporary session data rather than in the user's pictures folder.
-fn recordings_root() -> PathBuf {
-    std::env::temp_dir().join("CapKit").join("recordings")
 }
 
 fn session_stamp() -> String {

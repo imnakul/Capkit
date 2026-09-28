@@ -1212,6 +1212,8 @@ fn default_save_directory() -> PathBuf {
 #[derive(serde::Deserialize, serde::Serialize)]
 struct StoragePreferences {
     save_directory: PathBuf,
+    #[serde(default)]
+    recording_directory: Option<PathBuf>,
 }
 
 fn storage_preferences_path() -> PathBuf {
@@ -1262,17 +1264,149 @@ fn load_save_directory() -> PathBuf {
     default_save_directory()
 }
 
+/// Reads the whole preferences file, so saving one folder never erases the
+/// other. A missing or unparsable file falls back to the photo default with
+/// no recordings folder chosen.
 fn persist_save_directory(directory: &Path) -> Result<(), SnaphubError> {
-    let path = storage_preferences_path();
+    update_storage_preferences(|preferences| {
+        preferences.save_directory = directory.to_path_buf();
+    })
+}
+
+/// Applies one field change to the preferences file, leaving every other
+/// field exactly as it was.
+fn update_storage_preferences(
+    update: impl FnOnce(&mut StoragePreferences),
+) -> Result<(), SnaphubError> {
+    update_storage_preferences_at(&storage_preferences_path(), update)
+}
+
+fn update_storage_preferences_at(
+    path: &Path,
+    update: impl FnOnce(&mut StoragePreferences),
+) -> Result<(), SnaphubError> {
+    let mut preferences = read_storage_preferences_from(path);
+    update(&mut preferences);
+    write_storage_preferences_to(path, &preferences)
+}
+
+fn read_storage_preferences() -> StoragePreferences {
+    read_storage_preferences_from(&storage_preferences_path())
+}
+
+fn read_storage_preferences_from(path: &Path) -> StoragePreferences {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<StoragePreferences>(&raw).ok())
+        .unwrap_or(StoragePreferences {
+            save_directory: default_save_directory(),
+            recording_directory: None,
+        })
+}
+
+fn write_storage_preferences_to(
+    path: &Path,
+    preferences: &StoragePreferences,
+) -> Result<(), SnaphubError> {
     let parent = path
         .parent()
         .ok_or_else(|| SnaphubError::Export("Storage settings path is invalid".into()))?;
     fs::create_dir_all(parent).map_err(SnaphubError::export)?;
-    let bytes = serde_json::to_vec_pretty(&StoragePreferences {
-        save_directory: directory.to_path_buf(),
-    })
-    .map_err(SnaphubError::export)?;
+    let bytes = serde_json::to_vec_pretty(preferences).map_err(SnaphubError::export)?;
     fs::write(path, bytes).map_err(SnaphubError::export)
+}
+
+/// The user's recordings folder, or the Videos default when none was chosen.
+pub(crate) fn load_recording_directory() -> PathBuf {
+    read_storage_preferences()
+        .recording_directory
+        .filter(|directory| directory.is_absolute())
+        .unwrap_or_else(default_recording_directory)
+}
+
+pub(crate) fn default_recording_directory() -> PathBuf {
+    dirs::video_dir()
+        .map(|directory| directory.join("CapKit"))
+        .unwrap_or_else(|| std::env::temp_dir().join("CapKit").join("recordings"))
+}
+
+pub(crate) fn persist_recording_directory(directory: &Path) -> Result<(), SnaphubError> {
+    update_storage_preferences(|preferences| {
+        preferences.recording_directory = Some(directory.to_path_buf());
+    })
+}
+
+#[cfg(test)]
+mod storage_preferences_tests {
+    use super::*;
+
+    /// A scratch preferences file, so the tests never touch the real config.
+    fn scratch_preferences_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "capkit-storage-preferences-{}.json",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn saving_one_folder_keeps_the_other() {
+        let path = scratch_preferences_path();
+        write_storage_preferences_to(
+            &path,
+            &StoragePreferences {
+                save_directory: PathBuf::from("C:/Photos/CapKit"),
+                recording_directory: None,
+            },
+        )
+        .expect("scratch preferences write");
+
+        // Saving the recordings folder keeps the photo folder, through the
+        // same read-modify-write the production setters use.
+        update_storage_preferences_at(&path, |preferences| {
+            preferences.recording_directory = Some(PathBuf::from("D:/Video/CapKit"));
+        })
+        .expect("recordings folder saves");
+        let reloaded = read_storage_preferences_from(&path);
+        assert_eq!(reloaded.save_directory, PathBuf::from("C:/Photos/CapKit"));
+        assert_eq!(
+            reloaded.recording_directory,
+            Some(PathBuf::from("D:/Video/CapKit"))
+        );
+
+        // Saving the photo folder keeps the recordings folder.
+        update_storage_preferences_at(&path, |preferences| {
+            preferences.save_directory = PathBuf::from("C:/Photos/Other");
+        })
+        .expect("photo folder saves");
+        let reloaded = read_storage_preferences_from(&path);
+        assert_eq!(reloaded.save_directory, PathBuf::from("C:/Photos/Other"));
+        assert_eq!(
+            reloaded.recording_directory,
+            Some(PathBuf::from("D:/Video/CapKit"))
+        );
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_default_recordings_folder_lives_in_videos() {
+        let default = default_recording_directory();
+        assert_eq!(
+            default.file_name().and_then(|name| name.to_str()),
+            Some("CapKit")
+        );
+        if let Some(video) = dirs::video_dir() {
+            assert_eq!(default, video.join("CapKit"));
+        }
+    }
+
+    #[test]
+    fn old_preferences_without_a_recordings_folder_still_parse() {
+        let raw = r#"{"save_directory": "C:/Photos/CapKit"}"#;
+        let parsed: StoragePreferences = serde_json::from_str(raw).expect("old preferences parse");
+        assert_eq!(parsed.save_directory, PathBuf::from("C:/Photos/CapKit"));
+        assert_eq!(parsed.recording_directory, None);
+    }
 }
 
 fn previous_default_save_directory() -> PathBuf {

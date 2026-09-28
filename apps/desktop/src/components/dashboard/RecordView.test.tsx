@@ -92,6 +92,20 @@ describe("RecordView", () => {
     expect(openRecorder).toHaveBeenCalledTimes(1);
   });
 
+  it("shows recordings in a four-column grid on wide windows, like screenshots", () => {
+    render(<RecordView />);
+
+    const list = screen.getByRole("list", { name: "Recordings" });
+    for (const gridClass of [
+      "grid-cols-2",
+      "lg:grid-cols-3",
+      "xl:grid-cols-4",
+      "2xl:grid-cols-5",
+    ]) {
+      expect(list).toHaveClass(gridClass);
+    }
+  });
+
   it("edits a recording in place and returns to the library", async () => {
     render(<RecordView />);
 
