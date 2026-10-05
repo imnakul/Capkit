@@ -155,6 +155,7 @@ export function StagePanel({ scene, onPatch, onApplyLook }: { scene: VideoScene;
 export function MotionPanel({
   scene,
   hasCursorTrack,
+  hasCameraTrack,
   clickCount,
   onPatchCursor,
   onPatchZoom,
@@ -162,6 +163,7 @@ export function MotionPanel({
 }: {
   scene: VideoScene;
   hasCursorTrack: boolean;
+  hasCameraTrack: boolean;
   clickCount: number;
   onPatchCursor: (patch: Partial<CursorStyle>) => void;
   onPatchZoom: (patch: Partial<ZoomSettings>) => void;
@@ -217,7 +219,12 @@ export function MotionPanel({
       </div>
 
       <CollapsibleSection icon={Video} title="Camera">
-        <Toggle checked={scene.camera.show} label="Show camera" onChange={(value) => onPatchCamera({ show: value })} />
+        {hasCameraTrack ? null : (
+          <p className="mb-2.5 rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+            This recording has no camera
+          </p>
+        )}
+        <Toggle checked={scene.camera.show} label="Show camera" onChange={(value) => onPatchCamera({ show: value })} disabled={!hasCameraTrack} />
         <div className={scene.camera.show ? "space-y-3.5" : "pointer-events-none space-y-3.5 opacity-40"}>
           <div className="grid grid-cols-3 gap-1.5">
             {cameraShapes.map((shape) => (
@@ -228,7 +235,7 @@ export function MotionPanel({
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {cameraCorners.map((corner) => (
-              <Chip active={scene.camera.corner === corner} key={corner} label={`Place the camera ${corner.replace("-", " ")}`} onClick={() => onPatchCamera({ corner })}>
+              <Chip active={scene.camera.corner === corner && scene.camera.position === null} key={corner} label={`Place the camera ${corner.replace("-", " ")}`} onClick={() => onPatchCamera({ corner, position: null })}>
                 {corner.replace("-", " ")}
               </Chip>
             ))}

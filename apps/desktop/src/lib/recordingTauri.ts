@@ -76,9 +76,17 @@ export async function setRecordingPaused(paused: boolean): Promise<boolean> {
   return Boolean(await invoke("set_recording_paused", { paused }));
 }
 
-/** Fits the recorder window to its content; the backend anchors and clamps it. */
-export async function fitRecorder(width: number, height: number): Promise<void> {
-  await invoke("fit_recorder", { width, height });
+/**
+ * Fits the recorder window to its content. Once the user has dragged the
+ * dock (`keepPosition`), the backend keeps its bottom-centre point and grows
+ * upward instead of re-docking it, and clamps it inside the work area.
+ */
+export async function fitRecorder(
+  width: number,
+  height: number,
+  keepPosition: boolean,
+): Promise<void> {
+  await invoke("fit_recorder", { width, height, keepPosition });
 }
 
 /**
@@ -125,6 +133,34 @@ export async function openRecorder(): Promise<void> {
 
 export async function closeRecorder(): Promise<void> {
   await invoke("close_recorder");
+}
+
+export async function beginCameraTrack(extension: string): Promise<void> {
+  await invoke("begin_camera_track", { extension });
+}
+
+export async function appendCameraChunk(bytes: Uint8Array): Promise<void> {
+  await invoke("append_camera_chunk", bytes);
+}
+
+/** Asks the camera window to flush its track, then waits for `finished` or
+ * 3000 ms. A timeout is not an error: the track keeps whatever was flushed.
+ * Subscribing before emitting closes the race between the two. */
+export async function finishCameraTrack(timeoutMs = 3000): Promise<void> {
+  const { emit, listen } = await import("@tauri-apps/api/event");
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = (): void => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const timer = window.setTimeout(done, timeoutMs);
+    void listen("snaphub://camera-track-finished", () => done())
+      .then(() => emit("snaphub://camera-track-finish"))
+      .catch(() => undefined);
+  });
 }
 
 export async function openRecordRegion(displayId: string): Promise<void> {

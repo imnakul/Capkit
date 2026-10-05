@@ -90,8 +90,9 @@ The editor is in-place: the selected pixels remain the immutable source while an
 ## Recording and Studio
 
 - **Implemented:** Display, window, and region recording sources.
-- **Implemented:** Countdown, floating dock exclusion from the recording, H.264 Media Foundation capture, system-audio and microphone AAC sidecars, cursor/click track, pause/resume, and recording status.
-- **Implemented:** Studio trim, shared Showcase treatment, cursor smoothing, automatic zoom-on-click keyframes, webcam circle/square/rounded track, MP4 WebCodecs export, and GIF export.
+- **Implemented:** Countdown, single-row draggable floating dock exclusion from the recording, H.264 Media Foundation capture, 24/30/60 fps plus a Native rate following the display refresh rate, system-audio and microphone AAC sidecars, cursor/click track, pause/resume, and recording status.
+- **Implemented:** Studio trim, shared Showcase treatment, cursor smoothing, automatic zoom-on-click keyframes, webcam recorded as its own circle/square/rounded track with free placement, MP4 WebCodecs export, and GIF export.
+- **Implemented:** Recordings save under `Videos\CapKit` by default, configurable with choose/open/reset in Settings.
 - **Partial:** Packaged WebView2 `VideoEncoder` availability and real export playback/audio-sync acceptance remain manual checks.
 
 ## Settings and shortcuts

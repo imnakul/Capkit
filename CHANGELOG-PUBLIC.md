@@ -2,6 +2,24 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.3.0 — 2026-09-28
+
+### Fixed
+
+- Recordings play back with their real duration, in the Record list and in Studio.
+- The camera bubble closes when recording stops or is discarded, clips cleanly to its circle, rounded or square shape, and drags anywhere.
+
+### Added
+
+- The camera records as its own track: move it freely in Studio, toggle it, and keep it in MP4 and GIF exports.
+- Native frame rate: record at your monitor's refresh rate on fast displays.
+- Recordings save to Videos\CapKit, changeable with choose, open and reset in Settings.
+- The recorder is a single draggable row that stays where you put it.
+
+### Improved
+
+- The Recordings grid shows four columns on wide windows, like Screenshots.
+
 ## 0.2.1 — 2026-09-28
 
 ### Fixed

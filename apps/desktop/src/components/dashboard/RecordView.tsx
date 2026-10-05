@@ -146,7 +146,7 @@ export function RecordView(): React.JSX.Element {
             </div>
           </div>
         ) : (
-          <ul aria-label="Recordings" className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+          <ul aria-label="Recordings" className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {library.map((item) => (
               <li
                 className="overflow-hidden rounded-lg border border-stone-300/80 bg-white/60 dark:border-white/10 dark:bg-white/5"

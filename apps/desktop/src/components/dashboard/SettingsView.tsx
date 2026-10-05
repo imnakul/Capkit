@@ -30,8 +30,12 @@ import {
 } from "../../domain/settings";
 import {
   describeInvokeError,
+  getRecordingDirectory,
   getSaveDirectory,
+  openRecordingDirectory,
+  resetRecordingDirectory,
   resetSaveDirectory,
+  setRecordingDirectory,
   setSaveDirectory,
   updateGlobalShortcuts,
 } from "../../lib/tauri";
@@ -77,6 +81,7 @@ const settingsTabs = [
 type SettingsSectionId =
   | "startup"
   | "save-location"
+  | "save-recordings"
   | "theme-accent"
   | "capture-toolbar"
   | "colors"
@@ -87,7 +92,7 @@ type SettingsSectionId =
   | "shortcuts";
 
 const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
-  general: ["startup", "save-location", "theme-accent"],
+  general: ["startup", "save-location", "save-recordings", "theme-accent"],
   screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
   "screen-draw": ["on-screen-toolbar"],
   shortcuts: ["shortcuts"],
@@ -104,6 +109,7 @@ function defaultOpenSections(): Record<SettingsSectionId, boolean> {
   const open: Record<SettingsSectionId, boolean> = {
     startup: false,
     "save-location": false,
+    "save-recordings": false,
     "theme-accent": false,
     "capture-toolbar": false,
     colors: false,
@@ -128,6 +134,9 @@ export function SettingsView(): React.JSX.Element {
   const [saveDirectory, setSaveDirectoryState] = useState("Pictures\\Capkit");
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [choosingDirectory, setChoosingDirectory] = useState(false);
+  const [recordingDirectory, setRecordingDirectoryState] = useState("Videos\\Capkit");
+  const [recordingMessage, setRecordingMessage] = useState<string | null>(null);
+  const [choosingRecordingDirectory, setChoosingRecordingDirectory] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [openSections, setOpenSections] = useState<Record<SettingsSectionId, boolean>>(defaultOpenSections);
 
@@ -135,6 +144,11 @@ export function SettingsView(): React.JSX.Element {
     void getSaveDirectory()
       .then(setSaveDirectoryState)
       .catch((error: unknown) => setStorageMessage(describeInvokeError(error, "Save location could not be loaded")));
+    void getRecordingDirectory()
+      .then(setRecordingDirectoryState)
+      .catch((error: unknown) =>
+        setRecordingMessage(describeInvokeError(error, "Recordings location could not be loaded")),
+      );
   }, []);
 
   useEffect(() => {
@@ -423,6 +437,49 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
+  async function chooseRecordingDirectory(): Promise<void> {
+    if (!isTauri()) {
+      setRecordingMessage("Folder selection is available in the Windows desktop app");
+      return;
+    }
+    setChoosingRecordingDirectory(true);
+    setRecordingMessage(null);
+    try {
+      const selected = await open({
+        defaultPath: recordingDirectory,
+        directory: true,
+        multiple: false,
+        title: "Choose where Capkit saves recordings",
+      });
+      if (typeof selected !== "string") return;
+      const directory = await setRecordingDirectory(selected);
+      setRecordingDirectoryState(directory);
+      setRecordingMessage("New recordings will save here automatically");
+    } catch (error: unknown) {
+      setRecordingMessage(describeInvokeError(error, "Recordings location could not be changed"));
+    } finally {
+      setChoosingRecordingDirectory(false);
+    }
+  }
+
+  async function openRecordingsFolder(): Promise<void> {
+    try {
+      await openRecordingDirectory();
+    } catch (error: unknown) {
+      setRecordingMessage(describeInvokeError(error, "Recordings folder could not be opened"));
+    }
+  }
+
+  async function resetRecordings(): Promise<void> {
+    try {
+      const directory = await resetRecordingDirectory();
+      setRecordingDirectoryState(directory);
+      setRecordingMessage("Recordings location reset");
+    } catch (error: unknown) {
+      setRecordingMessage(describeInvokeError(error, "Recordings location could not be reset"));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[960px] px-7 pb-12 pt-7">
       <header className="mb-6 flex items-end justify-between border-b border-stone-300/80 pb-5 dark:border-white/10">
@@ -456,6 +513,19 @@ export function SettingsView(): React.JSX.Element {
             </div>
             {storageMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{storageMessage}</p>}
             <SectionReset onClick={() => void resetStorage()} />
+          </SettingsSection>
+          <SettingsSection id="save-recordings" onToggle={toggleSection} open={openSections["save-recordings"]} icon={FolderCog} eyebrow="Storage" title="Saved recordings" description="Where new screen recordings are saved.">
+            <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-3 dark:border-white/10 dark:bg-[#2b2c29]">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={15} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-semibold text-stone-800 dark:text-stone-200">Default recordings location</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-stone-500 dark:text-stone-400" title={recordingDirectory}>{recordingDirectory}</p>
+              </div>
+              <button aria-label="Choose default recordings location" className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-wait disabled:opacity-60 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={choosingRecordingDirectory} type="button" onClick={() => void chooseRecordingDirectory()}>{choosingRecordingDirectory ? "Opening…" : "Choose folder"}</button>
+              <button aria-label="Open recordings folder" className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" type="button" onClick={() => void openRecordingsFolder()}>Open folder</button>
+            </div>
+            {recordingMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{recordingMessage}</p>}
+            <SectionReset onClick={() => void resetRecordings()} />
           </SettingsSection>
           </>
         ) : activeTab === "screenshots" ? (

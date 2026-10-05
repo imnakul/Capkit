@@ -88,8 +88,10 @@ The selected area becomes the editor. Tools appear right beside it.
 
 - Record a display, a single window, or an area you draw.
 - Choose your microphone and speaker. The recording controls stay out of the video.
+- Native frame rate up to your monitor's refresh rate.
 - The cursor is recorded as its own track, so the editor can smooth it and zoom in automatically on clicks.
-- Trim, add a webcam bubble, apply a Showcase look, and export to MP4 or GIF.
+- Record your webcam as its own track, then move and shape it in the editor.
+- Trim, apply a Showcase look, and export to MP4 or GIF.
 
 ### Showcase
 

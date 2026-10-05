@@ -161,10 +161,12 @@ export function Toggle({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }): React.JSX.Element {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-3 py-0.5">
@@ -174,6 +176,7 @@ export function Toggle({
           aria-label={label}
           checked={checked}
           className="peer sr-only"
+          disabled={disabled}
           role="switch"
           type="checkbox"
           onChange={(event) => onChange(event.currentTarget.checked)}

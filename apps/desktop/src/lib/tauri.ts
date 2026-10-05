@@ -295,6 +295,29 @@ export async function openSaveDirectory(): Promise<void> {
   await invoke("open_save_directory");
 }
 
+export async function getRecordingDirectory(): Promise<string> {
+  if (!isTauri()) return "Videos\\Capkit";
+  const raw: unknown = await invoke("get_recording_directory");
+  return z.string().min(1).parse(raw);
+}
+
+export async function setRecordingDirectory(directory: string): Promise<string> {
+  if (!isTauri()) return directory;
+  const raw: unknown = await invoke("set_recording_directory", { directory });
+  return z.string().min(1).parse(raw);
+}
+
+export async function resetRecordingDirectory(): Promise<string> {
+  if (!isTauri()) return "Videos\\Capkit";
+  const raw: unknown = await invoke("reset_recording_directory");
+  return z.string().min(1).parse(raw);
+}
+
+export async function openRecordingDirectory(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_recording_directory");
+}
+
 export async function openSavedCapture(path: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("open_saved_capture", { path });
