@@ -10,6 +10,7 @@ const captureMocks = vi.hoisted(() => ({
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
   listeners: [] as (() => void)[],
+  pickCaptureColor: vi.fn(),
   requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
   showCaptureSurface: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     cancelManualScrolling: captureMocks.cancelManualScrolling,
     captureScrolling: captureMocks.captureScrolling,
     completeCapture: captureMocks.completeCapture,
+    pickCaptureColor: captureMocks.pickCaptureColor,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
       captureMocks.listeners.push(callback);
       return Promise.resolve((): void => {
@@ -323,6 +325,33 @@ describe("App", () => {
 
     await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
   });
+  it("copies the colour under the pointer with I and rgb with Shift+I", async () => {
+    captureMocks.pickCaptureColor.mockImplementation(
+      (_sessionId: string, _point: unknown, format: "hex" | "rgb") =>
+        Promise.resolve({ hex: "#12ABFF", copied: format === "hex" ? "#12ABFF" : "rgb(18, 171, 255)" }),
+    );
+    render(<App />);
+
+    expect(await screen.findAllByText(/Hover to preview targets/)).not.toHaveLength(0);
+    fireEvent.pointerMove(screen.getByRole("main"), { clientX: 40, clientY: 60, pointerId: 1 });
+    fireEvent.keyDown(window, { key: "i" });
+    expect(await screen.findAllByText(/Copied #12ABFF/)).not.toHaveLength(0);
+    fireEvent.keyDown(window, { key: "I", shiftKey: true });
+    expect(await screen.findAllByText(/Copied rgb\(18, 171, 255\)/)).not.toHaveLength(0);
+    expect(captureMocks.pickCaptureColor).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      { x: 40, y: 60 },
+      "hex",
+    );
+    expect(captureMocks.pickCaptureColor).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { x: 40, y: 60 },
+      "rgb",
+    );
+    expect(screen.getByRole("main")).toBeInTheDocument();
+  });
+
   it("dismisses capture with Escape before a region is selected", async () => {
     render(<App />);
 

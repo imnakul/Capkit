@@ -14,9 +14,9 @@ use std::{
 use domain::{
     AudioDeviceDto, CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult,
     CompletionStatus, DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto,
-    OnScreenSessionDto, Point, RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto,
-    RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
-    StartupStateDto,
+    OnScreenSessionDto, PickColorRequest, PickedColorDto, Point, RecordingArtifactsDto,
+    RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect, SavedCaptureDto,
+    ScrollingCaptureRequest, ScrollingCaptureResult, StartupStateDto,
 };
 use error::SnaphubError;
 use platform::StartupBackend;
@@ -378,6 +378,16 @@ async fn retry_capture_save(
             .finalize_committed(&session_id),
     );
     Ok(result)
+}
+
+#[tauri::command]
+fn pick_capture_color(
+    window: WebviewWindow,
+    service: tauri::State<'_, CaptureService>,
+    request: PickColorRequest,
+) -> Result<PickedColorDto, SnaphubError> {
+    ensure_capture_window(&window)?;
+    service.pick_color(&request)
 }
 
 // Hide first so Escape feels instant, then wait for cancellation off the main thread.
@@ -2281,6 +2291,7 @@ pub fn run() {
             dismiss_on_screen,
             save_on_screen_capture,
             complete_capture,
+            pick_capture_color,
             retry_capture_save,
             cancel_capture,
             dismiss_capture,

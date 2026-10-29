@@ -64,6 +64,15 @@ export const completionActionSchema = z.enum([
 ]);
 export type CompletionAction = z.infer<typeof completionActionSchema>;
 
+export const colorFormatSchema = z.enum(["hex", "rgb"]);
+export type ColorFormat = z.infer<typeof colorFormatSchema>;
+
+export const pickedColorSchema = z.object({
+  hex: z.string().regex(/^#[0-9A-F]{6}$/),
+  copied: z.string().min(1),
+});
+export type PickedColor = z.infer<typeof pickedColorSchema>;
+
 export const scrollingCaptureResultSchema = z.object({
   outputPath: z.string(),
   frameCount: z.number().int().positive(),

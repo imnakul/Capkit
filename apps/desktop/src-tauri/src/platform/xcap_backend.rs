@@ -216,6 +216,13 @@ impl ClipboardBackend for XcapPlatformBackend {
             })
             .map_err(SnaphubError::clipboard)
     }
+
+    fn copy_text(&self, text: &str) -> Result<(), SnaphubError> {
+        let mut clipboard = Clipboard::new().map_err(SnaphubError::clipboard)?;
+        clipboard
+            .set_text(text.to_owned())
+            .map_err(SnaphubError::clipboard)
+    }
 }
 
 impl PermissionBackend for XcapPlatformBackend {

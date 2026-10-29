@@ -29,9 +29,10 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        Annotation, AnnotationScene, CaptureSessionDto, CompletionAction, CompletionRequest,
-        CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto, Point, Rect,
-        SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+        Annotation, AnnotationScene, CaptureSessionDto, ColorFormat, CompletionAction,
+        CompletionRequest, CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto,
+        PickColorRequest, PickedColorDto, Point, Rect, SavedCaptureDto, ScrollingCaptureRequest,
+        ScrollingCaptureResult,
     },
     error::SnaphubError,
     platform::{
@@ -635,6 +636,25 @@ impl CaptureService {
         self.clipboard.copy_image(&image)
     }
 
+    /// Copies the frozen snapshot's colour at a display-local logical point.
+    /// Reads the captured physical pixel, so the value matches the screen rather than the scaled preview.
+    pub fn pick_color(&self, request: &PickColorRequest) -> Result<PickedColorDto, SnaphubError> {
+        let id = parse_session_id(&request.session_id)?;
+        let pixel = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+            let asset = sessions
+                .get(&id)
+                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
+            pixel_at(&asset.image, request.point, asset.scale_factor)?
+        };
+        let picked = format_color(pixel, request.format);
+        self.clipboard.copy_text(&picked.copied)?;
+        Ok(picked)
+    }
+
     pub fn save_image_path(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
         let image = image::open(path)
             .map_err(SnaphubError::export)?
@@ -875,6 +895,31 @@ impl Drop for CaptureService {
 
 fn target_area(target: &DetectedTargetDto) -> f64 {
     target.bounds.width * target.bounds.height
+}
+
+fn pixel_at(image: &RgbaImage, point: Point, scale: f64) -> Result<Rgba<u8>, SnaphubError> {
+    if !point.x.is_finite() || !point.y.is_finite() || point.x < 0.0 || point.y < 0.0 {
+        return Err(SnaphubError::Session("Colour point is invalid".into()));
+    }
+    let x = (point.x * scale).floor();
+    let y = (point.y * scale).floor();
+    if x >= f64::from(image.width()) || y >= f64::from(image.height()) {
+        return Err(SnaphubError::Session(
+            "Colour point falls outside the captured display".into(),
+        ));
+    }
+    // Bounds-checked above, so the truncating casts stay inside the image.
+    Ok(*image.get_pixel(x as u32, y as u32))
+}
+
+fn format_color(pixel: Rgba<u8>, format: ColorFormat) -> PickedColorDto {
+    let [red, green, blue, _] = pixel.0;
+    let hex = format!("#{red:02X}{green:02X}{blue:02X}");
+    let copied = match format {
+        ColorFormat::Hex => hex.clone(),
+        ColorFormat::Rgb => format!("rgb({red}, {green}, {blue})"),
+    };
+    PickedColorDto { hex, copied }
 }
 
 fn parse_session_id(session_id: &str) -> Result<Uuid, SnaphubError> {
@@ -1514,6 +1559,7 @@ mod tests {
     struct FakeBackend {
         source: RgbaImage,
         copied: Mutex<Option<RgbaImage>>,
+        copied_text: Mutex<Option<String>>,
         clipboard_calls: AtomicUsize,
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
@@ -1525,6 +1571,7 @@ mod tests {
             Self {
                 source: RgbaImage::from_pixel(20, 20, Rgba([240, 241, 237, 255])),
                 copied: Mutex::new(None),
+                copied_text: Mutex::new(None),
                 clipboard_calls: AtomicUsize::new(0),
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
@@ -1572,6 +1619,14 @@ mod tests {
                 return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
             }
             *self.copied.lock().unwrap() = Some(image.clone());
+            Ok(())
+        }
+
+        fn copy_text(&self, text: &str) -> Result<(), SnaphubError> {
+            if self.fail_clipboard.load(Ordering::SeqCst) {
+                return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
+            }
+            *self.copied_text.lock().unwrap() = Some(text.to_owned());
             Ok(())
         }
     }
@@ -1736,6 +1791,64 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn pick_color_reads_the_physical_pixel_and_copies_text() {
+        let directory = TestDirectory::new("pick-color");
+        let mut fake = FakeBackend::new();
+        fake.source.put_pixel(7, 9, Rgba([18, 171, 255, 255]));
+        let backend = Arc::new(fake);
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let picked = service
+            .pick_color(&PickColorRequest {
+                session_id: session_id.clone(),
+                point: Point { x: 3.6, y: 4.9 },
+                format: ColorFormat::Rgb,
+            })
+            .expect("colour should be picked");
+        assert_eq!(picked.hex, "#12ABFF");
+        assert_eq!(picked.copied, "rgb(18, 171, 255)");
+        assert_eq!(
+            backend.copied_text.lock().unwrap().as_deref(),
+            Some("rgb(18, 171, 255)")
+        );
+        let hex = service
+            .pick_color(&PickColorRequest {
+                session_id,
+                point: Point { x: 0.0, y: 0.0 },
+                format: ColorFormat::Hex,
+            })
+            .expect("colour should be picked");
+        assert_eq!(hex.copied, "#F0F1ED");
+    }
+
+    #[test]
+    fn pick_color_rejects_points_outside_the_snapshot() {
+        let directory = TestDirectory::new("pick-color-bounds");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        for point in [
+            Point { x: 10.0, y: 2.0 },
+            Point { x: -0.5, y: 2.0 },
+            Point {
+                x: f64::NAN,
+                y: 2.0,
+            },
+        ] {
+            assert!(
+                service
+                    .pick_color(&PickColorRequest {
+                        session_id: session_id.clone(),
+                        point,
+                        format: ColorFormat::Hex,
+                    })
+                    .is_err()
+            );
+        }
+        assert!(backend.copied_text.lock().unwrap().is_none());
     }
 
     #[test]

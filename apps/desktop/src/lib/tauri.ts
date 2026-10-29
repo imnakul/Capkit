@@ -16,12 +16,15 @@ import {
   completionActionSchema,
   detectedTargetSchema,
   displaySchema,
+  pickedColorSchema,
   pointSchema,
   rectSchema,
   scrollingCaptureResultSchema,
   savedCaptureSchema,
   type CaptureSession,
+  type ColorFormat,
   type CompletionAction,
+  type PickedColor,
   type DetectedTarget,
   type Display,
   type Point,
@@ -169,6 +172,19 @@ export async function completeCapture(
     request: { action, sessionId, selection, scene },
   });
   return completionResultSchema.parse(raw);
+}
+
+/** Copies the snapshot colour at a display-local logical point; the backend reads the physical pixel. */
+export async function pickCaptureColor(
+  sessionId: string,
+  point: Point,
+  format: ColorFormat,
+): Promise<PickedColor> {
+  if (!isTauri()) throw new Error("Colour picking requires the desktop app");
+  const raw: unknown = await invoke("pick_capture_color", {
+    request: { sessionId, point, format },
+  });
+  return pickedColorSchema.parse(raw);
 }
 
 export async function retryCaptureSave(sessionId: string): Promise<CompletionResult> {

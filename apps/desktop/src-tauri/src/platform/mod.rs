@@ -41,6 +41,7 @@ pub trait TargetDetectionBackend: Send + Sync {
 
 pub trait ClipboardBackend: Send + Sync {
     fn copy_image(&self, image: &RgbaImage) -> Result<(), SnaphubError>;
+    fn copy_text(&self, text: &str) -> Result<(), SnaphubError>;
 }
 
 pub trait PermissionBackend: Send + Sync {

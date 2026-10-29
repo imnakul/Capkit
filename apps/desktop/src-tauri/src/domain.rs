@@ -205,6 +205,29 @@ pub struct CompletionResult {
     pub cleanup_warning: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ColorFormat {
+    Hex,
+    Rgb,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickColorRequest {
+    pub session_id: String,
+    /// Display-local logical coordinates, the same space as the selection.
+    pub point: Point,
+    pub format: ColorFormat,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedColorDto {
+    pub hex: String,
+    pub copied: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScrollingCaptureRequest {

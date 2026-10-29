@@ -19,6 +19,7 @@ import {
 } from "./domain/annotations";
 import type {
   CaptureSession,
+  ColorFormat,
   CompletionAction,
   DetectedTarget,
   Point,
@@ -27,6 +28,7 @@ import type {
 import { useSnaphubSettings } from "./domain/settings";
 import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
+import { eyedropperFormat } from "./lib/eyedropper";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
@@ -40,6 +42,7 @@ import {
   describeInvokeError,
   listTargets,
   listenForCaptureRequest,
+  pickCaptureColor,
   requestCapture,
   retryCaptureSave,
   showCaptureSurface,
@@ -88,8 +91,11 @@ export function App(): React.JSX.Element {
   const [hoverTarget, setHoverTarget] = useState<DetectedTarget | null>(null);
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
-  const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle");
+  const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle / I copies a colour");
   const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
+  // The swatch shows only while its message is still the current one.
+  const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
+  const lastPointer = useRef<Point | null>(null);
   const uiLookupSequence = useRef(0);
   const uiLookupInFlight = useRef(false);
   const pendingUiLookup = useRef<Point | null>(null);
@@ -196,7 +202,7 @@ export function App(): React.JSX.Element {
         });
         dispatchScene({ type: "reset" });
       });
-      setMessage("Hover to preview targets / drag to draw a rectangle");
+      setMessage("Hover to preview targets / drag to draw a rectangle / I copies a colour");
       let readyTimeout: number | undefined;
       await Promise.race([
         backdropReady,
@@ -701,6 +707,30 @@ export function App(): React.JSX.Element {
   }, [completionState.phase, session]);
 
   useEffect(() => {
+    // Window-level so the eyedropper knows the pointer even over the annotation canvas or toolbars.
+    function trackPointer(event: PointerEvent): void {
+      lastPointer.current = { x: event.clientX, y: event.clientY };
+    }
+    window.addEventListener("pointermove", trackPointer, { capture: true, passive: true });
+    return (): void => {
+      window.removeEventListener("pointermove", trackPointer, { capture: true });
+    };
+  }, []);
+
+  const pickColor = useCallback(async (format: ColorFormat): Promise<void> => {
+    const point = lastPointer.current;
+    if (session === null || point === null) return;
+    try {
+      const picked = await pickCaptureColor(session.id, point, format);
+      const pickedMessage = `Copied ${picked.copied}`;
+      setPickedSwatch({ hex: picked.hex, message: pickedMessage });
+      setMessage(pickedMessage);
+    } catch (error) {
+      setMessage(`Could not copy colour · ${describeInvokeError(error, "The colour could not be read")}`);
+    }
+  }, [session]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       // Escape is the capture surface's unconditional exit hatch. Handle it in
       // the capture phase before a focused control or WebView handler can consume
@@ -729,7 +759,18 @@ export function App(): React.JSX.Element {
         && !busy
         && completionState.phase === "idle";
       const key = event.key.toUpperCase();
-      if (
+      const { captureModeCopy, captureModeSave, captureModeCopyAndSave } = settingsRef.current.shortcuts;
+      const colorFormat = busy || scrollingCapture !== null || event.repeat
+        ? null
+        : eyedropperFormat(
+          event,
+          [captureModeCopy, captureModeSave, captureModeCopyAndSave],
+          selectedCompletionReady,
+        );
+      if (colorFormat !== null) {
+        event.preventDefault();
+        void pickColor(colorFormat);
+      } else if (
         selectedCompletionReady
         && hasNoModifiers
         && key === settingsRef.current.shortcuts.captureModeCopy
@@ -775,6 +816,7 @@ export function App(): React.JSX.Element {
     handleCancel,
     handleComplete,
     isDraftingSelection,
+    pickColor,
     scrollingCapture,
     selection,
   ]);
@@ -784,6 +826,7 @@ export function App(): React.JSX.Element {
   }
 
   const viewport = viewportBounds(session.display);
+  const swatchHex = pickedSwatch !== null && pickedSwatch.message === message ? pickedSwatch.hex : null;
   const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, viewport.width - 430));
   const toolBarY =
     selection === null || toolbarPlacement === null
@@ -838,7 +881,8 @@ export function App(): React.JSX.Element {
       {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" /> : null}
 
       {selection === null ? (
-        <div className="pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl">
+        <div className="pointer-events-none absolute left-1/2 top-7 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl">
+          {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
           {message}
         </div>
       ) : isDraftingSelection ? (
@@ -939,10 +983,23 @@ export function App(): React.JSX.Element {
         />
       )}
 
-      <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md">
+      <div
+        className="pointer-events-none absolute bottom-4 right-4 z-20 flex items-center gap-2 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md"
+      >
+        {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
         Capkit / {message}
       </div>
     </main>
+  );
+}
+
+function ColorSwatch({ hex }: { hex: string }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="size-3 shrink-0 rounded-[4px] ring-1 ring-white/40"
+      style={{ backgroundColor: hex }}
+    />
   );
 }
 
