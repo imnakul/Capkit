@@ -4,6 +4,7 @@ import { cursorAt, smoothCursorPath, toPoints } from "../domain/cursorTrack";
 import type { Size } from "../domain/showcase";
 import { trimmedDuration, type VideoScene, type VideoSources } from "../domain/videoScene";
 import { clusterClicks, generateZoomKeyframes, mergeKeyframes, type ZoomKeyframe } from "../domain/zoomKeyframes";
+import { planEncode, retryBitrate, type EncodePlan } from "./exportSize";
 import { clickPulseAt, paintFrame } from "./videoCompositor";
 
 export type ExportFormat = "mp4" | "gif";
@@ -17,6 +18,8 @@ export type ExportRequest = {
   readonly stage: Size;
   readonly fps: number;
   readonly format: ExportFormat;
+  /** MP4 only. When set, the encoder aims for a file at or under this many bytes. */
+  readonly targetBytes?: number | null;
   readonly onProgress?: (fraction: number) => void;
   readonly signal?: AbortSignal;
 };
@@ -114,6 +117,45 @@ export async function exportVideo(request: ExportRequest): Promise<Blob> {
     return exportGif({ ...request, width, height, frames, duration, canvas, context, mediaSize, keyframes, cursorPath, events });
   }
 
+  const targetBytes = request.targetBytes ?? null;
+  const plan = planEncode({ width, height }, fps, duration, targetBytes);
+  const mp4: Mp4Context = { ...request, width, height, duration, canvas, context, mediaSize, keyframes, cursorPath, events };
+  if (targetBytes === null) return encodeMp4(mp4, plan, (fraction) => request.onProgress?.(fraction));
+
+  // A sized export reports progress across a possible second pass as one bar.
+  const first = await encodeMp4(mp4, plan, (fraction) => request.onProgress?.(fraction * 0.5));
+  if (first.size <= targetBytes) {
+    request.onProgress?.(1);
+    return first;
+  }
+  const retry = { ...plan, bitrate: retryBitrate(plan, first.size, targetBytes) };
+  const second = await encodeMp4(mp4, retry, (fraction) => request.onProgress?.(0.5 + fraction * 0.5));
+  return second.size < first.size ? second : first;
+}
+
+type Mp4Context = ExportRequest & {
+  width: number;
+  height: number;
+  duration: number;
+  canvas: OffscreenCanvas;
+  context: OffscreenCanvasRenderingContext2D;
+  mediaSize: Size;
+  keyframes: readonly ZoomKeyframe[];
+  cursorPath: readonly { t: number; x: number; y: number }[];
+  events: readonly { time: number; kind: string }[];
+};
+
+async function encodeMp4(mp4: Mp4Context, plan: EncodePlan, onProgress: (fraction: number) => void): Promise<Blob> {
+  const { scene, mediaSize, keyframes, cursorPath, events } = mp4;
+  const { width, height, fps } = plan;
+  const frames = Math.max(1, Math.round(mp4.duration * fps));
+  // Composed at stage size, then scaled into the output so layout matches the preview exactly.
+  const scaled = width !== mp4.width || height !== mp4.height;
+  const out = scaled ? new OffscreenCanvas(width, height) : mp4.canvas;
+  const outContext = scaled ? out.getContext("2d", { alpha: false }) : mp4.context;
+  if (outContext === null) throw new Error("This build cannot compose video frames");
+  if (scaled) outContext.imageSmoothingQuality = "high";
+
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
@@ -133,28 +175,31 @@ export async function exportVideo(request: ExportRequest): Promise<Blob> {
     codec: "avc1.640028",
     width,
     height,
-    bitrate: bitrateFor(width, height),
+    bitrate: plan.bitrate,
+    // Constant keeps a size budget predictable; variable spends bits where the picture needs them.
+    bitrateMode: mp4.targetBytes === undefined || mp4.targetBytes === null ? "variable" : "constant",
     framerate: fps,
     hardwareAcceleration: "prefer-hardware",
   });
 
   for (let index = 0; index < frames; index += 1) {
-    if (request.signal?.aborted === true) {
+    if (mp4.signal?.aborted === true) {
       encoder.close();
       throw new DOMException("Export cancelled", "AbortError");
     }
     const time = index / fps;
-    await seekAll(request, scene.trim.start + time);
-    drawOne(context, scene, request, { width, height }, mediaSize, keyframes, cursorPath, events, time);
+    await seekAll(mp4, scene.trim.start + time);
+    drawOne(mp4.context, scene, mp4, { width: mp4.width, height: mp4.height }, mediaSize, keyframes, cursorPath, events, time);
+    if (scaled) outContext.drawImage(mp4.canvas, 0, 0, width, height);
 
-    const frame = new VideoFrame(canvas, { timestamp: Math.round(time * 1e6), duration: Math.round(1e6 / fps) });
+    const frame = new VideoFrame(out, { timestamp: Math.round(time * 1e6), duration: Math.round(1e6 / fps) });
     // A keyframe every two seconds keeps seeking responsive in players.
     encoder.encode(frame, { keyFrame: index % (fps * 2) === 0 });
     frame.close();
 
     // The queue is drained periodically so memory stays flat on long exports.
     if (encoder.encodeQueueSize > 20) await new Promise((resolve) => setTimeout(resolve, 0));
-    request.onProgress?.((index + 1) / frames);
+    onProgress((index + 1) / frames);
   }
 
   await encoder.flush();
@@ -228,14 +273,6 @@ function drawOne(
     clickPulse: clickPulseAt(events, absolute),
   };
   paintFrame(context, scene, sources, stage, keyframes, absolute);
-}
-
-function bitrateFor(width: number, height: number): number {
-  const pixels = width * height;
-  if (pixels <= 1280 * 720) return 6_000_000;
-  if (pixels <= 1920 * 1080) return 10_000_000;
-  if (pixels <= 2560 * 1440) return 18_000_000;
-  return 30_000_000;
 }
 
 /* -------------------------------------------------------------------------- */

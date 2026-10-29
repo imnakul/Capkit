@@ -20,6 +20,14 @@ import {
   type VideoScene,
   type ZoomSettings,
 } from "../../domain/videoScene";
+import {
+  SIZE_TARGETS,
+  exportSummary,
+  parseSizeTarget,
+  planEncode,
+  targetBytesFor,
+  type SizeTarget,
+} from "../../lib/exportSize";
 import { loadCursorTrack, recordingSrc } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { clickPulseAt, paintFrame } from "../../lib/videoCompositor";
@@ -65,6 +73,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const [encodeReady, setEncodeReady] = useState<boolean | null>(null);
+  const [sizeTarget, setSizeTarget] = useState<SizeTarget>("original");
   const [areaSize, setAreaSize] = useState<Size>({ width: 960, height: 540 });
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -304,6 +313,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
   async function runExport(format: "mp4" | "gif"): Promise<void> {
     const video = videoRef.current;
     if (video === null || selected === null) return;
+    const targetBytes = format === "mp4" ? targetBytesFor(sizeTarget) : null;
     setExporting(true);
     setProgress(0);
     setStatus(null);
@@ -319,11 +329,15 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
         stage: stageBox,
         fps: format === "gif" ? 12 : selected.fps,
         format,
+        targetBytes,
         onProgress: setProgress,
       });
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       downloadExport(blob, `capkit-studio-${stamp}.${format}`);
-      setStatus(`Exported ${String(stageBox.width)} × ${String(stageBox.height)}`);
+      const output = format === "mp4"
+        ? planEncode(stageBox, selected.fps, trimmedDuration(scene.trim), targetBytes)
+        : stageBox;
+      setStatus(exportSummary(output, blob.size, targetBytes));
     } catch (error: unknown) {
       setStatus(describeInvokeError(error, "That export could not be produced"));
     } finally {
@@ -420,6 +434,19 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
             >
               GIF
             </button>
+            <select
+              aria-label="MP4 export size"
+              className="h-7 rounded-md border border-stone-400/70 bg-white px-1.5 text-[12px] font-semibold text-stone-800 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:border-white/25 dark:bg-white/12 dark:text-stone-50"
+              disabled={exporting || encodeReady === false}
+              value={sizeTarget}
+              onChange={(event) => setSizeTarget(parseSizeTarget(event.currentTarget.value))}
+            >
+              {SIZE_TARGETS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             <button
               aria-label="Export as MP4"
               className="inline-flex items-center gap-1.5 rounded-md bg-stone-900 px-3 py-1.5 text-[12px] font-semibold text-white outline-none transition hover:bg-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900"
