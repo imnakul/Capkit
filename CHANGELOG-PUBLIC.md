@@ -4,6 +4,16 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ## Unreleased — 2026-10-29
 
+### Added
+
+- Pick a colour while selecting: press I to copy the colour under the pointer as a hex code, or Shift+I for RGB.
+- Copy text from a capture. It's read on your PC with Windows' built-in text recognition, so nothing is uploaded.
+- Find sensitive text: CapKit spots things like API keys, card numbers, emails and phone numbers in a capture, and you choose which to black out.
+- Save & Showcase sends a capture straight to Showcase. Star a style there to apply it to every capture you send.
+- Recordings can show the shortcuts you press and your clicks as on-screen labels. It's off by default, and CapKit never records what you type.
+- Zoom can follow your typing, so typed text stays readable in recordings.
+- Export a recording to fit under 25 MB or 10 MB, for places with upload limits.
+
 ### Improved
 
 - Open at startup works in the Microsoft Store version, using Windows' own startup list.

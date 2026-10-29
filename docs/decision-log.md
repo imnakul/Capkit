@@ -1,5 +1,26 @@
 # Decision Log
 
+## 2026-10-29 - OCR, colour picking, and redaction suggestions leave Think Later
+
+- **Confirmed:** OCR uses the built-in Windows engine (`Windows.Media.Ocr`) through the existing `windows` crate: offline, no model download, 0 MB added, languages from the user's installed language packs. Copy text and Find sensitive text are hidden where it is unavailable.
+- **Confirmed:** Redaction suggestions are pattern matches over OCR lines (token prefixes and JWTs, Luhn-valid card numbers, emails, phone numbers, high-entropy strings), shown for review with every finding checked, and applied as blackout annotations in one undo step. Nothing is redacted without confirmation.
+- **Confirmed:** The eyedropper reads the frozen snapshot at physical pixels, so the copied value is the real screen colour, not the scaled preview.
+- **Rejected:** Pixelating suggestions, which the spec first proposed: blocks sized from OCR boxes can leave short strings guessable; blackout is unambiguous. Also rejected: bundling Tesseract or an ONNX model, which would add tens of megabytes to the installer.
+- **Rationale:** the user asked for these only if Windows could do them in-box; it can, so the Phase 1 size budget is untouched.
+
+## 2026-10-29 - Keystroke capture is opt-in and never stores what was typed
+
+- **Confirmed:** the recorder's Keystrokes option is off by default. When on, keys are polled with the existing 250 Hz cursor sampler (every fourth tick, no hook). Shortcuts and named keys keep their names; anything that types a character is stored only as a "text" event, with no key and no modifiers. The data stays in the recording's own folder.
+- **Confirmed:** zoom follows typing focuses on the last click before a typing burst, because the caret position is not recorded.
+- **Rejected:** a low-level keyboard hook (heavier, flagged by security tools, and records more than needed); caret tracking through UI Automation (slow and inconsistent across apps).
+- **Provisional:** key names follow the US layout; other layouts may label punctuation differently.
+
+## 2026-10-29 - Save & Showcase leaves the capture path only on request
+
+- **Confirmed:** Save & Showcase is an explicit completion action. The direct workflow (shortcut, select, edit, complete, disappear) is unchanged, and the dashboard is never opened otherwise.
+- **Confirmed:** the capture path passes through a one-shot native slot that the dashboard takes once, so a dashboard built for the request still receives it. Only files inside the save folder are accepted.
+- **Rationale:** the Phase 1 boundary forbids a dashboard in the capture path, not a user choosing to go there.
+
 ## 2026-09-28 - Recordings play from the asset protocol via a narrow media-src
 
 - **Confirmed:** the CSP gains `media-src 'self' asset: http://asset.localhost blob:` and nothing else, so `<video>` loads recordings from `convertFileSrc` URLs on Windows while images keep working through `img-src`. A config test pins the directive.
