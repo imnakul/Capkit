@@ -14,9 +14,10 @@ use std::{
 use domain::{
     AudioDeviceDto, CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult,
     CompletionStatus, DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto,
-    OnScreenSessionDto, PickColorRequest, PickedColorDto, Point, RecordingArtifactsDto,
-    RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect, SavedCaptureDto,
-    ScrollingCaptureRequest, ScrollingCaptureResult, StartupStateDto,
+    OnScreenSessionDto, PickColorRequest, PickedColorDto, Point, RecognizedTextDto,
+    RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect,
+    SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult, StartupStateDto,
+    TextCopyResult, TextCopyStatus, TextRecognitionRequest,
 };
 use error::SnaphubError;
 use platform::StartupBackend;
@@ -388,6 +389,56 @@ fn pick_capture_color(
 ) -> Result<PickedColorDto, SnaphubError> {
     ensure_capture_window(&window)?;
     service.pick_color(&request)
+}
+
+#[tauri::command]
+fn text_recognition_supported(service: tauri::State<'_, CaptureService>) -> bool {
+    service.is_text_recognition_supported()
+}
+
+/// Words with selection-local logical bounds, for redaction suggestions. The
+/// capture stays open.
+#[tauri::command]
+async fn recognize_capture_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    request: TextRecognitionRequest,
+) -> Result<RecognizedTextDto, SnaphubError> {
+    ensure_capture_window(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<CaptureService>().recognize_text(&request)
+    })
+    .await
+    .map_err(|error| SnaphubError::Ocr(format!("Text recognition worker failed: {error}")))?
+}
+
+/// Copies the selection's text and closes the capture. When no text is found
+/// the capture stays open so the user can adjust the selection.
+#[tauri::command]
+async fn copy_capture_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    request: TextRecognitionRequest,
+) -> Result<TextCopyResult, SnaphubError> {
+    ensure_capture_window(&window)?;
+    let session_id = request.session_id.clone();
+    let worker_app = app.clone();
+    let mut result = tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<CaptureService>().copy_text(&request)
+    })
+    .await
+    .map_err(|error| SnaphubError::Ocr(format!("Text recognition worker failed: {error}")))??;
+    if matches!(result.status, TextCopyStatus::Empty) {
+        return Ok(result);
+    }
+    let hide_warning = hide_capture_window_with_recovery(&app);
+    let finalize_warning = app
+        .state::<CaptureService>()
+        .finalize_committed(&session_id)
+        .err()
+        .map(|error| error.to_string());
+    result.cleanup_warning = merge_cleanup_warning(hide_warning, finalize_warning);
+    Ok(result)
 }
 
 // Hide first so Escape feels instant, then wait for cancellation off the main thread.
@@ -2292,6 +2343,9 @@ pub fn run() {
             save_on_screen_capture,
             complete_capture,
             pick_capture_color,
+            text_recognition_supported,
+            recognize_capture_text,
+            copy_capture_text,
             retry_capture_save,
             cancel_capture,
             dismiss_capture,

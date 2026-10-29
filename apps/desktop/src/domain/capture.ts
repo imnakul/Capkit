@@ -73,6 +73,33 @@ export const pickedColorSchema = z.object({
 });
 export type PickedColor = z.infer<typeof pickedColorSchema>;
 
+/** Word bounds are selection-local logical pixels, ready to become annotations. */
+export const recognizedWordSchema = z.object({
+  text: z.string(),
+  bounds: rectSchema,
+});
+export type RecognizedWord = z.infer<typeof recognizedWordSchema>;
+
+export const recognizedLineSchema = z.object({
+  text: z.string(),
+  words: z.array(recognizedWordSchema),
+});
+export type RecognizedLine = z.infer<typeof recognizedLineSchema>;
+
+export const recognizedTextSchema = z.object({
+  text: z.string(),
+  lines: z.array(recognizedLineSchema),
+  language: z.string(),
+});
+export type RecognizedText = z.infer<typeof recognizedTextSchema>;
+
+export const textCopyResultSchema = z.object({
+  status: z.enum(["copied", "empty"]),
+  text: z.string(),
+  cleanupWarning: z.string().nullable().optional(),
+});
+export type TextCopyResult = z.infer<typeof textCopyResultSchema>;
+
 export const scrollingCaptureResultSchema = z.object({
   outputPath: z.string(),
   frameCount: z.number().int().positive(),

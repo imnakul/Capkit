@@ -9,6 +9,8 @@ const captureMocks = vi.hoisted(() => ({
   cancelManualScrolling: vi.fn(),
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
+  copyCaptureText: vi.fn(),
+  isTextRecognitionSupported: vi.fn(),
   listeners: [] as (() => void)[],
   pickCaptureColor: vi.fn(),
   requestCapture: vi.fn(),
@@ -24,6 +26,8 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     cancelManualScrolling: captureMocks.cancelManualScrolling,
     captureScrolling: captureMocks.captureScrolling,
     completeCapture: captureMocks.completeCapture,
+    copyCaptureText: captureMocks.copyCaptureText,
+    isTextRecognitionSupported: captureMocks.isTextRecognitionSupported,
     pickCaptureColor: captureMocks.pickCaptureColor,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
       captureMocks.listeners.push(callback);
@@ -169,6 +173,7 @@ describe("App", () => {
     captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
     captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
     captureMocks.showCaptureSurface.mockResolvedValue(undefined);
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
     captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
       Promise.resolve(completedResult(action)),
     );
@@ -350,6 +355,35 @@ describe("App", () => {
       "rgb",
     );
     expect(screen.getByRole("main")).toBeInTheDocument();
+  });
+
+  it("copies selection text, or stays open when none is found", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.copyCaptureText
+      .mockResolvedValueOnce({ status: "empty", text: "", cleanupWarning: null })
+      .mockResolvedValueOnce({ status: "copied", text: "Invoice 42\nDue today", cleanupWarning: null });
+    render(<App />);
+    await selectRegion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy text" }));
+    expect(await screen.findAllByText(/No text found in this selection/)).not.toHaveLength(0);
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(captureMocks.copyCaptureText).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ width: 440, height: 300 }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("main")).not.toBeInTheDocument();
+    });
+    expect(captureMocks.completeCapture).not.toHaveBeenCalled();
+  });
+
+  it("hides Copy text when the OS cannot read text", async () => {
+    render(<App />);
+    await selectRegion();
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
   });
 
   it("dismisses capture with Escape before a region is selected", async () => {

@@ -61,6 +61,7 @@ import {
   ScanIcon,
   ScrollVerticalIcon,
   SearchAreaIcon,
+  SecurityCheckIcon,
   Settings02Icon,
   SlidersHorizontalIcon,
   SmartPhone01Icon,
@@ -69,9 +70,11 @@ import {
   SpotlightIcon,
   SquareIcon,
   SquareRoundCornerIcon,
+  StarIcon,
   Sun03Icon,
   Tablet01Icon,
   TextIcon,
+  TextSelectionIcon,
   Tick02Icon,
   Undo03Icon,
   Upload04Icon,
@@ -171,6 +174,7 @@ export const Rows = createCapkitIcon(LayoutThreeRowIcon);
 export const Save = createCapkitIcon(SaveIcon);
 export const Scan = createCapkitIcon(ScanIcon);
 export const SearchArea = createCapkitIcon(SearchAreaIcon);
+export const SecurityCheck = createCapkitIcon(SecurityCheckIcon);
 export const SelectPointer = createCapkitIcon(Cursor01Icon);
 export const Settings = createCapkitIcon(Settings02Icon);
 export const Sliders = createCapkitIcon(SlidersHorizontalIcon);
@@ -179,9 +183,11 @@ export const Sparkles = createCapkitIcon(SparklesIcon);
 export const Spotlight = createCapkitIcon(SpotlightIcon);
 export const SquareShape = createCapkitIcon(SquareIcon);
 export const RoundedSquareShape = createCapkitIcon(SquareRoundCornerIcon);
+export const Star = createCapkitIcon(StarIcon);
 export const Sun = createCapkitIcon(Sun03Icon);
 export const Tablet = createCapkitIcon(Tablet01Icon);
 export const Text = createCapkitIcon(TextIcon);
+export const TextSelection = createCapkitIcon(TextSelectionIcon);
 export const Tick = createCapkitIcon(Tick02Icon);
 export const Undo = createCapkitIcon(Undo03Icon);
 export const Upload = createCapkitIcon(Upload04Icon);

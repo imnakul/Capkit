@@ -35,6 +35,8 @@ xcap = { version = "0.9.6", features = ["image", "wgc"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [
   "Foundation", "Globalization", "Graphics_Imaging", "Storage", "Storage_Streams",
+  # Copy text and redaction suggestions: the OS OCR engine and its installed languages.
+  "Media_Ocr",
   # Package identity and the MSIX startup task (Store build only).
   "ApplicationModel", "ApplicationModel_Activation",
   "Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility",

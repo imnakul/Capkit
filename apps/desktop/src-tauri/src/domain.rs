@@ -230,6 +230,54 @@ pub struct PickedColorDto {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TextRecognitionRequest {
+    pub session_id: String,
+    pub selection: Rect,
+}
+
+/// A recognised word. `bounds` are selection-local logical coordinates, the
+/// same space as annotations, so the UI can place a redaction straight on it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedWordDto {
+    pub text: String,
+    pub bounds: Rect,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedLineDto {
+    pub text: String,
+    pub words: Vec<RecognizedWordDto>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedTextDto {
+    /// Lines joined with `\n`, in reading order.
+    pub text: String,
+    pub lines: Vec<RecognizedLineDto>,
+    /// BCP-47 tag of the recogniser the OS picked from the user's languages.
+    pub language: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextCopyStatus {
+    Copied,
+    Empty,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextCopyResult {
+    pub status: TextCopyStatus,
+    pub text: String,
+    pub cleanup_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScrollingCaptureRequest {
     pub session_id: String,
     pub selection: Rect,

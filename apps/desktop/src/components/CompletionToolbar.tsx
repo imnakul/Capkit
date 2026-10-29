@@ -1,6 +1,14 @@
 import { useEffect, useRef } from "react";
 import type { CompletionAction } from "../domain/capture";
-import { Clipboard, Copy, Download, Pin, Refresh, type CapkitIconProps } from "./icons";
+import {
+  Clipboard,
+  Copy,
+  Download,
+  Pin,
+  Refresh,
+  TextSelection,
+  type CapkitIconProps,
+} from "./icons";
 import { ToolButton } from "./ToolButton";
 
 export type CompletionToolbarState = "idle" | "working" | "save-pending";
@@ -15,6 +23,8 @@ type CompletionToolbarProps = {
   statusSide: "left" | "right";
   onComplete: (action: CompletionAction) => void;
   onRetrySave: () => void;
+  /** Present only when the OS can read text; the button is hidden otherwise. */
+  onCopyText?: () => void;
 };
 
 export function CompletionToolbar({
@@ -27,6 +37,7 @@ export function CompletionToolbar({
   statusSide,
   onComplete,
   onRetrySave,
+  onCopyText,
 }: CompletionToolbarProps): React.JSX.Element {
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const disabled = state !== "idle";
@@ -74,6 +85,14 @@ export function CompletionToolbar({
           label="Pin"
           onClick={() => onComplete("pin")}
         />
+        {onCopyText === undefined ? null : (
+          <ToolButton
+            disabled={disabled}
+            icon={TextSelection}
+            label="Copy text"
+            onClick={onCopyText}
+          />
+        )}
       </div>
 
       {state === "idle" && statusMessage === "" ? null : (

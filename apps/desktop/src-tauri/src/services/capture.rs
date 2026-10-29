@@ -31,13 +31,14 @@ use crate::{
     domain::{
         Annotation, AnnotationScene, CaptureSessionDto, ColorFormat, CompletionAction,
         CompletionRequest, CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto,
-        PickColorRequest, PickedColorDto, Point, Rect, SavedCaptureDto, ScrollingCaptureRequest,
-        ScrollingCaptureResult,
+        PickColorRequest, PickedColorDto, Point, RecognizedTextDto, Rect, SavedCaptureDto,
+        ScrollingCaptureRequest, ScrollingCaptureResult, TextCopyResult, TextCopyStatus,
+        TextRecognitionRequest,
     },
     error::SnaphubError,
     platform::{
         CaptureBackend, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
     },
 };
 
@@ -91,6 +92,7 @@ pub struct CaptureService {
     permissions: Arc<dyn PermissionBackend>,
     scrolling: Arc<dyn ScrollingCaptureBackend>,
     pinning: Arc<dyn PinnedWindowBackend>,
+    text_recognition: Arc<dyn TextRecognitionBackend>,
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
@@ -110,6 +112,7 @@ impl CaptureService {
             + PermissionBackend
             + ScrollingCaptureBackend
             + PinnedWindowBackend
+            + TextRecognitionBackend
             + 'static,
     {
         Self::with_save_directory(backend, load_save_directory())
@@ -123,6 +126,7 @@ impl CaptureService {
             + PermissionBackend
             + ScrollingCaptureBackend
             + PinnedWindowBackend
+            + TextRecognitionBackend
             + 'static,
     {
         let _ = fs::create_dir_all(&save_directory);
@@ -132,6 +136,7 @@ impl CaptureService {
             targets: backend.clone(),
             permissions: backend.clone(),
             scrolling: backend.clone(),
+            text_recognition: backend.clone(),
             pinning: backend,
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
@@ -655,6 +660,58 @@ impl CaptureService {
         Ok(picked)
     }
 
+    pub fn is_text_recognition_supported(&self) -> bool {
+        self.text_recognition.is_text_recognition_supported()
+    }
+
+    /// Reads text in the raw selection. Annotations are excluded so arrows and
+    /// labels drawn on top don't turn into stray characters.
+    pub fn recognize_text(
+        &self,
+        request: &TextRecognitionRequest,
+    ) -> Result<RecognizedTextDto, SnaphubError> {
+        let id = parse_session_id(&request.session_id)?;
+        validate_selection(request.selection)?;
+        let (crop, scale) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+            let asset = sessions
+                .get(&id)
+                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
+            (
+                crop_selection(&asset.image, request.selection, asset.scale_factor)?,
+                asset.scale_factor,
+            )
+        };
+        let recognized = self.text_recognition.recognize_text(&crop)?;
+        Ok(text_to_logical(recognized, scale))
+    }
+
+    /// Copies the selection's text. An empty result copies nothing, so the
+    /// caller can keep the capture open and say so.
+    pub fn copy_text(
+        &self,
+        request: &TextRecognitionRequest,
+    ) -> Result<TextCopyResult, SnaphubError> {
+        let recognized = self.recognize_text(request)?;
+        let text = recognized.text.trim();
+        if text.is_empty() {
+            return Ok(TextCopyResult {
+                status: TextCopyStatus::Empty,
+                text: String::new(),
+                cleanup_warning: None,
+            });
+        }
+        self.clipboard.copy_text(text)?;
+        Ok(TextCopyResult {
+            status: TextCopyStatus::Copied,
+            text: text.to_owned(),
+            cleanup_warning: None,
+        })
+    }
+
     pub fn save_image_path(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
         let image = image::open(path)
             .map_err(SnaphubError::export)?
@@ -933,7 +990,10 @@ fn validate_completion_request(request: &CompletionRequest) -> Result<(), Snaphu
             request.scene.version
         )));
     }
-    let selection = request.selection;
+    validate_selection(request.selection)
+}
+
+fn validate_selection(selection: Rect) -> Result<(), SnaphubError> {
     if !selection.x.is_finite()
         || !selection.y.is_finite()
         || !selection.width.is_finite()
@@ -950,11 +1010,10 @@ fn validate_completion_request(request: &CompletionRequest) -> Result<(), Snaphu
     Ok(())
 }
 
-fn render_output(
+fn crop_selection(
     source: &RgbaImage,
     selection: Rect,
     scale: f64,
-    scene: &AnnotationScene,
 ) -> Result<RgbaImage, SnaphubError> {
     let x = non_negative_u32(selection.x * scale);
     let y = non_negative_u32(selection.y * scale);
@@ -965,7 +1024,34 @@ fn render_output(
             "Selection falls outside the captured display".into(),
         ));
     }
-    let mut output = imageops::crop_imm(source, x, y, width, height).to_image();
+    Ok(imageops::crop_imm(source, x, y, width, height).to_image())
+}
+
+/// Converts recogniser word bounds from captured pixels to selection-local logical coordinates.
+fn text_to_logical(mut recognized: RecognizedTextDto, scale: f64) -> RecognizedTextDto {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    for word in recognized
+        .lines
+        .iter_mut()
+        .flat_map(|line| line.words.iter_mut())
+    {
+        word.bounds = Rect {
+            x: word.bounds.x / scale,
+            y: word.bounds.y / scale,
+            width: word.bounds.width / scale,
+            height: word.bounds.height / scale,
+        };
+    }
+    recognized
+}
+
+fn render_output(
+    source: &RgbaImage,
+    selection: Rect,
+    scale: f64,
+    scene: &AnnotationScene,
+) -> Result<RgbaImage, SnaphubError> {
+    let mut output = crop_selection(source, selection, scale)?;
     for annotation in &scene.elements {
         render_annotation(&mut output, annotation, scale);
     }
@@ -1538,6 +1624,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::domain::{RecognizedLineDto, RecognizedWordDto};
     use crate::platform::CapturedDisplay;
 
     struct TestDirectory(PathBuf);
@@ -1560,6 +1647,8 @@ mod tests {
         source: RgbaImage,
         copied: Mutex<Option<RgbaImage>>,
         copied_text: Mutex<Option<String>>,
+        recognized_text: Mutex<String>,
+        recognized_size: Mutex<Option<(u32, u32)>>,
         clipboard_calls: AtomicUsize,
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
@@ -1572,6 +1661,8 @@ mod tests {
                 source: RgbaImage::from_pixel(20, 20, Rgba([240, 241, 237, 255])),
                 copied: Mutex::new(None),
                 copied_text: Mutex::new(None),
+                recognized_text: Mutex::new(String::new()),
+                recognized_size: Mutex::new(None),
                 clipboard_calls: AtomicUsize::new(0),
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
@@ -1642,6 +1733,38 @@ mod tests {
 
         fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
             Ok(None)
+        }
+    }
+
+    impl TextRecognitionBackend for FakeBackend {
+        fn is_text_recognition_supported(&self) -> bool {
+            true
+        }
+
+        fn recognize_text(&self, image: &RgbaImage) -> Result<RecognizedTextDto, SnaphubError> {
+            *self.recognized_size.lock().unwrap() = Some((image.width(), image.height()));
+            let text = self.recognized_text.lock().unwrap().clone();
+            let lines = if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![RecognizedLineDto {
+                    text: text.clone(),
+                    words: vec![RecognizedWordDto {
+                        text: text.clone(),
+                        bounds: Rect {
+                            x: 2.0,
+                            y: 4.0,
+                            width: 6.0,
+                            height: 8.0,
+                        },
+                    }],
+                }]
+            };
+            Ok(RecognizedTextDto {
+                text,
+                lines,
+                language: "en-US".into(),
+            })
         }
     }
 
@@ -1849,6 +1972,97 @@ mod tests {
             );
         }
         assert!(backend.copied_text.lock().unwrap().is_none());
+    }
+
+    fn text_request(session_id: &str) -> TextRecognitionRequest {
+        TextRecognitionRequest {
+            session_id: session_id.into(),
+            selection: Rect {
+                x: 1.0,
+                y: 2.0,
+                width: 6.0,
+                height: 4.0,
+            },
+        }
+    }
+
+    #[test]
+    fn recognize_text_crops_physical_pixels_and_returns_logical_bounds() {
+        let directory = TestDirectory::new("ocr-bounds");
+        let backend = Arc::new(FakeBackend::new());
+        *backend.recognized_text.lock().unwrap() = "Invoice 42".into();
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let recognized = service
+            .recognize_text(&text_request(&session_id))
+            .expect("text should be recognised");
+        assert_eq!(*backend.recognized_size.lock().unwrap(), Some((12, 8)));
+        let bounds = recognized.lines[0].words[0].bounds;
+        assert_eq!(
+            (bounds.x, bounds.y, bounds.width, bounds.height),
+            (1.0, 2.0, 3.0, 4.0)
+        );
+        assert_eq!(recognized.language, "en-US");
+    }
+
+    #[test]
+    fn copy_text_copies_trimmed_text() {
+        let directory = TestDirectory::new("ocr-copy");
+        let backend = Arc::new(FakeBackend::new());
+        *backend.recognized_text.lock().unwrap() = "  Invoice 42\n".into();
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let result = service
+            .copy_text(&text_request(&session_id))
+            .expect("text should be copied");
+        assert!(matches!(result.status, TextCopyStatus::Copied));
+        assert_eq!(result.text, "Invoice 42");
+        assert_eq!(
+            backend.copied_text.lock().unwrap().as_deref(),
+            Some("Invoice 42")
+        );
+    }
+
+    #[test]
+    fn copy_text_reports_empty_without_touching_the_clipboard() {
+        let directory = TestDirectory::new("ocr-empty");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let result = service
+            .copy_text(&text_request(&session_id))
+            .expect("empty text is not an error");
+        assert!(matches!(result.status, TextCopyStatus::Empty));
+        assert!(backend.copied_text.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn recognize_text_rejects_invalid_or_outside_selections() {
+        let directory = TestDirectory::new("ocr-invalid");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        for selection in [
+            Rect {
+                x: 8.0,
+                y: 0.0,
+                width: 5.0,
+                height: 5.0,
+            },
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 5.0,
+            },
+        ] {
+            let request = TextRecognitionRequest {
+                session_id: session_id.clone(),
+                selection,
+            };
+            assert!(service.recognize_text(&request).is_err());
+        }
+        assert!(backend.recognized_size.lock().unwrap().is_none());
     }
 
     #[test]

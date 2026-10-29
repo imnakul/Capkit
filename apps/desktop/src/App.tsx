@@ -36,10 +36,12 @@ import {
   captureScrolling,
   completeCapture,
   completeScrollingCapture,
+  copyCaptureText,
   detectTargets,
   dismissCapture,
   discardScrollingOutput,
   describeInvokeError,
+  isTextRecognitionSupported,
   listTargets,
   listenForCaptureRequest,
   pickCaptureColor,
@@ -95,6 +97,7 @@ export function App(): React.JSX.Element {
   const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
   // The swatch shows only while its message is still the current one.
   const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
+  const [canReadText, setCanReadText] = useState(false);
   const lastPointer = useRef<Point | null>(null);
   const uiLookupSequence = useRef(0);
   const uiLookupInFlight = useRef(false);
@@ -656,6 +659,56 @@ export function App(): React.JSX.Element {
     [busy, completionState.phase, history.present, scrollingCapture, selection, session],
   );
 
+  const handleCopyText = useCallback(async (): Promise<void> => {
+    if (
+      session === null
+      || selection === null
+      || busy
+      || scrollingCapture !== null
+      || completionState.phase !== "idle"
+      || completionInFlight.current
+    ) return;
+    const sessionId = session.id;
+    const generation = sessionGeneration.current;
+    completionInFlight.current = true;
+    setCompletionState({ phase: "working", message: "Reading text…" });
+    setMessage("Reading text…");
+    try {
+      const result = await copyCaptureText(sessionId, selection);
+      if (
+        activeSessionId.current !== sessionId
+        || sessionGeneration.current !== generation
+      ) return;
+      if (result.status === "empty") {
+        const emptyMessage = "No text found in this selection. Adjust it and try again.";
+        setCompletionState({ phase: "idle", message: emptyMessage });
+        setMessage(emptyMessage);
+        return;
+      }
+      const lineCount = result.text.split("\n").length;
+      const copiedMessage = `Copied ${lineCount === 1 ? "1 line" : `${String(lineCount)} lines`} of text`;
+      setMessage(
+        result.cleanupWarning === null || result.cleanupWarning === undefined
+          ? copiedMessage
+          : `${copiedMessage} · ${result.cleanupWarning}`,
+      );
+      clearCaptureUi();
+    } catch (error: unknown) {
+      if (
+        activeSessionId.current === sessionId
+        && sessionGeneration.current === generation
+      ) {
+        const errorMessage = `Could not read text. ${describeInvokeError(error, "The text recognition service did not return a diagnostic")}`;
+        setCompletionState({ phase: "idle", message: errorMessage });
+        setMessage(errorMessage);
+      }
+    } finally {
+      if (sessionGeneration.current === generation) {
+        completionInFlight.current = false;
+      }
+    }
+  }, [busy, completionState.phase, scrollingCapture, selection, session]);
+
   const handleRetrySave = useCallback(async (): Promise<void> => {
     if (
       session === null
@@ -705,6 +758,21 @@ export function App(): React.JSX.Element {
       }
     }
   }, [completionState.phase, session]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    isTextRecognitionSupported()
+      .then((supported) => {
+        if (isCurrent) setCanReadText(supported);
+      })
+      .catch(() => {
+        // An unsupported or unreachable engine just hides Copy text.
+        if (isCurrent) setCanReadText(false);
+      });
+    return (): void => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     // Window-level so the eyedropper knows the pointer even over the annotation canvas or toolbars.
@@ -965,6 +1033,7 @@ export function App(): React.JSX.Element {
                 statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
+                {...(canReadText ? { onCopyText: () => void handleCopyText() } : {})}
               />
             </div>
           ) : null}

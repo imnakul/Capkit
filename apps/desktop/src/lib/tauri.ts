@@ -18,9 +18,11 @@ import {
   displaySchema,
   pickedColorSchema,
   pointSchema,
+  recognizedTextSchema,
   rectSchema,
   scrollingCaptureResultSchema,
   savedCaptureSchema,
+  textCopyResultSchema,
   type CaptureSession,
   type ColorFormat,
   type CompletionAction,
@@ -28,9 +30,11 @@ import {
   type DetectedTarget,
   type Display,
   type Point,
+  type RecognizedText,
   type Rect,
   type ScrollingCaptureResult,
   type SavedCapture,
+  type TextCopyResult,
 } from "../domain/capture";
 
 const backendSessionSchema = captureSessionSchema.omit({ snapshotUrl: true }).extend({
@@ -185,6 +189,36 @@ export async function pickCaptureColor(
     request: { sessionId, point, format },
   });
   return pickedColorSchema.parse(raw);
+}
+
+export async function isTextRecognitionSupported(): Promise<boolean> {
+  if (!isTauri()) return false;
+  const raw: unknown = await invoke("text_recognition_supported");
+  return z.boolean().parse(raw);
+}
+
+/** Reads text in the raw selection (annotations excluded). The capture stays open. */
+export async function recognizeCaptureText(
+  sessionId: string,
+  selection: Rect,
+): Promise<RecognizedText> {
+  if (!isTauri()) throw new Error("Text recognition requires the desktop app");
+  const raw: unknown = await invoke("recognize_capture_text", {
+    request: { sessionId, selection },
+  });
+  return recognizedTextSchema.parse(raw);
+}
+
+/** Copies the selection's text and closes the capture; `empty` leaves it open. */
+export async function copyCaptureText(
+  sessionId: string,
+  selection: Rect,
+): Promise<TextCopyResult> {
+  if (!isTauri()) throw new Error("Text recognition requires the desktop app");
+  const raw: unknown = await invoke("copy_capture_text", {
+    request: { sessionId, selection },
+  });
+  return textCopyResultSchema.parse(raw);
 }
 
 export async function retryCaptureSave(sessionId: string): Promise<CompletionResult> {

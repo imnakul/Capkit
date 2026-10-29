@@ -20,6 +20,8 @@ pub enum SnaphubError {
     Shortcut(String),
     #[error("SH-WINDOW-001: {0}")]
     Window(String),
+    #[error("SH-OCR-001: {0}")]
+    Ocr(String),
     #[error("SH-STARTUP-001: {0}")]
     Startup(String),
 }
