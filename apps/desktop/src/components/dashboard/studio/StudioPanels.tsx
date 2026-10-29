@@ -15,10 +15,16 @@ import {
   type VideoScene,
   type ZoomSettings,
 } from "../../../domain/videoScene";
-import { SelectPointer, Frame, Image, Layers, MagicWand, Mic, Palette, Speaker, Sparkles, Video } from "../../icons";
+import { keystrokeModes, keystrokePositions, type KeystrokeMode, type KeystrokeSettings } from "../../../domain/keystrokes";
+import { SelectPointer, Frame, Image, Keyboard, Layers, MagicWand, Mic, Palette, Speaker, Sparkles, Video } from "../../icons";
 import { Chip, CollapsibleSection, ColorField, ControlLabel, Slider, Toggle } from "../showcase/primitives";
 
 export type ScenePatch = (patch: Partial<VideoScene>) => void;
+
+const keystrokeModeLabels: Record<KeystrokeMode, { label: string; description: string }> = {
+  shortcuts: { label: "Shortcuts", description: "Show only Ctrl, Alt, and Win shortcuts" },
+  all: { label: "All keys", description: "Show shortcuts and named keys such as Enter and Tab" },
+};
 
 /** Background, padding, and effects — the Showcase treatment applied to video. */
 export function StagePanel({ scene, onPatch, onApplyLook }: { scene: VideoScene; onPatch: ScenePatch; onApplyLook: (look: Look) => void }): React.JSX.Element {
@@ -160,14 +166,18 @@ export function MotionPanel({
   onPatchCursor,
   onPatchZoom,
   onPatchCamera,
+  keysRecorded,
+  onPatchKeystrokes,
 }: {
   scene: VideoScene;
   hasCursorTrack: boolean;
+  keysRecorded: boolean;
   hasCameraTrack: boolean;
   clickCount: number;
   onPatchCursor: (patch: Partial<CursorStyle>) => void;
   onPatchZoom: (patch: Partial<ZoomSettings>) => void;
   onPatchCamera: (patch: Partial<CameraLayout>) => void;
+  onPatchKeystrokes: (patch: Partial<KeystrokeSettings>) => void;
 }): React.JSX.Element {
   return (
     <div className="space-y-2.5">
@@ -215,6 +225,34 @@ export function MotionPanel({
             value={Math.round(scene.zoom.holdSeconds * 100)}
             onChange={(value) => onPatchZoom({ holdSeconds: value / 100 })}
           />
+        </CollapsibleSection>
+
+        <CollapsibleSection icon={Keyboard} title="Keystrokes">
+          {keysRecorded ? null : (
+            <p className="mb-2.5 rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+              Keys were not recorded for this clip. Turn on Keystrokes in the recorder to show shortcuts next time.
+            </p>
+          )}
+          <Toggle checked={scene.keystrokes.show} label="Show labels" onChange={(value) => onPatchKeystrokes({ show: value })} />
+          <div className={scene.keystrokes.show ? "space-y-2.5" : "pointer-events-none space-y-2.5 opacity-40"}>
+            <ControlLabel hint="Typed text is never recorded" label="Keys" />
+            <div className="grid grid-cols-2 gap-1.5">
+              {keystrokeModes.map((mode) => (
+                <Chip active={scene.keystrokes.mode === mode} key={mode} label={keystrokeModeLabels[mode].description} onClick={() => onPatchKeystrokes({ mode })}>
+                  {keystrokeModeLabels[mode].label}
+                </Chip>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {keystrokePositions.map((position) => (
+                <Chip active={scene.keystrokes.position === position} key={position} label={`Place labels at the ${position}`} onClick={() => onPatchKeystrokes({ position })}>
+                  {position}
+                </Chip>
+              ))}
+            </div>
+            <Slider label="Label size" max={200} min={60} suffix="%" value={scene.keystrokes.size} onChange={(value) => onPatchKeystrokes({ size: value })} />
+            <Toggle checked={scene.keystrokes.clickLabels} label="Label clicks" onChange={(value) => onPatchKeystrokes({ clickLabels: value })} />
+          </div>
         </CollapsibleSection>
       </div>
 

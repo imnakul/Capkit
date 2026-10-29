@@ -31,7 +31,8 @@ import {
 import { loadCursorTrack, recordingSrc } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { clickPulseAt, paintFrame } from "../../lib/videoCompositor";
-import { canEncodeVideo, downloadExport, exportVideo, keyframesFor, smoothedCursor } from "../../lib/videoExport";
+import { keystrokeChipsAt, type KeystrokeSettings } from "../../domain/keystrokes";
+import { canEncodeVideo, downloadExport, exportVideo, keyframesFor, keystrokeEntriesFor, smoothedCursor } from "../../lib/videoExport";
 import { SelectPointer, Download, Film, Palette, Pause, Play, Speaker } from "../icons";
 import { AudioPanel, MotionPanel, StagePanel } from "./studio/StudioPanels";
 import { Timeline } from "./studio/Timeline";
@@ -141,6 +142,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
 
   const keyframes = useMemo(() => keyframesFor(scene, track, mediaSize), [scene, track, mediaSize]);
   const cursorPath = useMemo(() => smoothedCursor(track, scene, previewFps), [track, scene]);
+  const keystrokes = useMemo(() => keystrokeEntriesFor(scene, track), [scene, track]);
   const clickTimes = useMemo(
     () => (track?.events ?? []).filter((event) => event.kind === "down").map((event) => event.time),
     [track],
@@ -170,13 +172,14 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
           camera: hasCameraTrack ? cameraRef.current : null,
           cursor: cursorPath.length === 0 ? null : cursorAt(cursorPath, at),
           clickPulse: clickPulseAt(track?.events ?? [], at),
+          keystrokes: keystrokeChipsAt(keystrokes, at),
         },
         stageBox,
         keyframes,
         at,
       );
     },
-    [scene, mediaSize, stageBox, keyframes, cursorPath, track, hasCameraTrack],
+    [scene, mediaSize, stageBox, keyframes, cursorPath, keystrokes, track, hasCameraTrack],
   );
 
   useEffect(() => {
@@ -520,9 +523,11 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
                 clickCount={clickTimes.length}
                 hasCameraTrack={hasCameraTrack}
                 hasCursorTrack={track !== null}
+                keysRecorded={track?.keysRecorded ?? false}
                 scene={scene}
                 onPatchCamera={(next: Partial<CameraLayout>) => patch({ camera: { ...scene.camera, ...next } })}
                 onPatchCursor={(next: Partial<CursorStyle>) => patch({ cursor: { ...scene.cursor, ...next } })}
+                onPatchKeystrokes={(next: Partial<KeystrokeSettings>) => patch({ keystrokes: { ...scene.keystrokes, ...next } })}
                 onPatchZoom={(next: Partial<ZoomSettings>) => patch({ zoom: { ...scene.zoom, ...next } })}
               />
             ) : null}

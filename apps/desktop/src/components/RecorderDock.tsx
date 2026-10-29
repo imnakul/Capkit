@@ -42,7 +42,7 @@ import {
   stopRecording,
 } from "../lib/recordingTauri";
 import { describeInvokeError } from "../lib/tauri";
-import { Cancel, ChevronDown, Computer, Crop, Delete, Grip, Mic, Pause, Play, Record, Settings, Speaker, Stop, Video } from "./icons";
+import { Cancel, ChevronDown, Computer, Crop, Delete, Grip, Keyboard, Mic, Pause, Play, Record, Settings, Speaker, Stop, Video } from "./icons";
 
 type Phase = "setup" | "counting" | "recording" | "saving";
 
@@ -667,6 +667,17 @@ export function RecorderDock(): React.JSX.Element {
                         ))}
                       </select>
                     </label>
+
+                    <button
+                      aria-pressed={settings.captureKeystrokes}
+                      className={controlClass}
+                      title="Records shortcuts such as Ctrl + C so Studio can show them. Typed text is never recorded."
+                      type="button"
+                      onClick={() => patch({ captureKeystrokes: !settings.captureKeystrokes })}
+                    >
+                      <Keyboard aria-hidden="true" size={14} />
+                      Keystrokes
+                    </button>
                   </div>
                 ) : null}
               </div>

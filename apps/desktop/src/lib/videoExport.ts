@@ -3,6 +3,7 @@ import type { CursorTrack } from "../domain/cursorTrack";
 import { cursorAt, smoothCursorPath, toPoints } from "../domain/cursorTrack";
 import type { Size } from "../domain/showcase";
 import { trimmedDuration, type VideoScene, type VideoSources } from "../domain/videoScene";
+import { keystrokeChipsAt, keystrokeEntries, type KeystrokeEntry } from "../domain/keystrokes";
 import { clusterClicks, generateZoomKeyframes, mergeKeyframes, type ZoomKeyframe } from "../domain/zoomKeyframes";
 import { planEncode, retryBitrate, type EncodePlan } from "./exportSize";
 import { clickPulseAt, paintFrame } from "./videoCompositor";
@@ -23,6 +24,12 @@ export type ExportRequest = {
   readonly onProgress?: (fraction: number) => void;
   readonly signal?: AbortSignal;
 };
+
+/** Key and click labels for a composition, empty when the overlay is off. */
+export function keystrokeEntriesFor(scene: VideoScene, track: CursorTrack | null): readonly KeystrokeEntry[] {
+  if (track === null || !scene.keystrokes.show) return [];
+  return keystrokeEntries(track.keys, track.events, scene.keystrokes);
+}
 
 /** Zoom keyframes for a composition, auto-generated then overridden by manual ones. */
 export function keyframesFor(scene: VideoScene, track: CursorTrack | null, media: Size): readonly ZoomKeyframe[] {
@@ -112,14 +119,15 @@ export async function exportVideo(request: ExportRequest): Promise<Blob> {
   const keyframes = keyframesFor(scene, request.track, mediaSize);
   const cursorPath = smoothedCursor(request.track, scene, fps);
   const events = request.track?.events ?? [];
+  const keystrokes = keystrokeEntriesFor(scene, request.track);
 
   if (request.format === "gif") {
-    return exportGif({ ...request, width, height, frames, duration, canvas, context, mediaSize, keyframes, cursorPath, events });
+    return exportGif({ ...request, width, height, frames, duration, canvas, context, mediaSize, keyframes, cursorPath, events, keystrokes });
   }
 
   const targetBytes = request.targetBytes ?? null;
   const plan = planEncode({ width, height }, fps, duration, targetBytes);
-  const mp4: Mp4Context = { ...request, width, height, duration, canvas, context, mediaSize, keyframes, cursorPath, events };
+  const mp4: Mp4Context = { ...request, width, height, duration, canvas, context, mediaSize, keyframes, cursorPath, events, keystrokes };
   if (targetBytes === null) return encodeMp4(mp4, plan, (fraction) => request.onProgress?.(fraction));
 
   // A sized export reports progress across a possible second pass as one bar.
@@ -143,6 +151,7 @@ type Mp4Context = ExportRequest & {
   keyframes: readonly ZoomKeyframe[];
   cursorPath: readonly { t: number; x: number; y: number }[];
   events: readonly { time: number; kind: string }[];
+  keystrokes: readonly KeystrokeEntry[];
 };
 
 async function encodeMp4(mp4: Mp4Context, plan: EncodePlan, onProgress: (fraction: number) => void): Promise<Blob> {
@@ -219,6 +228,7 @@ type GifContext = ExportRequest & {
   keyframes: readonly ZoomKeyframe[];
   cursorPath: readonly { t: number; x: number; y: number }[];
   events: readonly { time: number; kind: string }[];
+  keystrokes: readonly KeystrokeEntry[];
 };
 
 /**
@@ -255,7 +265,7 @@ async function exportGif(gif: GifContext): Promise<Blob> {
 function drawOne(
   context: OffscreenCanvasRenderingContext2D,
   scene: VideoScene,
-  request: Pick<ExportRequest, "video" | "camera" | "background">,
+  request: Pick<ExportRequest, "video" | "camera" | "background"> & { readonly keystrokes: readonly KeystrokeEntry[] },
   stage: Size,
   mediaSize: Size,
   keyframes: readonly ZoomKeyframe[],
@@ -271,6 +281,7 @@ function drawOne(
     camera: request.camera,
     cursor: cursorPath.length === 0 ? null : cursorAt(cursorPath, absolute),
     clickPulse: clickPulseAt(events, absolute),
+    keystrokes: keystrokeChipsAt(request.keystrokes, absolute),
   };
   paintFrame(context, scene, sources, stage, keyframes, absolute);
 }

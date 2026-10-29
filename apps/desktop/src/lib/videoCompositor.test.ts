@@ -31,6 +31,8 @@ function fakeContext(): CanvasRenderingContext2D {
     fill: vi.fn(() => calls.push("fill")),
     stroke: vi.fn(() => calls.push("stroke")),
     drawImage: vi.fn(() => calls.push("drawImage")),
+    fillText: vi.fn((text: string) => calls.push(`fillText:${text}`)),
+    measureText: vi.fn((text: string) => ({ width: text.length * 8 })),
     translate: vi.fn(),
     scale: vi.fn(),
     createLinearGradient: vi.fn(() => gradient),
@@ -59,6 +61,15 @@ function fakeContext(): CanvasRenderingContext2D {
     set shadowOffsetY(value: unknown) {
       void value;
     },
+    set font(value: unknown) {
+      void value;
+    },
+    set textBaseline(value: unknown) {
+      void value;
+    },
+    set textAlign(value: unknown) {
+      void value;
+    },
   };
   return context as unknown as CanvasRenderingContext2D;
 }
@@ -77,6 +88,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: null,
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
 
     const fillIndex = context.calls.indexOf("fillRect");
@@ -96,6 +108,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: null,
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
     // With no background, no padding, and no media, the only fill left is the
     // placeholder rect — never more than one before the clip.
@@ -114,6 +127,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: null,
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
     expect(context.calls).toContain("drawImage");
   });
@@ -128,6 +142,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: { x: 500, y: 500 },
       clickPulse: 1,
+      keystrokes: [],
     }, stage, [], 0);
     // The cursor glyph is drawn via a path (moveTo/lineTo), not arc; the click
     // ring is the only `arc` call, so hiding the cursor removes it too.
@@ -144,6 +159,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: { x: 500, y: 500 },
       clickPulse: 1,
+      keystrokes: [],
     }, stage, [], 0);
     expect(active.arc).toHaveBeenCalled();
 
@@ -155,6 +171,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: { x: 500, y: 500 },
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
     expect(idle.arc).not.toHaveBeenCalled();
   });
@@ -169,6 +186,7 @@ describe("paintFrame", () => {
       camera: null,
       cursor: null,
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
     // Camera enabled but no source: only the media draw happens.
     expect(withoutCamera.drawImage).toHaveBeenCalledTimes(1);
@@ -184,8 +202,32 @@ describe("paintFrame", () => {
       camera: cameraSource,
       cursor: null,
       clickPulse: 0,
+      keystrokes: [],
     }, stage, [], 0);
     expect(withCamera.drawImage).toHaveBeenCalledTimes(2);
+  });
+
+  it("paints key labels only when they are shown", () => {
+    const scene = defaultVideoScene(5);
+    const sources = {
+      media: {} as CanvasImageSource,
+      mediaSize,
+      background: null,
+      camera: null,
+      cursor: null,
+      clickPulse: 0,
+      keystrokes: [
+        { label: "Ctrl + C", opacity: 1 },
+        { label: "Ctrl + V", opacity: 0.5 },
+      ],
+    };
+    const shown = fakeContext() as unknown as { calls: string[] };
+    paintFrame(shown as unknown as CanvasRenderingContext2D, scene, sources, stage, [], 0);
+    expect(shown.calls.filter((call) => call.startsWith("fillText:"))).toEqual(["fillText:Ctrl + C", "fillText:Ctrl + V"]);
+
+    const hidden = fakeContext() as unknown as { calls: string[] };
+    paintFrame(hidden as unknown as CanvasRenderingContext2D, { ...scene, keystrokes: { ...scene.keystrokes, show: false } }, sources, stage, [], 0);
+    expect(hidden.calls.some((call) => call.startsWith("fillText:"))).toBe(false);
   });
 
   it("never throws across the default scene, with or without sources", () => {
@@ -195,7 +237,7 @@ describe("paintFrame", () => {
       { media: {} as CanvasImageSource, camera: {} as CanvasImageSource, cursor: { x: 1, y: 1 } },
     ]) {
       expect(() =>
-        paintFrame(fakeContext(), scene, { ...sources, mediaSize, background: null, clickPulse: 0.5 }, stage, [], 0),
+        paintFrame(fakeContext(), scene, { ...sources, mediaSize, background: null, clickPulse: 0.5, keystrokes: [] }, stage, [], 0),
       ).not.toThrow();
     }
   });

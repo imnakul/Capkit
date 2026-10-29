@@ -552,6 +552,27 @@ describe("RecorderDock", () => {
     expect(window.localStorage.getItem("capkit.recordings.v1")).toBeNull();
   });
 
+  it("records keystrokes only after the user opts in from the options menu", async () => {
+    render(<RecorderDock />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Start recording" })).toBeEnabled();
+    });
+
+    await openOptions();
+    const keystrokes = screen.getByRole("button", { name: "Keystrokes" });
+    expect(keystrokes).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(keystrokes);
+    expect(keystrokes).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByRole("combobox", { name: "Countdown before recording" }), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+
+    await waitFor(() => {
+      expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ captureKeystrokes: true }), expect.anything(), null);
+    });
+  });
+
   it("remembers the audio choices between sessions", async () => {
     render(<RecorderDock />);
     const mic = await screen.findByRole("button", { name: "Record the microphone" });

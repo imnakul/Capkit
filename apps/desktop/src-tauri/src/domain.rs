@@ -371,6 +371,10 @@ pub struct RecordingRequestDto {
     pub microphone_device_id: Option<String>,
     #[serde(default)]
     pub system_audio_device_id: Option<String>,
+    /// Opt-in. Stores shortcut and named-key presses with the recording; plain
+    /// typed characters are stored only as "typing happened", never by identity.
+    #[serde(default)]
+    pub capture_keystrokes: bool,
 }
 
 /// Live counters for the recorder dock, emitted at most once per second.
@@ -431,6 +435,22 @@ pub struct CursorEventDto {
     pub y: f32,
 }
 
+/// A key press. `kind` is `"key"` for a named key or a shortcut, with `key`
+/// naming it (`"C"`, `"Enter"`, `"Left"`), or `"text"` for a plain typed
+/// character, whose identity is deliberately not recorded so passwords typed
+/// while recording never reach the file. Modifiers are those held at the press.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyEventDto {
+    pub time: f64,
+    pub kind: &'static str,
+    pub key: &'static str,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
 /// Cursor positions and clicks sampled alongside the video.
 ///
 /// Positions are parallel arrays rather than an array of objects: a ten-minute
@@ -448,6 +468,10 @@ pub struct CursorTrackDto {
     pub ys: Vec<f32>,
     pub events: Vec<CursorEventDto>,
     pub shapes: Vec<CursorShapeSpanDto>,
+    /// False when keystrokes were not recorded, so an empty `keys` list can
+    /// be told apart from "recorded, but nothing was pressed".
+    pub keys_recorded: bool,
+    pub keys: Vec<KeyEventDto>,
     /// The recorded area in physical desktop px: the whole display, or the
     /// crop origin with the video's size for Window and Region recordings.
     pub display_bounds: Rect,

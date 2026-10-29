@@ -112,6 +112,61 @@ export function paintFrame(
     paintCamera(context, scene, sources.camera, stage);
   }
 
+  if (scene.keystrokes.show && sources.keystrokes.length > 0) {
+    paintKeystrokes(context, scene.keystrokes, sources.keystrokes, { x, y, width, height });
+  }
+
+  context.restore();
+}
+
+const keystrokeFont = '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
+
+/**
+ * Key labels as a centred row of pills over the recorded frame.
+ *
+ * Sized from the frame, not the stage, so a label covers the same share of the
+ * content in a 480p GIF as in a 4K MP4. Painted after the camera so a bubble
+ * in the corner never hides a shortcut.
+ */
+function paintKeystrokes(
+  context: Canvas2D,
+  settings: VideoScene["keystrokes"],
+  chips: VideoSources["keystrokes"],
+  media: { x: number; y: number; width: number; height: number },
+): void {
+  const fontSize = Math.min(96, Math.max(10, media.height * 0.036 * (settings.size / 100)));
+  const pillHeight = fontSize * 1.9;
+  const paddingX = fontSize * 0.85;
+  const gap = fontSize * 0.45;
+  const margin = fontSize * 1.3;
+
+  context.save();
+  context.font = `600 ${String(Math.round(fontSize))}px ${keystrokeFont}`;
+  context.textBaseline = "middle";
+  context.textAlign = "left";
+
+  const widths = chips.map((chip) => context.measureText(chip.label).width + paddingX * 2);
+  const rowWidth = widths.reduce((total, width) => total + width, 0) + gap * Math.max(0, chips.length - 1);
+  let left = media.x + (media.width - rowWidth) / 2;
+  const top = settings.position === "top" ? media.y + margin : media.y + media.height - margin - pillHeight;
+
+  chips.forEach((chip, index) => {
+    const width = widths[index] ?? 0;
+    context.globalAlpha = chip.opacity;
+    context.shadowColor = "rgb(0 0 0 / 35%)";
+    context.shadowBlur = fontSize * 0.8;
+    context.shadowOffsetY = fontSize * 0.15;
+    context.fillStyle = "rgb(16 18 16 / 84%)";
+    roundedRect(context, left, top, width, pillHeight, fontSize * 0.5);
+    context.fill();
+    context.shadowColor = "transparent";
+    context.strokeStyle = "rgb(255 255 255 / 16%)";
+    context.lineWidth = Math.max(1, fontSize * 0.06);
+    context.stroke();
+    context.fillStyle = "#f5f6f3";
+    context.fillText(chip.label, left + paddingX, top + pillHeight / 2);
+    left += width + gap;
+  });
   context.restore();
 }
 
