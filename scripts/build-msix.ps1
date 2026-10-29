@@ -88,6 +88,13 @@ Copy-Item -LiteralPath $executablePath -Destination (Join-Path $stageRoot 'capki
 foreach ($asset in @('Square44x44Logo.png', 'Square150x150Logo.png', 'StoreLogo.png')) {
     Copy-Item -LiteralPath (Join-Path $iconRoot $asset) -Destination (Join-Path $assetsRoot $asset)
 }
+# License review: CapKit's license and the notices for every bundled crate,
+# npm package, and font ship inside the package.
+Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $stageRoot 'LICENSE.txt')
+Invoke-Checked -Command 'node' -Arguments @(
+    (Join-Path $repoRoot 'scripts\third-party-notices.ts'),
+    '--out', (Join-Path $stageRoot 'THIRD_PARTY_NOTICES.txt')
+)
 
 $manifest = (Get-Content -LiteralPath $manifestTemplate -Raw).Replace('__PACKAGE_VERSION__', $PackageVersion)
 [System.IO.File]::WriteAllText(

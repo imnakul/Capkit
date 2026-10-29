@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
@@ -16,8 +16,11 @@ use domain::{
     CompletionStatus, DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto,
     OnScreenSessionDto, Point, RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto,
     RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+    StartupStateDto,
 };
 use error::SnaphubError;
+use platform::StartupBackend;
+use platform::plugin_startup::PluginStartup;
 use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
@@ -183,9 +186,29 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
     Ok(())
 }
 
+/// True when this process started at sign-in: through the unpackaged sign-in
+/// entry, which passes `--background`, or through the MSIX startup task,
+/// which cannot pass arguments. Either way the dashboard stays hidden.
+fn launched_in_background() -> bool {
+    static BACKGROUND: OnceLock<bool> = OnceLock::new();
+    *BACKGROUND.get_or_init(|| {
+        if std::env::args().any(|argument| argument == "--background") {
+            return true;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            platform::windows_startup::launched_by_startup_task()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    })
+}
+
 #[tauri::command]
 fn dashboard_ready(app: AppHandle) -> Result<(), SnaphubError> {
-    if std::env::args().any(|argument| argument == "--background") {
+    if launched_in_background() {
         return Ok(());
     }
     show_dashboard(&app)
@@ -1681,6 +1704,47 @@ fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
     }
 }
 
+/// The package startup task in the Store build; the plugin's sign-in entry
+/// otherwise. Never both: Store policy rejects a packaged app's Run entry.
+fn startup_backend(app: &AppHandle) -> Box<dyn StartupBackend> {
+    #[cfg(target_os = "windows")]
+    if platform::windows_startup::is_packaged() {
+        return Box::new(platform::windows_startup::PackagedStartupTask);
+    }
+    Box::new(PluginStartup::new(app.clone()))
+}
+
+#[tauri::command]
+async fn get_startup_state(app: AppHandle) -> Result<StartupStateDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || startup_backend(&app).state())
+        .await
+        .map_err(|error| SnaphubError::startup(format!("Startup worker failed: {error}")))?
+}
+
+#[tauri::command]
+async fn set_startup_enabled(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<StartupStateDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || startup_backend(&app).set_enabled(enabled))
+        .await
+        .map_err(|error| SnaphubError::startup(format!("Startup worker failed: {error}")))?
+}
+
+#[tauri::command]
+fn open_startup_settings() -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_shell::open_startup_settings()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(SnaphubError::Startup(
+            "Startup settings are only available on Windows".into(),
+        ))
+    }
+}
+
 #[tauri::command]
 fn close_camera(app: AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("camera") {
@@ -2272,10 +2336,13 @@ pub fn run() {
             camera_ready,
             close_camera,
             prepare_camera_permission,
-            open_camera_privacy_settings
+            open_camera_privacy_settings,
+            get_startup_state,
+            set_startup_enabled,
+            open_startup_settings
         ])
         .setup(move |app| {
-            if std::env::args().any(|argument| argument == "--background")
+            if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")
             {
                 window.hide()?;

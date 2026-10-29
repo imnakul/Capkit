@@ -422,3 +422,90 @@ mod request_tests {
         assert_eq!(request.system_audio_device_id, None);
     }
 }
+
+/// Whether CapKit opens when the user signs in, and who decides.
+///
+/// The policy and user variants come from the MSIX startup task: once a user
+/// turns CapKit off in Windows Settings or Task Manager, or a policy pins the
+/// state, the app cannot change it and the UI must say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupStatus {
+    Enabled,
+    Disabled,
+    DisabledByUser,
+    DisabledByPolicy,
+    EnabledByPolicy,
+}
+
+impl StartupStatus {
+    /// Maps a `Windows.ApplicationModel.StartupTaskState` value. Unknown
+    /// future values read as disabled rather than failing the settings page.
+    pub fn from_task_state(state: i32) -> Self {
+        match state {
+            1 => Self::DisabledByUser,
+            2 => Self::Enabled,
+            3 => Self::DisabledByPolicy,
+            4 => Self::EnabledByPolicy,
+            _ => Self::Disabled,
+        }
+    }
+}
+
+/// `package` is the MSIX startup task (Store build); `app` is the per-user
+/// sign-in entry CapKit writes itself in the unpackaged installer and dev builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupManager {
+    Package,
+    App,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupStateDto {
+    pub status: StartupStatus,
+    pub managed_by: StartupManager,
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{StartupManager, StartupStateDto, StartupStatus};
+
+    #[test]
+    fn maps_every_documented_task_state() {
+        assert_eq!(StartupStatus::from_task_state(0), StartupStatus::Disabled);
+        assert_eq!(
+            StartupStatus::from_task_state(1),
+            StartupStatus::DisabledByUser
+        );
+        assert_eq!(StartupStatus::from_task_state(2), StartupStatus::Enabled);
+        assert_eq!(
+            StartupStatus::from_task_state(3),
+            StartupStatus::DisabledByPolicy
+        );
+        assert_eq!(
+            StartupStatus::from_task_state(4),
+            StartupStatus::EnabledByPolicy
+        );
+    }
+
+    #[test]
+    fn unknown_task_state_reads_as_disabled() {
+        assert_eq!(StartupStatus::from_task_state(99), StartupStatus::Disabled);
+        assert_eq!(StartupStatus::from_task_state(-1), StartupStatus::Disabled);
+    }
+
+    #[test]
+    fn startup_state_serializes_for_the_settings_schema() {
+        let value = serde_json::to_value(StartupStateDto {
+            status: StartupStatus::DisabledByUser,
+            managed_by: StartupManager::Package,
+        })
+        .expect("startup state serializes");
+        assert_eq!(
+            value,
+            serde_json::json!({ "status": "disabled-by-user", "managedBy": "package" })
+        );
+    }
+}

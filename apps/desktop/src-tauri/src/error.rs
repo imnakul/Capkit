@@ -20,6 +20,8 @@ pub enum SnaphubError {
     Shortcut(String),
     #[error("SH-WINDOW-001: {0}")]
     Window(String),
+    #[error("SH-STARTUP-001: {0}")]
+    Startup(String),
 }
 
 impl SnaphubError {
@@ -45,6 +47,10 @@ impl SnaphubError {
 
     pub fn audio(error: impl std::fmt::Display) -> Self {
         Self::Audio(error.to_string())
+    }
+
+    pub fn startup(error: impl std::fmt::Display) -> Self {
+        Self::Startup(error.to_string())
     }
 }
 

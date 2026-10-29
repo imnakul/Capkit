@@ -194,7 +194,11 @@
 - **Confirmed:** The Store build is a manually assembled x64 Desktop Bridge MSIX with `packagedClassicApp`, `mediumIL`, and `runFullTrust`, preserving Win32 access required by capture, tray, global shortcuts, clipboard, scrolling input, and pin windows.
 - **Confirmed:** Store artifacts are generated as `.msix` and `.msixupload`; the Store submission uses `.msixupload` and Microsoft supplies the certified production signature.
 - **Provisional:** ARM64 packaging follows after the x64 packaged-runtime acceptance matrix passes.
-- **Unresolved:** The existing Tauri autostart plugin must be physically validated across a Store update because MSIX installation paths are versioned. Use a manifest-declared startup task if registry-based startup does not survive updates.
+- **Superseded (2026-10-29):** The Store build no longer uses the Tauri autostart plugin.
+  - **Confirmed:** Open at startup uses a manifest-declared `windows.startupTask`, because Store policy rejects a packaged app's own Run entry and MSIX install paths are versioned.
+  - **Confirmed:** Builds without package identity keep the plugin's sign-in entry.
+  - **Confirmed:** The manifest also declares the `microphone` and `webcam` device capabilities for recording.
+  - **Confirmed:** Packages ship `LICENSE.txt` and generated third-party notices.
 - **Confirmed:** Windows release binaries use PE GUI subsystem `2`; debug binaries keep console output. Store packaging validates this header so an installed release cannot regress to opening a terminal window.
 
 ## 2026-07-23 - Product renamed to CapKit

@@ -40,6 +40,13 @@ import {
   updateGlobalShortcuts,
 } from "../../lib/tauri";
 import { captureCursor, onScreenCursor } from "../../lib/cursor";
+import {
+  getStartupState,
+  openStartupSettings,
+  presentStartupState,
+  setStartupEnabled,
+  type StartupState,
+} from "../../lib/startup";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
 
@@ -137,6 +144,10 @@ export function SettingsView(): React.JSX.Element {
   const [recordingDirectory, setRecordingDirectoryState] = useState("Videos\\Capkit");
   const [recordingMessage, setRecordingMessage] = useState<string | null>(null);
   const [choosingRecordingDirectory, setChoosingRecordingDirectory] = useState(false);
+  // Null until the native state loads; the saved preference stands in.
+  const [startupState, setStartupState] = useState<StartupState | null>(null);
+  const [changingStartup, setChangingStartup] = useState(false);
+  const [startupMessage, setStartupMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [openSections, setOpenSections] = useState<Record<SettingsSectionId, boolean>>(defaultOpenSections);
 
@@ -153,13 +164,19 @@ export function SettingsView(): React.JSX.Element {
 
   useEffect(() => {
     if (!isTauri()) return;
-    void import("@tauri-apps/plugin-autostart")
-      .then(({ isEnabled }) => isEnabled())
-      .then((enabled) => {
-        if (enabled !== settings.openAtStartup) updateSettings({ ...settings, openAtStartup: enabled });
-      })
-      .catch((error: unknown) => console.error("SH-AUTOSTART-READ-001", error));
+    void loadStartupState();
   }, []);
+
+  // Turning CapKit back on happens in Windows Settings, so re-read the state
+  // when the user returns. Only while that is the pending fix; no polling.
+  useEffect(() => {
+    if (startupState?.status !== "disabled-by-user") return;
+    function refresh(): void {
+      void loadStartupState();
+    }
+    window.addEventListener("focus", refresh);
+    return (): void => window.removeEventListener("focus", refresh);
+  }, [startupState?.status]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -246,16 +263,42 @@ export function SettingsView(): React.JSX.Element {
     update({ ...settings, customColors, palette });
   }
 
-  async function toggleAutostart(enabled: boolean): Promise<void> {
-    update({ ...settings, openAtStartup: enabled });
-    if (!isTauri()) return;
+  function applyStartupState(state: StartupState): void {
+    setStartupState(state);
+    const isOn = presentStartupState(state).isOn;
+    if (isOn !== settings.openAtStartup) updateSettings({ ...settings, openAtStartup: isOn });
+  }
+
+  async function loadStartupState(): Promise<void> {
     try {
-      const plugin = await import("@tauri-apps/plugin-autostart");
-      if (enabled) await plugin.enable();
-      else await plugin.disable();
+      applyStartupState(await getStartupState());
+      setStartupMessage(null);
     } catch (error: unknown) {
-      update({ ...settings, openAtStartup: !enabled });
-      console.error("SH-AUTOSTART-WRITE-001", error);
+      setStartupMessage(describeInvokeError(error, "Startup setting could not be loaded"));
+    }
+  }
+
+  async function changeStartup(enabled: boolean): Promise<void> {
+    if (!isTauri()) {
+      update({ ...settings, openAtStartup: enabled });
+      return;
+    }
+    setChangingStartup(true);
+    setStartupMessage(null);
+    try {
+      applyStartupState(await setStartupEnabled(enabled));
+    } catch (error: unknown) {
+      setStartupMessage(describeInvokeError(error, "Startup setting could not be changed"));
+    } finally {
+      setChangingStartup(false);
+    }
+  }
+
+  async function showStartupSettings(): Promise<void> {
+    try {
+      await openStartupSettings();
+    } catch (error: unknown) {
+      setStartupMessage(describeInvokeError(error, "Windows Settings could not be opened"));
     }
   }
 
@@ -375,17 +418,6 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
-  async function resetStartup(): Promise<void> {
-    update({ ...settings, openAtStartup: false });
-    if (!isTauri()) return;
-    try {
-      const plugin = await import("@tauri-apps/plugin-autostart");
-      await plugin.disable();
-    } catch (error: unknown) {
-      console.error("SH-AUTOSTART-RESET-001", error);
-    }
-  }
-
   function resetDetection(): void {
     update({
       ...settings,
@@ -480,6 +512,8 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
+  const startup = presentStartupState(startupState ?? { status: settings.openAtStartup ? "enabled" : "disabled", managedBy: "app" });
+
   return (
     <div className="mx-auto max-w-[960px] px-7 pb-12 pt-7">
       <header className="mb-6 flex items-end justify-between border-b border-stone-300/80 pb-5 dark:border-white/10">
@@ -495,8 +529,15 @@ export function SettingsView(): React.JSX.Element {
         {activeTab === "general" ? (
           <>
           <SettingsSection id="startup" onToggle={toggleSection} open={openSections.startup} icon={Clock} eyebrow="Startup" title="Open at startup" description="Keep Capkit ready in the system tray as soon as you sign in.">
-            <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
-            <SectionReset onClick={() => void resetStartup()} />
+            <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={startup.isOn} disabled={!startup.canChange || changingStartup} onChange={(enabled) => void changeStartup(enabled)} />
+            {startup.notice === null ? null : (
+              <div className="mt-3 flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2.5 dark:border-white/10 dark:bg-[#2b2c29]">
+                <p className="min-w-0 flex-1 text-[12px] leading-4 text-stone-600 dark:text-stone-400">{startup.notice}</p>
+                {startup.canOpenWindowsSettings ? <button className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" type="button" onClick={() => void showStartupSettings()}>Open Startup settings</button> : null}
+              </div>
+            )}
+            {startupMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{startupMessage}</p>}
+            <SectionReset onClick={() => void changeStartup(false)} />
           </SettingsSection>
           <SettingsSection id="theme-accent" onToggle={toggleSection} open={openSections["theme-accent"]} icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
             <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
@@ -829,8 +870,8 @@ function ColorButton({ color, label, selected, disabled = false, onClick }: Colo
 
 function SectionReset({ onClick }: { onClick: () => void }): React.JSX.Element { return <div className="mt-4 border-t border-stone-200 pt-3 dark:border-white/8"><button aria-label="Reset this section" className="flex items-center gap-1.5 text-[12px] font-medium text-stone-500 outline-none transition hover:text-stone-900 focus-visible:text-stone-900 dark:text-stone-500 dark:hover:text-stone-200 dark:focus-visible:text-white" type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset this section</button></div>; }
 
-type ToggleFieldProps = { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void };
-function ToggleField({ label, description, checked, onChange }: ToggleFieldProps): React.JSX.Element { return <label className="flex cursor-pointer items-start justify-between gap-3"><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[12px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
+type ToggleFieldProps = { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void };
+function ToggleField({ label, description, checked, disabled = false, onChange }: ToggleFieldProps): React.JSX.Element { return <label className={`flex items-start justify-between gap-3 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[12px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" disabled={disabled} role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
 
 type ShortcutRowProps = { label: string; description: string; value: string; defaultValue: string; recording: boolean; onRecord: () => void; onReset: () => void };
 function ShortcutRow({ label, description, value, defaultValue, recording, onRecord, onReset }: ShortcutRowProps): React.JSX.Element { return <div className="flex items-center gap-2 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</p><p className="mt-0.5 text-[12px] text-stone-500 dark:text-stone-400">{description}</p></div><button aria-label={`Configure ${label}`} aria-pressed={recording} className="min-w-32 rounded-md border border-stone-300 bg-stone-50 px-2.5 py-1.5 font-mono text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:aria-pressed:bg-white/10" type="button" onClick={onRecord}>{recording ? "Press shortcut…" : value}</button><InlineResetButton label={`Reset ${label} shortcut`} disabled={value === defaultValue && !recording} onClick={onReset} /></div>; }

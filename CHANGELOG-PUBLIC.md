@@ -2,6 +2,14 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased — 2026-10-29
+
+### Improved
+
+- Open at startup works in the Microsoft Store version, using Windows' own startup list.
+- If you turned CapKit off in Windows' startup settings, CapKit's Settings now tells you so and opens the right Windows page to turn it back on.
+- The Store version asks for camera and microphone access through Windows' standard prompts.
+
 ## 0.3.0 — 2026-09-28
 
 ### Fixed

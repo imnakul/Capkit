@@ -3,17 +3,20 @@ use image::RgbaImage;
 use crate::{
     domain::{
         AudioDeviceDto, DetectedTargetDto, DisplayDto, Point, RecordingArtifactsDto,
-        RecordingRequestDto, RecordingSourceDto, RecordingStatsDto,
+        RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, StartupStateDto,
     },
     error::SnaphubError,
 };
 
+pub(crate) mod plugin_startup;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_display;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_recorder;
 #[cfg(target_os = "windows")]
 pub mod windows_shell;
+#[cfg(target_os = "windows")]
+pub(crate) mod windows_startup;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_ui;
 #[cfg(target_os = "windows")]
@@ -88,4 +91,17 @@ pub trait AudioDeviceBackend: Send + Sync {
 /// own dock never lands in the video.
 pub trait WindowCaptureExclusionBackend: Send + Sync {
     fn set_excluded(&self, hwnd: isize, excluded: bool) -> Result<(), SnaphubError>;
+}
+
+/// Opening CapKit when the user signs in.
+///
+/// The Store (MSIX) build must use the manifest startup task: Store policy
+/// rejects packaged apps that write their own Run entry. The unpackaged
+/// installer has no package identity, so it keeps the per-user Run entry.
+pub trait StartupBackend {
+    fn state(&self) -> Result<StartupStateDto, SnaphubError>;
+    /// Returns the resulting state. It can differ from the request when the
+    /// user turned CapKit off in Windows or a policy controls it; the caller
+    /// shows that state instead of treating it as a failure.
+    fn set_enabled(&self, enabled: bool) -> Result<StartupStateDto, SnaphubError>;
 }
