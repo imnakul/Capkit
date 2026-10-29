@@ -6,6 +6,7 @@ import {
   Download,
   Pin,
   Refresh,
+  SecurityCheck,
   TextSelection,
   type CapkitIconProps,
 } from "./icons";
@@ -25,6 +26,8 @@ type CompletionToolbarProps = {
   onRetrySave: () => void;
   /** Present only when the OS can read text; the button is hidden otherwise. */
   onCopyText?: () => void;
+  /** Present only when the OS can read text; opens redaction suggestions. */
+  onFindSensitive?: () => void;
 };
 
 export function CompletionToolbar({
@@ -38,6 +41,7 @@ export function CompletionToolbar({
   onComplete,
   onRetrySave,
   onCopyText,
+  onFindSensitive,
 }: CompletionToolbarProps): React.JSX.Element {
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const disabled = state !== "idle";
@@ -91,6 +95,14 @@ export function CompletionToolbar({
             icon={TextSelection}
             label="Copy text"
             onClick={onCopyText}
+          />
+        )}
+        {onFindSensitive === undefined ? null : (
+          <ToolButton
+            disabled={disabled}
+            icon={SecurityCheck}
+            label="Find sensitive text"
+            onClick={onFindSensitive}
           />
         )}
       </div>

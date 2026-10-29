@@ -4,6 +4,11 @@ import { AnnotationCanvas } from "./components/AnnotationCanvas";
 import { AnnotationToolbar } from "./components/AnnotationToolbar";
 import { CaptureBackdrop } from "./components/CaptureBackdrop";
 import { CompletionToolbar } from "./components/CompletionToolbar";
+import {
+  RedactionPreview,
+  RedactionReviewPanel,
+  type RedactionReview,
+} from "./components/RedactionReviewPanel";
 import { SelectionFrame, type ResizeHandle } from "./components/SelectionFrame";
 import {
   ScrollingCapturePanel,
@@ -29,6 +34,7 @@ import { useSnaphubSettings } from "./domain/settings";
 import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
 import { eyedropperFormat } from "./lib/eyedropper";
+import { suggestRedactions } from "./lib/redactionPatterns";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
@@ -45,6 +51,7 @@ import {
   listTargets,
   listenForCaptureRequest,
   pickCaptureColor,
+  recognizeCaptureText,
   requestCapture,
   retryCaptureSave,
   showCaptureSurface,
@@ -98,6 +105,8 @@ export function App(): React.JSX.Element {
   // The swatch shows only while its message is still the current one.
   const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
   const [canReadText, setCanReadText] = useState(false);
+  const [redactionReview, setRedactionReview] = useState<RedactionReview | null>(null);
+  const redactionSequence = useRef(0);
   const lastPointer = useRef<Point | null>(null);
   const uiLookupSequence = useRef(0);
   const uiLookupInFlight = useRef(false);
@@ -709,6 +718,81 @@ export function App(): React.JSX.Element {
     }
   }, [busy, completionState.phase, scrollingCapture, selection, session]);
 
+  const findSensitiveText = useCallback(async (): Promise<void> => {
+    if (
+      session === null
+      || selection === null
+      || busy
+      || scrollingCapture !== null
+      || completionState.phase !== "idle"
+      || completionInFlight.current
+    ) return;
+    const sequence = redactionSequence.current + 1;
+    redactionSequence.current = sequence;
+    const reviewedSelection = selection;
+    setCompletionState({ phase: "idle", message: "" });
+    setRedactionReview({ phase: "reading" });
+    try {
+      const recognized = await recognizeCaptureText(session.id, reviewedSelection);
+      if (redactionSequence.current !== sequence) return;
+      const suggestions = suggestRedactions(recognized, reviewedSelection);
+      setRedactionReview({
+        phase: "ready",
+        suggestions,
+        selectedIds: new Set(suggestions.map((suggestion) => suggestion.id)),
+      });
+    } catch (error: unknown) {
+      if (redactionSequence.current !== sequence) return;
+      setRedactionReview({
+        phase: "error",
+        message: `Could not read text. ${describeInvokeError(error, "The text recognition service did not return a diagnostic")}`,
+      });
+    }
+  }, [busy, completionState.phase, scrollingCapture, selection, session]);
+
+  const closeRedactionReview = useCallback((): void => {
+    redactionSequence.current += 1;
+    setRedactionReview(null);
+  }, []);
+
+  const toggleRedactionSuggestion = useCallback((suggestionId: string): void => {
+    setRedactionReview((current) => {
+      if (current?.phase !== "ready") return current;
+      const selectedIds = new Set(current.selectedIds);
+      if (selectedIds.has(suggestionId)) selectedIds.delete(suggestionId);
+      else selectedIds.add(suggestionId);
+      return { ...current, selectedIds };
+    });
+  }, []);
+
+  const applyRedactions = useCallback((): void => {
+    if (redactionReview?.phase !== "ready") return;
+    // Blackout, not pixelate: large-block pixelation of text can be partly reversed.
+    const blackouts: Annotation[] = redactionReview.suggestions
+      .filter((suggestion) => redactionReview.selectedIds.has(suggestion.id))
+      .map((suggestion) => ({
+        id: crypto.randomUUID(),
+        kind: "blackout",
+        bounds: suggestion.bounds,
+        color: "#090a08",
+        intensity: 1,
+        opacity: 1,
+      }));
+    if (blackouts.length === 0) return;
+    // One replace, so a single undo removes the whole batch.
+    dispatchScene({
+      type: "replace",
+      scene: { version: 1, elements: [...history.present.elements, ...blackouts] },
+    });
+    closeRedactionReview();
+    setMessage(`Blacked out ${blackouts.length === 1 ? "1 item" : `${String(blackouts.length)} items`} · Ctrl+Z to undo`);
+  }, [closeRedactionReview, history.present.elements, redactionReview]);
+
+  useEffect(() => {
+    // Suggestions are positioned for one selection; any change makes them stale.
+    closeRedactionReview();
+  }, [closeRedactionReview, selection, session?.id]);
+
   const handleRetrySave = useCallback(async (): Promise<void> => {
     if (
       session === null
@@ -985,6 +1069,7 @@ export function App(): React.JSX.Element {
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
           />
+          {redactionReview === null ? null : <RedactionPreview review={redactionReview} />}
           {completionState.phase === "idle" ? null : (
             <div
               aria-hidden="true"
@@ -1033,8 +1118,22 @@ export function App(): React.JSX.Element {
                 statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
-                {...(canReadText ? { onCopyText: () => void handleCopyText() } : {})}
+                {...(canReadText
+                  ? {
+                    onCopyText: () => void handleCopyText(),
+                    onFindSensitive: () => void findSensitiveText(),
+                  }
+                  : {})}
               />
+              {redactionReview === null ? null : (
+                <RedactionReviewPanel
+                  review={redactionReview}
+                  side={actionRailX < viewport.width / 2 ? "right" : "left"}
+                  onApply={applyRedactions}
+                  onClose={closeRedactionReview}
+                  onToggle={toggleRedactionSuggestion}
+                />
+              )}
             </div>
           ) : null}
         </>

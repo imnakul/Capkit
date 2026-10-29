@@ -10,6 +10,7 @@ const captureMocks = vi.hoisted(() => ({
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
   copyCaptureText: vi.fn(),
+  recognizeCaptureText: vi.fn(),
   isTextRecognitionSupported: vi.fn(),
   listeners: [] as (() => void)[],
   pickCaptureColor: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     captureScrolling: captureMocks.captureScrolling,
     completeCapture: captureMocks.completeCapture,
     copyCaptureText: captureMocks.copyCaptureText,
+    recognizeCaptureText: captureMocks.recognizeCaptureText,
     isTextRecognitionSupported: captureMocks.isTextRecognitionSupported,
     pickCaptureColor: captureMocks.pickCaptureColor,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
@@ -378,6 +380,63 @@ describe("App", () => {
       expect(screen.queryByRole("main")).not.toBeInTheDocument();
     });
     expect(captureMocks.completeCapture).not.toHaveBeenCalled();
+  });
+
+  it("blacks out only the confirmed sensitive text in one step", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.recognizeCaptureText.mockResolvedValue({
+      text: "Mail nakul@example.com or call +91 98765 43210",
+      language: "en-US",
+      lines: [{
+        text: "Mail nakul@example.com or call +91 98765 43210",
+        words: [
+          { text: "Mail", bounds: { x: 4, y: 10, width: 30, height: 14 } },
+          { text: "nakul@example.com", bounds: { x: 40, y: 10, width: 120, height: 14 } },
+          { text: "or", bounds: { x: 166, y: 10, width: 14, height: 14 } },
+          { text: "call", bounds: { x: 186, y: 10, width: 26, height: 14 } },
+          { text: "+91", bounds: { x: 218, y: 10, width: 24, height: 14 } },
+          { text: "98765", bounds: { x: 248, y: 10, width: 40, height: 14 } },
+          { text: "43210", bounds: { x: 294, y: 10, width: 40, height: 14 } },
+        ],
+      }],
+    });
+    render(<App />);
+    await selectRegion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find sensitive text" }));
+    const phone = await screen.findByRole("checkbox", { name: /Phone number/ });
+    expect(screen.getByRole("checkbox", { name: /Email address/ })).toBeChecked();
+    fireEvent.click(phone);
+    expect(phone).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Black out 1" }));
+    expect(await screen.findAllByText(/Blacked out 1 item/)).not.toHaveLength(0);
+    expect(screen.queryByRole("region", { name: "Sensitive text" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(captureMocks.completeCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.completeCapture).toHaveBeenCalledWith(
+      "copy",
+      expect.any(String),
+      expect.anything(),
+      {
+        version: 1,
+        elements: [expect.objectContaining({
+          kind: "blackout",
+          bounds: { x: 37, y: 7, width: 126, height: 20 },
+        })],
+      },
+    );
+  });
+
+  it("says so when nothing sensitive is found", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.recognizeCaptureText.mockResolvedValue({ text: "", language: "en-US", lines: [] });
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(await screen.findByRole("button", { name: "Find sensitive text" }));
+    expect(await screen.findByText(/No emails, phone numbers/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(/No emails, phone numbers/)).toBeNull();
   });
 
   it("hides Copy text when the OS cannot read text", async () => {
