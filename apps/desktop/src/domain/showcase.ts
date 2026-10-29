@@ -686,6 +686,32 @@ export function mergeSavedStyles(current: readonly SavedStyle[], style: SavedSty
   return [style, ...rest].slice(0, 24);
 }
 
+/** localStorage key holding the id of the style applied to captures sent to Showcase. */
+export const showcaseDefaultStyleStorageKey = "capkit.showcase.defaultStyle";
+
+/**
+ * The style to apply when a capture is sent to Showcase, or null.
+ *
+ * An id whose style was deleted reads as no default rather than an error: the
+ * studio then falls back to its automatic background.
+ */
+export function resolveDefaultStyle(styles: readonly SavedStyle[], storedId: string | null): SavedStyle | null {
+  if (storedId === null || storedId === "") return null;
+  return styles.find((style) => style.id === storedId) ?? null;
+}
+
+/** Reads the style library and default id from storage; unreadable data reads as none. */
+export function readDefaultStyle(storage: Pick<Storage, "getItem">): SavedStyle | null {
+  const raw = storage.getItem(showcaseStylesStorageKey);
+  if (raw === null) return null;
+  try {
+    const styles = savedStyleLibrarySchema.parse(JSON.parse(raw) as unknown);
+    return resolveDefaultStyle(styles, storage.getItem(showcaseDefaultStyleStorageKey));
+  } catch {
+    return null;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Export                                                                      */
 /* -------------------------------------------------------------------------- */

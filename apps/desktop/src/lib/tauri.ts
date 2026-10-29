@@ -373,6 +373,25 @@ export async function openSavedCapture(path: string): Promise<void> {
   await invoke("open_saved_capture", { path });
 }
 
+/** Shows the dashboard with a saved capture open in Showcase. The path must be inside the save folder. */
+export async function openInShowcase(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_in_showcase", { path });
+}
+
+/** The capture sent to Showcase since the dashboard last asked, if any. Each request is returned once. */
+export async function takePendingShowcase(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const raw: unknown = await invoke("take_pending_showcase");
+  return z.string().min(1).nullable().parse(raw);
+}
+
+/** Fires when a capture is sent to Showcase while the dashboard is already open. */
+export async function listenForShowcaseRequest(callback: () => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen("capkit://showcase-requested", callback);
+}
+
 export async function deleteSavedCapture(path: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("delete_saved_capture", { path });

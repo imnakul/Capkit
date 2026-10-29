@@ -1,4 +1,4 @@
-import { Computer, Copy, Delete, Download, FolderAdd, Frame, Image, ImageAdd, Layers, MagicWand, Palette, Redo, RotateCounterClockwise, Save, Smartphone, Sparkles, Tablet, Text, Tick, Undo } from "../../icons";
+import { Computer, Copy, Delete, Download, FolderAdd, Frame, Image, ImageAdd, Layers, MagicWand, Palette, Redo, RotateCounterClockwise, Save, Smartphone, Sparkles, Star, Tablet, Text, Tick, Undo } from "../../icons";
 import {
   backgroundPresets,
   defaultEffectSettings,
@@ -51,6 +51,8 @@ export type BackgroundPanelProps = {
   libraryImages: readonly MediaItem[];
   folders: readonly MediaFolder[];
   styles: readonly SavedStyle[];
+  /** The style applied to captures sent to Showcase, or null. */
+  defaultStyleId: string | null;
   styleName: string;
   search: string;
   stylesOpen: boolean;
@@ -79,6 +81,7 @@ export type BackgroundPanelProps = {
   onSaveStyle: () => void;
   onApplyStyle: (style: SavedStyle) => void;
   onDeleteStyle: (id: string) => void;
+  onDefaultStyleChange: (id: string | null) => void;
 };
 
 /** Everything that happens *around* the image, plus the studio's own actions. */
@@ -137,6 +140,20 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
                     >
                       <Copy aria-hidden="true" size={12} />
                       <span className="truncate">{style.name}</span>
+                    </button>
+                    <button
+                      aria-label={`Apply ${style.name} to captures sent to Showcase`}
+                      aria-pressed={style.id === props.defaultStyleId}
+                      className={`grid size-7 shrink-0 place-items-center rounded outline-none transition hover:bg-stone-200/70 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:scale-95 motion-reduce:transform-none dark:hover:bg-white/10 ${
+                        style.id === props.defaultStyleId
+                          ? "text-amber-600 dark:text-amber-300"
+                          : "text-stone-400 hover:text-stone-800 dark:hover:text-white"
+                      }`}
+                      title={style.id === props.defaultStyleId ? "Default for new captures" : "Make default for new captures"}
+                      type="button"
+                      onClick={() => props.onDefaultStyleChange(style.id === props.defaultStyleId ? null : style.id)}
+                    >
+                      <Star aria-hidden="true" size={12} strokeWidth={style.id === props.defaultStyleId ? 2.4 : 1.8} />
                     </button>
                     <button
                       aria-label={`Delete the ${style.name} style`}

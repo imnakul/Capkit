@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   Pin,
+  Presentation,
   Refresh,
   SecurityCheck,
   TextSelection,
@@ -24,6 +25,8 @@ type CompletionToolbarProps = {
   statusSide: "left" | "right";
   onComplete: (action: CompletionAction) => void;
   onRetrySave: () => void;
+  /** Saves, then opens the capture in Showcase with the default style. */
+  onShowcase: () => void;
   /** Present only when the OS can read text; the button is hidden otherwise. */
   onCopyText?: () => void;
   /** Present only when the OS can read text; opens redaction suggestions. */
@@ -40,6 +43,7 @@ export function CompletionToolbar({
   statusSide,
   onComplete,
   onRetrySave,
+  onShowcase,
   onCopyText,
   onFindSensitive,
 }: CompletionToolbarProps): React.JSX.Element {
@@ -88,6 +92,12 @@ export function CompletionToolbar({
           icon={Pin}
           label="Pin"
           onClick={() => onComplete("pin")}
+        />
+        <ToolButton
+          disabled={disabled}
+          icon={Presentation}
+          label="Save & Showcase"
+          onClick={onShowcase}
         />
         {onCopyText === undefined ? null : (
           <ToolButton

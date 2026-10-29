@@ -13,6 +13,7 @@ const captureMocks = vi.hoisted(() => ({
   recognizeCaptureText: vi.fn(),
   isTextRecognitionSupported: vi.fn(),
   listeners: [] as (() => void)[],
+  openInShowcase: vi.fn(),
   pickCaptureColor: vi.fn(),
   requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     copyCaptureText: captureMocks.copyCaptureText,
     recognizeCaptureText: captureMocks.recognizeCaptureText,
     isTextRecognitionSupported: captureMocks.isTextRecognitionSupported,
+    openInShowcase: captureMocks.openInShowcase,
     pickCaptureColor: captureMocks.pickCaptureColor,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
       captureMocks.listeners.push(callback);
@@ -516,7 +518,34 @@ describe("App", () => {
     expect(combined).toHaveTextContent("A");
     expect(
       Array.from(toolbar.querySelectorAll("button")).map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Copy", "Copy & Save", "Save", "Pin"]);
+    ).toEqual(["Copy", "Copy & Save", "Save", "Pin", "Save & Showcase"]);
+  });
+
+  it("saves, then opens the saved file in Showcase", async () => {
+    captureMocks.openInShowcase.mockResolvedValue(undefined);
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(screen.getByRole("button", { name: "Save & Showcase" }));
+
+    await waitFor(() => expect(captureMocks.openInShowcase).toHaveBeenCalledWith("Demo/Capkit.png"));
+    expect(captureMocks.completeCapture).toHaveBeenCalledTimes(1);
+    expect(captureMocks.completeCapture.mock.calls[0]?.[0]).toBe("save");
+  });
+
+  it("does not open Showcase when the save is still pending", async () => {
+    captureMocks.completeCapture.mockResolvedValueOnce({
+      action: "save",
+      cleanupWarning: null,
+      diagnostic: "SH-EXPORT-001: disk full",
+      outputPath: null,
+      status: "save-pending",
+    });
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(screen.getByRole("button", { name: "Save & Showcase" }));
+
+    expect(await screen.findByRole("button", { name: "Retry save" })).toBeVisible();
+    expect(captureMocks.openInShowcase).not.toHaveBeenCalled();
   });
 
   it("ignores the completion key without a selection, with modifiers, or in an editable field", async () => {

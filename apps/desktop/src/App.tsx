@@ -41,6 +41,7 @@ import {
   cancelManualScrolling,
   captureScrolling,
   completeCapture,
+  openInShowcase,
   completeScrollingCapture,
   copyCaptureText,
   detectTargets,
@@ -596,7 +597,7 @@ export function App(): React.JSX.Element {
   }, [session]);
 
   const handleComplete = useCallback(
-    async (action: CompletionAction): Promise<void> => {
+    async (action: CompletionAction, followUp: "none" | "showcase" = "none"): Promise<void> => {
       if (
         session === null
         || selection === null
@@ -645,6 +646,13 @@ export function App(): React.JSX.Element {
             : `${successMessage} · ${result.cleanupWarning}`,
         );
         clearCaptureUi();
+        // The capture window is already hidden, so a failure here has no UI to
+        // land in; the image itself is saved either way.
+        if (followUp === "showcase" && result.outputPath !== null) {
+          void openInShowcase(result.outputPath).catch((error: unknown) => {
+            console.error("SH-SHOWCASE-OPEN-001", error);
+          });
+        }
       } catch (error: unknown) {
         if (
           activeSessionId.current === sessionId
@@ -1118,6 +1126,7 @@ export function App(): React.JSX.Element {
                 statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
+                onShowcase={() => void handleComplete("save", "showcase")}
                 {...(canReadText
                   ? {
                     onCopyText: () => void handleCopyText(),

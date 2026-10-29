@@ -124,3 +124,16 @@ export const savedCaptureSchema = z.object({
 export type SavedCapture = z.infer<typeof savedCaptureSchema> & {
   thumbnailUrl: string;
 };
+
+/**
+ * The library entry for a path reported by the native side.
+ *
+ * Windows paths are case-insensitive and either separator is valid, so a
+ * completion result and a directory listing can spell the same file
+ * differently.
+ */
+export function findSavedCapture(captures: readonly SavedCapture[], path: string): SavedCapture | null {
+  const normalize = (value: string): string => value.replaceAll("/", "\\").toLowerCase();
+  const target = normalize(path);
+  return captures.find((capture) => normalize(capture.path) === target) ?? null;
+}

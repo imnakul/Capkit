@@ -1,13 +1,13 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
-import { updateGlobalShortcuts } from "../../lib/tauri";
+import { listSavedCaptures, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
 import { SettingsView } from "./SettingsView";
 import { SavedCapturesView } from "./SavedCapturesView";
 import { ShowcaseView } from "./ShowcaseView";
 import { RecordView } from "./RecordView";
-import type { SavedCapture } from "../../domain/capture";
+import { findSavedCapture, type SavedCapture } from "../../domain/capture";
 import {
   Image,
   Moon,
@@ -30,8 +30,12 @@ const navigation = [
 export function DashboardPanel(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<DashboardTab>("screenshots");
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
+  const [isShowcaseStylePending, setIsShowcaseStylePending] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const { settings, updateSettings } = useSnaphubSettings();
+  const clearShowcaseStylePending = useCallback((): void => {
+    setIsShowcaseStylePending(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +59,34 @@ export function DashboardPanel(): React.JSX.Element {
       });
     });
     return (): void => window.cancelAnimationFrame(frame);
+  }, []);
+
+  // A capture sent from the completion rail. Pulled on mount, because a freshly
+  // built dashboard missed the event, and again whenever an open one is asked.
+  // The take is one-shot, so the result is applied even after a cleanup:
+  // StrictMode's rehearsal unmount would otherwise discard the only copy.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const openPending = async (): Promise<void> => {
+      const path = await takePendingShowcase();
+      if (path === null) return;
+      const captures = await listSavedCaptures();
+      setShowcaseCapture(findSavedCapture(captures, path));
+      setIsShowcaseStylePending(true);
+      setActiveTab("showcase");
+    };
+    const report = (error: unknown): void => {
+      console.error("SH-SHOWCASE-PENDING-001", error);
+    };
+    void openPending().catch(report);
+    const unlisten = listenForShowcaseRequest(() => {
+      void openPending().catch(report);
+    });
+    return (): void => {
+      void unlisten.then((stop) => {
+        stop();
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -139,11 +171,16 @@ export function DashboardPanel(): React.JSX.Element {
           <SavedCapturesView
             onShowcase={(capture) => {
               setShowcaseCapture(capture ?? null);
+              setIsShowcaseStylePending(true);
               setActiveTab("showcase");
             }}
           />
         ) : activeTab === "showcase" ? (
-          <ShowcaseView initialCapture={showcaseCapture} />
+          <ShowcaseView
+            applyDefaultStyle={isShowcaseStylePending}
+            initialCapture={showcaseCapture}
+            onDefaultStyleApplied={clearShowcaseStylePending}
+          />
         ) : activeTab === "settings" ? (
           <SettingsView />
         ) : (

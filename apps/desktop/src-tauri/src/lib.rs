@@ -119,6 +119,12 @@ struct OnScreenActiveState {
 
 struct OnScreenModeRegistry(Mutex<OnScreenModeState>);
 
+/// A saved capture waiting for the dashboard to open it in Showcase.
+///
+/// A slot rather than an event alone: when the dashboard has to be built, its
+/// listeners do not exist yet, so it takes the capture once it has loaded.
+struct PendingShowcase(Mutex<Option<String>>);
+
 #[tauri::command]
 async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError> {
     #[cfg(debug_assertions)]
@@ -208,11 +214,56 @@ fn launched_in_background() -> bool {
 }
 
 #[tauri::command]
-fn dashboard_ready(app: AppHandle) -> Result<(), SnaphubError> {
-    if launched_in_background() {
+fn dashboard_ready(
+    app: AppHandle,
+    pending: tauri::State<'_, PendingShowcase>,
+) -> Result<(), SnaphubError> {
+    // A capture sent to Showcase is an explicit request to see the dashboard,
+    // even in a session that started hidden at sign-in.
+    let showcase_requested = pending.0.lock().is_ok_and(|slot| slot.is_some());
+    if launched_in_background() && !showcase_requested {
         return Ok(());
     }
     show_dashboard(&app)
+}
+
+/// Opens a saved capture in the dashboard's Showcase tab.
+///
+/// Only files inside the save folder are accepted, the same rule the library
+/// uses, so a capture window cannot point the dashboard at arbitrary files.
+#[tauri::command]
+async fn open_in_showcase(app: AppHandle, path: String) -> Result<(), SnaphubError> {
+    app.state::<CaptureService>()
+        .validated_saved_capture(Path::new(&path))?;
+    *app.state::<PendingShowcase>()
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Showcase request state is unavailable".into()))? =
+        Some(path);
+    let existing = app.get_webview_window("dashboard");
+    show_dashboard(&app)?;
+    if let Some(window) = existing {
+        let _ = window.emit("capkit://showcase-requested", ());
+    }
+    Ok(())
+}
+
+/// Hands the pending Showcase capture to the dashboard, at most once.
+#[tauri::command]
+fn take_pending_showcase(
+    window: WebviewWindow,
+    pending: tauri::State<'_, PendingShowcase>,
+) -> Result<Option<String>, SnaphubError> {
+    if window.label() != "dashboard" {
+        return Err(SnaphubError::Session(
+            "Only the dashboard can open Showcase captures".into(),
+        ));
+    }
+    Ok(pending
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Showcase request state is unavailable".into()))?
+        .take())
 }
 
 #[tauri::command]
@@ -2332,10 +2383,13 @@ pub fn run() {
         .manage(PinnedCaptureRegistry(Mutex::new(HashMap::new())))
         .manage(RecordRegionRegistry(Mutex::new(None)))
         .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
+        .manage(PendingShowcase(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             begin_capture,
             show_capture_surface,
             dashboard_ready,
+            open_in_showcase,
+            take_pending_showcase,
             on_screen_session,
             on_screen_snapshot,
             on_screen_ready,
