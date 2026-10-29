@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { CursorEvent } from "./cursorTrack";
+import type { CursorEvent, KeyEvent } from "./cursorTrack";
 import {
   clampFocus,
   clusterClicks,
   defaultZoomOptions,
   generateZoomKeyframes,
   mergeKeyframes,
+  typingClusters,
   zoomAt,
   type ZoomKeyframe,
 } from "./zoomKeyframes";
@@ -121,5 +122,61 @@ describe("merging and sampling", () => {
     expect(zoomAt(auto, -5).scale).toBe(1);
     expect(zoomAt(auto, 99).scale).toBe(2);
     expect(zoomAt([], 1)).toEqual({ scale: 1, cx: 0.5, cy: 0.5 });
+  });
+});
+
+function typed(time: number): KeyEvent {
+  return { time, kind: "text", key: "", ctrl: false, shift: false, alt: false, meta: false };
+}
+
+function named(time: number, key: string, ctrl = false): KeyEvent {
+  return { time, kind: "key", key, ctrl, shift: false, alt: false, meta: false };
+}
+
+const noPointer = (): null => null;
+
+describe("typing", () => {
+  it("zooms to the click that placed the caret", () => {
+    const clusters = typingClusters([typed(2), typed(2.2), typed(2.4), typed(2.6)], [press(1, 300, 400)], noPointer);
+    expect(clusters).toEqual([{ start: 2, end: 2.6, cx: 300, cy: 400, count: 4 }]);
+  });
+
+  it("falls back to the pointer when nothing was clicked first", () => {
+    const clusters = typingClusters([typed(1), typed(1.1), typed(1.2)], [], () => ({ x: 50, y: 60 }));
+    expect(clusters[0]).toMatchObject({ cx: 50, cy: 60 });
+  });
+
+  it("ignores shortcuts and a couple of stray keys", () => {
+    const keys = [named(1, "C", true), named(1.1, "V", true), named(1.2, "Z", true), typed(5), typed(5.1)];
+    expect(typingClusters(keys, [press(0, 1, 1)], noPointer)).toEqual([]);
+  });
+
+  it("keeps correcting a typo inside one burst", () => {
+    const keys = [typed(1), typed(1.2), named(1.4, "Backspace"), typed(1.6)];
+    expect(typingClusters(keys, [press(0, 1, 1)], noPointer)).toHaveLength(1);
+  });
+
+  it("splits on a pause and on a click that moves the caret", () => {
+    const keys = [typed(1), typed(1.2), typed(1.4), typed(4), typed(4.2), typed(4.4), typed(4.7), typed(4.9), typed(5.1)];
+    const clicks = [press(0, 10, 10), press(4.6, 800, 500)];
+    const clusters = typingClusters(keys, clicks, noPointer);
+    expect(clusters.map((cluster) => [cluster.start, cluster.cx])).toEqual([
+      [1, 10],
+      [4, 10],
+      [4.7, 800],
+    ]);
+  });
+
+  it("holds the zoom until a typing burst ends, even when a click starts later inside it", () => {
+    const keyframes = generateZoomKeyframes(
+      [
+        { start: 1, end: 6, cx: 400, cy: 300, count: 20 },
+        { start: 3, end: 3, cx: 900, cy: 500, count: 1 },
+      ],
+      source,
+    );
+    const pullOut = keyframes.at(-1);
+    expect(pullOut?.scale).toBe(1);
+    expect(pullOut?.time).toBeCloseTo(6 + defaultZoomOptions.holdSeconds + defaultZoomOptions.transitionSeconds);
   });
 });

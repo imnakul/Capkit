@@ -105,6 +105,8 @@ export const zoomSettingsSchema = z.object({
   holdSeconds: z.number(),
   bridgeSeconds: z.number(),
   transitionSeconds: z.number(),
+  /** Also zooms to where the user types. Needs keys in the recording. */
+  followTyping: z.boolean().default(true),
   manual: z.array(zoomKeyframeSchema),
 });
 
@@ -113,6 +115,7 @@ export type ZoomSettings = z.infer<typeof zoomSettingsSchema>;
 export const defaultZoomSettings: ZoomSettings = {
   enabled: true,
   ...defaultZoomOptions,
+  followTyping: true,
   manual: [],
 };
 

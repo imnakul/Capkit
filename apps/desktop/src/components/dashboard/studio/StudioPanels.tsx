@@ -205,6 +205,12 @@ export function MotionPanel({
 
         <CollapsibleSection defaultOpen icon={Sparkles} title="Zoom on click">
           <Toggle checked={scene.zoom.enabled} label="Automatic zoom" onChange={(value) => onPatchZoom({ enabled: value })} />
+          <Toggle
+            checked={keysRecorded && scene.zoom.followTyping}
+            disabled={!keysRecorded}
+            label="Follow typing"
+            onChange={(value) => onPatchZoom({ followTyping: value })}
+          />
           <ControlLabel hint={`${String(clickCount)} clicks found`} label="Detected" />
           <Slider label="Zoom level" max={300} min={110} suffix="%" value={Math.round(scene.zoom.scale * 100)} onChange={(value) => onPatchZoom({ scale: value / 100 })} />
           <Slider

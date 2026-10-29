@@ -4,7 +4,7 @@ import { cursorAt, smoothCursorPath, toPoints } from "../domain/cursorTrack";
 import type { Size } from "../domain/showcase";
 import { trimmedDuration, type VideoScene, type VideoSources } from "../domain/videoScene";
 import { keystrokeChipsAt, keystrokeEntries, type KeystrokeEntry } from "../domain/keystrokes";
-import { clusterClicks, generateZoomKeyframes, mergeKeyframes, type ZoomKeyframe } from "../domain/zoomKeyframes";
+import { clusterClicks, generateZoomKeyframes, mergeKeyframes, typingClusters, type ZoomKeyframe } from "../domain/zoomKeyframes";
 import { planEncode, retryBitrate, type EncodePlan } from "./exportSize";
 import { clickPulseAt, paintFrame } from "./videoCompositor";
 
@@ -31,11 +31,20 @@ export function keystrokeEntriesFor(scene: VideoScene, track: CursorTrack | null
   return keystrokeEntries(track.keys, track.events, scene.keystrokes);
 }
 
+function pointerLookup(track: CursorTrack): (time: number) => { x: number; y: number } | null {
+  const points = toPoints(track);
+  return (time) => cursorAt(points, time);
+}
+
 /** Zoom keyframes for a composition, auto-generated then overridden by manual ones. */
 export function keyframesFor(scene: VideoScene, track: CursorTrack | null, media: Size): readonly ZoomKeyframe[] {
   if (!scene.zoom.enabled) return scene.zoom.manual;
   const events = track?.events ?? [];
-  const clusters = clusterClicks(events);
+  const typing =
+    track !== null && scene.zoom.followTyping && track.keys.length > 0
+      ? typingClusters(track.keys, events, pointerLookup(track))
+      : [];
+  const clusters = [...clusterClicks(events), ...typing].sort((left, right) => left.start - right.start);
   const auto = generateZoomKeyframes(clusters, media, {
     scale: scene.zoom.scale,
     leadSeconds: scene.zoom.leadSeconds,
