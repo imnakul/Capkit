@@ -31,6 +31,10 @@ When you need more, the same app records your screen, turns recordings into poli
 Shortcut  →  select on a frozen screen  →  edit in place  →  copy · save · pin  →  back to work
 ```
 
+
+https://github.com/user-attachments/assets/a02efd10-bfd8-4d67-8276-d3a0c0d8bc7f
+
+
 ## Screenshots
 
 <p align="center">
