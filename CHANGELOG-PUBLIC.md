@@ -2,7 +2,22 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
-## Unreleased — 2026-10-29
+## Unreleased — 2026-11-19
+
+### Added
+
+- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
+- Copy any capture from the Screenshots page, and drag it straight into another app.
+- Choose how the capture overlay appears: Dim and rise, Fade in, or Fade in and out.
+- Capture toolbar groups open when you click them and remember the last tool you used in each group.
+
+### Improved
+
+- The capture toolbar is a single card, with the colour and size row only for tools that use them.
+- Only one CapKit runs at a time; opening it again brings the existing window forward.
+- Folder paths in Settings no longer start with `\\?\`.
+
+## Earlier — 2026-10-29
 
 ### Added
 

@@ -51,7 +51,8 @@
 - **Confirmed:** `apps/desktop/src-tauri/tauri.conf.json` `version` is the single source of truth; `package.json`, `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` must always match it, enforced by `pnpm version:check` in CI.
 - **Confirmed:** Semantic versioning: a patch is a fix only, a minor adds features, and a major is reserved for a 1.0 launch. The first automated release is `0.2.0`.
 - **Confirmed:** A push to `master` whose version has no matching `v<version>` tag builds the Windows NSIS installer with the repo's own `pnpm bundle:windows` script and publishes it with `gh release create` (preinstalled on runners), with generated notes plus a `CHANGELOG-PUBLIC.md` link. A push without a version change only runs the quick skip. No third-party release actions.
-- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), the in-app auto-updater (`tauri-plugin-updater`), pre-release channels, and Store (MSIX) versioning.
+- **Confirmed:** The in-app updater (`tauri-plugin-updater`, pinned to 2.10.1 because newer releases need a Tauri that bumps the `webview2-com` pin). CapKit checks the GitHub release `latest.json` once per launch (a setting turns it off), shows a notice, and installs only on a click, never during a capture or recording and never in the Store build. Release builds sign the installer with the updater key; the private key lives only in GitHub secrets.
+- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), pre-release channels, and Store (MSIX) versioning.
 - **Rationale:** Raising the version once should be enough to ship an identifiable installer; every installed copy reports its version and commit in the sidebar.
 
 ## 2026-09-26 - Screen Draw defaults to Select

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
 import { listSavedCaptures, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
 import { SettingsView } from "./SettingsView";
+import { UpdateNotice } from "./UpdateNotice";
+import { useUpdateStatus } from "./useUpdateStatus";
 import { SavedCapturesView } from "./SavedCapturesView";
 import { ShowcaseView } from "./ShowcaseView";
 import { RecordView } from "./RecordView";
@@ -33,6 +35,7 @@ export function DashboardPanel(): React.JSX.Element {
   const [isShowcaseStylePending, setIsShowcaseStylePending] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const { settings, updateSettings } = useSnaphubSettings();
+  const updates = useUpdateStatus(settings.updates.autoCheck);
   const clearShowcaseStylePending = useCallback((): void => {
     setIsShowcaseStylePending(false);
   }, []);
@@ -158,6 +161,7 @@ export function DashboardPanel(): React.JSX.Element {
               );
             })}
           </div>
+          <UpdateNotice controller={updates} />
           <div className="flex items-center gap-2 text-[12px] text-stone-500">
             <span className="size-1.5 rounded-full bg-emerald-400" />
             Ready in the system tray

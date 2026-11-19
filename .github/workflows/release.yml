@@ -90,10 +90,33 @@ jobs:
           cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
+      - name: Check updater signing setup
+        shell: powershell
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is not set. Add the updater private key as a repository secret (see docs/NOTES.md, Updater keys)."
+          }
+          $config = Get-Content -Raw -LiteralPath apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
+          if ($config.plugins.updater.pubkey -like "REPLACE_WITH_*") {
+            throw "plugins.updater.pubkey in tauri.conf.json is still the placeholder. Paste the public key (see docs/NOTES.md, Updater keys)."
+          }
+
       - name: Build Windows installer
+        shell: powershell
         env:
           CAPKIT_COMMIT: ${{ github.sha }}
-        run: pnpm bundle:windows
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Updater artifacts (.sig) are enabled here only, so a local
+          # `pnpm bundle:windows` needs no signing key. A config file avoids
+          # JSON quoting problems across pnpm and PowerShell.
+          $overlay = Join-Path $env:RUNNER_TEMP "updater-artifacts.json"
+          [System.IO.File]::WriteAllText($overlay, '{"bundle":{"createUpdaterArtifacts":true}}', [System.Text.UTF8Encoding]::new($false))
+          pnpm --filter @snaphub/desktop exec tauri build --bundles nsis --config $overlay
+          if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
       - name: Publish GitHub release
         shell: powershell
@@ -115,7 +138,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not generate release notes" }
           $notes = (@($generated) -join "`n") + "`n`nFull changelog: [CHANGELOG-PUBLIC.md](https://github.com/${{ github.repository }}/blob/v${{ env.VERSION }}/CHANGELOG-PUBLIC.md)`n"
           [System.IO.File]::WriteAllText("$PWD/notes.md", $notes, [System.Text.UTF8Encoding]::new($false))
-          gh release create "v${{ env.VERSION }}" $installer $checksum --target "${{ github.sha }}" --title "CapKit ${{ env.VERSION }}" --notes-file notes.md
+          $signaturePath = "$installer.sig"
+          if (!(Test-Path -LiteralPath $signaturePath)) {
+            throw "Missing updater signature at $signaturePath"
+          }
+          $signature = (Get-Content -Raw -LiteralPath $signaturePath).Trim()
+          $manifest = [ordered]@{
+            version  = "${{ env.VERSION }}"
+            notes    = "See CHANGELOG-PUBLIC.md"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url       = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/CapKit_${{ env.VERSION }}_x64-setup.exe"
+              }
+            }
+          }
+          $latest = "latest.json"
+          [System.IO.File]::WriteAllText("$PWD/$latest", ($manifest | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
+          gh release create "v${{ env.VERSION }}" $installer $checksum $signaturePath $latest --target "${{ github.sha }}" --title "CapKit ${{ env.VERSION }}" --notes-file notes.md
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

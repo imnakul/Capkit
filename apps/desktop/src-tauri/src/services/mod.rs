@@ -3,3 +3,4 @@ pub mod media;
 pub mod paths;
 pub mod recording;
 pub mod scrolling;
+pub mod updates;

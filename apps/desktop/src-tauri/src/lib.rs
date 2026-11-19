@@ -26,15 +26,20 @@ use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
+use services::updates::{
+    self, AvailableUpdate, UpdateRegistry, UpdateStatusDto, download_percent, install_failure,
+    install_guard,
+};
 #[cfg(debug_assertions)]
 use std::time::Instant;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
-    menu::{Menu, MenuItem},
+    menu::{IsMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     AW_BLEND, AnimateWindow, SW_HIDE, SetForegroundWindow, ShowWindow,
@@ -1919,6 +1924,163 @@ fn startup_backend(app: &AppHandle) -> Box<dyn StartupBackend> {
     Box::new(PluginStartup::new(app.clone()))
 }
 
+fn is_packaged_build() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_startup::is_packaged()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// The tray's "Install update" entry, kept so its text follows the update state.
+struct UpdateTrayItem(Mutex<Option<MenuItem<tauri::Wry>>>);
+
+/// Records the status where the tray and every window can see it.
+fn publish_update_status(app: &AppHandle, status: &UpdateStatusDto) {
+    if let Some(item) = app
+        .state::<UpdateTrayItem>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|item| item.clone())
+    {
+        match status {
+            UpdateStatusDto::Available { version, .. } => {
+                let _ = item.set_text(format!("Install update v{version}"));
+                let _ = item.set_enabled(true);
+            }
+            _ => {
+                let _ = item.set_text("Install update");
+                let _ = item.set_enabled(false);
+            }
+        }
+    }
+    let _ = app.emit(updates::STATUS_EVENT, status);
+}
+
+async fn run_update_check(app: &AppHandle, manual: bool) -> UpdateStatusDto {
+    let registry = app.state::<UpdateRegistry>();
+    if let Some(current) = registry.begin_check() {
+        return current;
+    }
+    publish_update_status(app, &UpdateStatusDto::Checking);
+    let current_version = app.package_info().version.to_string();
+    let result = match app.updater() {
+        Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    }
+    .map(|found| {
+        found.map(|update| {
+            (
+                AvailableUpdate {
+                    version: update.version.clone(),
+                    notes: update.body.clone(),
+                },
+                update,
+            )
+        })
+    });
+    if let Err(error) = &result {
+        eprintln!("SH-UPDATE-001: {error}");
+    }
+    let status = registry.finish_check(&current_version, result, manual);
+    publish_update_status(app, &status);
+    status
+}
+
+async fn run_update_install(app: &AppHandle) -> Result<UpdateStatusDto, SnaphubError> {
+    let registry = app.state::<UpdateRegistry>();
+    if is_packaged_build() {
+        return Ok(UpdateStatusDto::Unsupported);
+    }
+    if matches!(registry.status(), UpdateStatusDto::Installing { .. }) {
+        return Ok(registry.status());
+    }
+    let capture_visible = app
+        .get_webview_window("capture")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let recording_active = app
+        .state::<RecordingService>()
+        .stats()
+        .map(|stats| stats.is_some())
+        .unwrap_or(false);
+    install_guard(false, capture_visible, recording_active)?;
+    let update = match registry.begin_install() {
+        Ok(update) => update,
+        Err(status) => return Ok(status),
+    };
+    let version = update.version.clone();
+    publish_update_status(
+        app,
+        &UpdateStatusDto::Installing {
+            version: version.clone(),
+            percent: 0,
+        },
+    );
+    let current_version = app.package_info().version.to_string();
+    let mut downloaded = 0_u64;
+    let mut published = 0_u8;
+    let result = update
+        .download_and_install(
+            |chunk, total| {
+                downloaded = downloaded.saturating_add(chunk as u64);
+                let Some(percent) = download_percent(downloaded, total) else {
+                    return;
+                };
+                let step = percent / 5 * 5;
+                if step > published {
+                    published = step;
+                    let status = UpdateStatusDto::Installing {
+                        version: version.clone(),
+                        percent: step,
+                    };
+                    registry.set_status(status.clone());
+                    publish_update_status(app, &status);
+                }
+            },
+            || {},
+        )
+        .await;
+    match result {
+        Ok(()) => Ok(registry.status()),
+        Err(error) => {
+            eprintln!("SH-UPDATE-001: {error}");
+            let status = install_failure(&current_version);
+            registry.set_status(status.clone());
+            publish_update_status(app, &status);
+            Ok(status)
+        }
+    }
+}
+
+#[tauri::command]
+async fn auto_check_for_update(app: AppHandle) -> UpdateStatusDto {
+    let registry = app.state::<UpdateRegistry>();
+    if is_packaged_build() || !registry.claim_auto_check() {
+        return registry.status();
+    }
+    run_update_check(&app, false).await
+}
+
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> UpdateStatusDto {
+    run_update_check(&app, true).await
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<UpdateStatusDto, SnaphubError> {
+    run_update_install(&app).await
+}
+
+#[tauri::command]
+fn update_status(app: AppHandle) -> UpdateStatusDto {
+    app.state::<UpdateRegistry>().status()
+}
+
 #[tauri::command]
 async fn get_startup_state(app: AppHandle) -> Result<StartupStateDto, SnaphubError> {
     tauri::async_runtime::spawn_blocking(move || startup_backend(&app).state())
@@ -2454,6 +2616,7 @@ pub fn run() {
     }));
 
     let app = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -2494,7 +2657,13 @@ pub fn run() {
         .manage(RecordRegionRegistry(Mutex::new(None)))
         .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
         .manage(PendingShowcase(Mutex::new(None)))
+        .manage(UpdateRegistry::new(is_packaged_build()))
+        .manage(UpdateTrayItem(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            auto_check_for_update,
+            check_for_update,
+            install_update,
+            update_status,
             begin_capture,
             show_capture_surface,
             dashboard_ready,
@@ -2624,16 +2793,33 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit CapKit", true, None::<&str>)?;
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &dashboard_item,
-                    &capture_item,
-                    &on_screen_item,
-                    &restore_pins_item,
-                    &quit_item,
-                ],
-            )?;
+            // No update entry in the Store build: the Store owns updates there.
+            let install_item = if is_packaged_build() {
+                None
+            } else {
+                let item = MenuItem::with_id(
+                    app,
+                    "install-update",
+                    "Install update",
+                    false,
+                    None::<&str>,
+                )?;
+                if let Ok(mut slot) = app.state::<UpdateTrayItem>().0.lock() {
+                    *slot = Some(item.clone());
+                }
+                Some(item)
+            };
+            let mut entries: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![
+                &dashboard_item,
+                &capture_item,
+                &on_screen_item,
+                &restore_pins_item,
+            ];
+            if let Some(item) = &install_item {
+                entries.push(item);
+            }
+            entries.push(&quit_item);
+            let menu = Menu::with_items(app, &entries)?;
 
             let mut tray = TrayIconBuilder::new()
                 .tooltip("CapKit - Capture, record, and showcase")
@@ -2656,6 +2842,14 @@ pub fn run() {
                                 let _ = window.set_ignore_cursor_events(false);
                             }
                         }
+                    }
+                    "install-update" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(error) = run_update_install(&app).await {
+                                eprintln!("SH-UPDATE-002: {error}");
+                            }
+                        });
                     }
                     "quit" => app.exit(0),
                     _ => {}

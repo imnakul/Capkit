@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type { AnnotationScene } from "../domain/annotations";
 import type { OverlayMotion, SnaphubSettings } from "../domain/settings";
+import { updateStatusSchema, type UpdateStatus } from "../domain/updates";
 import {
   mediaFileSchema,
   mediaFolderSchema,
@@ -550,6 +551,37 @@ function createDemoSession(): CaptureSession {
     snapshotUrl: "",
     colorSpace: "srgb",
     createdAt: new Date().toISOString(),
+  });
+}
+
+async function invokeUpdate(command: string): Promise<UpdateStatus> {
+  if (!isTauri()) return { state: "idle" };
+  const raw: unknown = await invoke(command);
+  return updateStatusSchema.parse(raw);
+}
+
+/** Runs the one launch check per process; later calls return the current status. */
+export function autoCheckForUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("auto_check_for_update");
+}
+
+export function checkForUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("check_for_update");
+}
+
+export function installUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("install_update");
+}
+
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return invokeUpdate("update_status");
+}
+
+export async function listenForUpdateStatus(handler: (status: UpdateStatus) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>("capkit://update-status", (event) => {
+    const parsed = updateStatusSchema.safeParse(event.payload);
+    if (parsed.success) handler(parsed.data);
   });
 }
 

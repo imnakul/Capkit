@@ -49,6 +49,7 @@ import {
 } from "../../lib/startup";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
+import { useUpdateStatus } from "./useUpdateStatus";
 
 const neonColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ff5b4d", "#ffb547", "#ffffff", "#171717"] as const;
 const accentColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ffb547"] as const;
@@ -87,6 +88,7 @@ const settingsTabs = [
 
 type SettingsSectionId =
   | "startup"
+  | "updates"
   | "save-location"
   | "save-recordings"
   | "theme-accent"
@@ -99,7 +101,7 @@ type SettingsSectionId =
   | "shortcuts";
 
 const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
-  general: ["startup", "save-location", "save-recordings", "theme-accent"],
+  general: ["startup", "updates", "save-location", "save-recordings", "theme-accent"],
   screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
   "screen-draw": ["on-screen-toolbar"],
   shortcuts: ["shortcuts"],
@@ -115,6 +117,7 @@ const shortcutSections: ReadonlySet<SettingsSectionId> = new Set<SettingsSection
 function defaultOpenSections(): Record<SettingsSectionId, boolean> {
   const open: Record<SettingsSectionId, boolean> = {
     startup: false,
+    updates: false,
     "save-location": false,
     "save-recordings": false,
     "theme-accent": false,
@@ -149,6 +152,7 @@ export function SettingsView(): React.JSX.Element {
   const [changingStartup, setChangingStartup] = useState(false);
   const [startupMessage, setStartupMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  const updates = useUpdateStatus(false);
   const [openSections, setOpenSections] = useState<Record<SettingsSectionId, boolean>>(defaultOpenSections);
 
   useEffect(() => {
@@ -538,6 +542,28 @@ export function SettingsView(): React.JSX.Element {
             )}
             {startupMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{startupMessage}</p>}
             <SectionReset onClick={() => void changeStartup(false)} />
+          </SettingsSection>
+          <SettingsSection id="updates" onToggle={toggleSection} open={openSections.updates} icon={RotateCcw} eyebrow="Updates" title="Keep CapKit current" description="CapKit checks GitHub once when it starts. Nothing installs until you choose to.">
+            {updates.status.state === "unsupported" ? (
+              <p className="text-[12px] text-stone-500 dark:text-stone-400">Updates come from the Microsoft Store.</p>
+            ) : (
+              <>
+                <ToggleField label="Check for updates automatically" description="" checked={settings.updates.autoCheck} onChange={(autoCheck) => update({ ...settings, updates: { autoCheck } })} />
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={updates.status.state === "checking" || updates.status.state === "installing"} type="button" onClick={updates.check}>Check for updates</button>
+                  <p aria-live="polite" className="text-[12px] text-stone-500 dark:text-stone-400">
+                    {updates.status.state === "checking" ? "Checking…" : null}
+                    {updates.status.state === "up-to-date" ? `You're on the latest version (v${updates.status.currentVersion}).` : null}
+                    {updates.status.state === "available" ? `v${updates.status.version} is available.` : null}
+                    {updates.status.state === "installing" ? `Downloading… ${String(updates.status.percent)}%` : null}
+                    {updates.status.state === "error" ? updates.status.message : null}
+                  </p>
+                  {updates.status.state === "available" ? <button className="shrink-0 rounded-md bg-[var(--snaphub-accent)] px-3 py-1.5 text-[12px] font-semibold text-stone-950 outline-none transition focus-visible:ring-2 focus-visible:ring-stone-900 dark:focus-visible:ring-white" type="button" onClick={updates.install}>Install and restart</button> : null}
+                </div>
+                {updates.guardMessage === null ? null : <p className="mt-2 text-[12px] text-amber-700 dark:text-amber-300" role="alert">{updates.guardMessage}</p>}
+              </>
+            )}
+            <SectionReset onClick={() => update({ ...settings, updates: defaultSnaphubSettings.updates })} />
           </SettingsSection>
           <SettingsSection id="theme-accent" onToggle={toggleSection} open={openSections["theme-accent"]} icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
             <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>

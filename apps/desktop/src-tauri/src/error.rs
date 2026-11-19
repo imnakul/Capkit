@@ -24,6 +24,8 @@ pub enum SnaphubError {
     Ocr(String),
     #[error("SH-STARTUP-001: {0}")]
     Startup(String),
+    #[error("SH-UPDATE-001: {0}")]
+    Update(String),
 }
 
 impl SnaphubError {

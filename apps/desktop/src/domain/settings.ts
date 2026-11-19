@@ -194,6 +194,7 @@ export const snaphubSettingsSchema = z.object({
     motion: z.enum(overlayMotionValues).default("dim-rise"),
   }),
   openAtStartup: z.boolean(),
+  updates: z.object({ autoCheck: z.boolean() }).default({ autoCheck: true }),
   cursor: z.object({
     enabled: z.boolean(),
     style: z.enum(["crosshair", "target", "precision"]),
@@ -271,6 +272,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   scrolling: { defaultMode: "automatic" },
   overlay: { color: "#070807", opacity: 0.64, motion: "dim-rise" },
   openAtStartup: false,
+  updates: { autoCheck: true },
   cursor: { enabled: true, style: "crosshair", size: "medium" },
 };
 
