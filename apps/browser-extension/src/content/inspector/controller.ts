@@ -6,6 +6,7 @@ import { measureBetween } from "../measure";
 import { h } from "./dom";
 import { Overlay } from "./overlay";
 import { Panel, defaultPosition, type PanelPosition } from "./panel";
+import { readAccent } from "../../accent";
 import { INSPECTOR_CSS } from "./styles";
 
 const TOAST_MS = 1400;
@@ -62,6 +63,10 @@ export class InspectorController {
     this.shadow ??= host.attachShadow({ mode: "closed" });
     const style = h(this.doc, "style", {}, fontCss(), INSPECTOR_CSS);
     this.root = h(this.doc, "div", { class: "root" });
+    const root = this.root;
+    void readAccent().then((accent) => {
+      root.style.setProperty("--accent", accent);
+    });
     this.shadow.replaceChildren(style, this.root);
     this.overlay = new Overlay(this.doc, this.root);
     this.panel = new Panel(this.doc, this.root, savedPosition ?? defaultPosition(), {

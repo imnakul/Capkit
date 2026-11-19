@@ -47,9 +47,10 @@ function memoryStore(initial: string | null): TokenStore & { value: string | nul
   return store;
 }
 
-function make(token: string | null): { link: Link; store: ReturnType<typeof memoryStore> } {
+function make(token: string | null, onAccent?: (accent: string) => void): { link: Link; store: ReturnType<typeof memoryStore> } {
   const store = memoryStore(token);
   const link = new Link({
+    ...(onAccent === undefined ? {} : { onAccent }),
     createSocket: (url): SocketLike => new FakeSocket(url),
     store,
     browser: { name: "Chrome", version: "130" },
@@ -79,6 +80,18 @@ describe("Link", () => {
     await link.connect();
     expect(link.status.state).toBe("no-token");
     expect(FakeSocket.instances).toHaveLength(0);
+  });
+
+  it("passes CapKit's accent on from ready and from later theme messages", async () => {
+    const accents: string[] = [];
+    const { link } = make(TOKEN, (accent) => accents.push(accent));
+    await link.connect();
+    last().open();
+    last().receive({ type: "ready", accent: "#39ff88" });
+    last().receive({ type: "theme", accent: "#7c5cff" });
+    last().receive({ type: "theme", accent: "nope" });
+    expect(accents).toEqual(["#39ff88", "#7c5cff"]);
+    expect(link.status.state).toBe("connected");
   });
 
   it("sends hello, becomes connected on ready, then pings every 20 seconds", async () => {

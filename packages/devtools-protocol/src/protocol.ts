@@ -174,7 +174,10 @@ export const pairRejectedMessageSchema = z.strictObject({
   type: z.literal("pairRejected"),
   reason: pairRejectReasonSchema,
 });
-export const readyMessageSchema = z.strictObject({ ...envelope, type: z.literal("ready") });
+/** CapKit's theme accent, so the extension matches the colour chosen in CapKit. */
+export const accentSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export const readyMessageSchema = z.strictObject({ ...envelope, type: z.literal("ready"), accent: accentSchema.optional() });
+export const themeMessageSchema = z.strictObject({ ...envelope, type: z.literal("theme"), accent: accentSchema });
 export const helloRejectedMessageSchema = z.strictObject({
   ...envelope,
   type: z.literal("helloRejected"),
@@ -206,6 +209,7 @@ export const appMessageSchema = z.union([
   pairedMessageSchema,
   pairRejectedMessageSchema,
   readyMessageSchema,
+  themeMessageSchema,
   helloRejectedMessageSchema,
   pongMessageSchema,
   hitTestMessageSchema,

@@ -381,7 +381,7 @@ export function captureModeShortcutConflict(
 }
 
 export function parsePersistedSnaphubSettings(value: unknown): SnaphubSettings | null {
-  const migrated = migratePersistedCaptureModeShortcuts(value);
+  const migrated = migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value));
   const parsed = snaphubSettingsSchema.safeParse(migrated);
   return parsed.success ? parsed.data : null;
 }
@@ -394,6 +394,40 @@ function readSettings(): SnaphubSettings {
   } catch {
     return defaultSnaphubSettings;
   }
+}
+
+/**
+ * Toolbars saved before the Note tool existed never list it, so it would stay hidden.
+ * A saved `toolbar.individual` without a `note` key marks such a toolbar: Note is added once,
+ * right after Counter (or at the end). Later saves include the key, so removing Note sticks.
+ */
+export function migratePersistedNoteTool(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.toolbar)) return value;
+  const toolbar = value.toolbar;
+  if (!isRecord(toolbar.individual) || "note" in toolbar.individual) return value;
+  const insertNote = (tools: unknown[]): unknown[] => {
+    if (tools.includes("note")) return tools;
+    const counter = tools.indexOf("counter");
+    return counter === -1 ? [...tools, "note"] : [...tools.slice(0, counter + 1), "note", ...tools.slice(counter + 1)];
+  };
+  const groups: unknown[] | undefined = Array.isArray(toolbar.groups) ? toolbar.groups : undefined;
+  let nextGroups: unknown = groups;
+  if (groups !== undefined && !groups.some((group) => Array.isArray(group) && group.includes("note"))) {
+    const withCounter = groups.findIndex((group) => Array.isArray(group) && group.includes("counter"));
+    const target = withCounter === -1 ? groups.length - 1 : withCounter;
+    nextGroups = groups.map((group: unknown, index): unknown => (index === target && Array.isArray(group) && group.length < 16 ? insertNote(group) : group));
+  }
+  const vertical: unknown[] | undefined = Array.isArray(toolbar.verticalTools) ? toolbar.verticalTools : undefined;
+  const nextVertical = vertical !== undefined && vertical.includes("counter") && vertical.length < 16 ? insertNote(vertical) : vertical;
+  return {
+    ...value,
+    toolbar: {
+      ...toolbar,
+      individual: { ...toolbar.individual, note: true },
+      ...(nextGroups === undefined ? {} : { groups: nextGroups }),
+      ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
+    },
+  };
 }
 
 function migratePersistedCaptureModeShortcuts(value: unknown): unknown {

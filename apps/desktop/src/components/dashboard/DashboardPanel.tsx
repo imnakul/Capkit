@@ -2,7 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
-import { getBrowserLinkStatus, listSavedCaptures, listenForBrowserLinkStatus, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
+import { getBrowserLinkStatus, listSavedCaptures, setBrowserLinkAccent, listenForBrowserLinkStatus, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
 import { NotesView } from "./NotesView";
 import { SettingsView } from "./SettingsView";
 import { UpdateNotice } from "./UpdateNotice";
@@ -57,6 +57,11 @@ export function DashboardPanel(): React.JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  // The dashboard window lives for the whole session, so it keeps the extension's colour in sync.
+  useEffect(() => {
+    void setBrowserLinkAccent(settings.accentColor).catch(() => undefined);
+  }, [settings.accentColor]);
 
   // Notes belong to Developer tools, so the tab follows the browser-link switch.
   useEffect(() => {

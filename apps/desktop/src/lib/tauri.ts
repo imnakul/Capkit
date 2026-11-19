@@ -648,6 +648,12 @@ export async function cancelBrowserPairing(): Promise<void> {
   await invoke("browser_link_cancel_pairing");
 }
 
+/** Tells the browser link CapKit's accent colour so the extension can match it. */
+export async function setBrowserLinkAccent(accent: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("browser_link_set_accent", { accent });
+}
+
 export async function forgetBrowser(origin: string): Promise<BrowserLinkStatus> {
   if (!isTauri()) return offlineLinkStatus;
   return browserLinkStatusSchema.parse(await invoke("browser_link_forget", { origin }));

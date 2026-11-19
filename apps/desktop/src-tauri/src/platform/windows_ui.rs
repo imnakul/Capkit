@@ -43,6 +43,10 @@ const BROWSER_WINDOW_CLASSES: [&str; 2] = ["Chrome_WidgetWin_1", "MozillaWindowC
 // The child window that hosts a Chromium web page.
 const WEB_CONTENT_CLASS: &str = "Chrome_RenderWidgetHostHWND";
 const BROWSER_SCAN_MIN_REGIONS: usize = 6;
+// Upper bound on browser UI elements visited while looking for the page's Document element.
+const MAX_DOCUMENT_SEARCH_ELEMENTS: usize = 400;
+// How long the page rectangles found by that search are reused while the window doesn't move.
+const DOCUMENT_CACHE_TTL: Duration = Duration::from_secs(2);
 const BROWSER_SCAN_RETRIES: u32 = 1;
 const BROWSER_SCAN_RETRY_DELAY: Duration = Duration::from_millis(150);
 
@@ -417,25 +421,138 @@ fn web_content_windows(window_id: u32) -> Vec<HWND> {
     pages
 }
 
-/// Where the web page is on screen (physical pixels): the largest Chromium page window inside
-/// `window_id` that contains `point`. `None` when the window shows no web page there.
+/// Where the web page is on screen (physical pixels) inside `window_id` at `point`.
+///
+/// Chrome hosts each page in its own child window, so that window's rectangle is the page.
+/// Some Chromium browsers (Aside, for example) draw the page into one shared surface with no
+/// page window; there the page's UI Automation Document element gives the rectangle instead.
+/// `None` when the window shows no web page there.
 pub fn web_viewport_rect(window_id: u32, point: Point) -> Option<Rect> {
+    page_window_rect(window_id, point).or_else(|| {
+        if is_browser_window(window_id) {
+            document_rect(window_id, point)
+        } else {
+            None
+        }
+    })
+}
+
+fn contains(rect: &Rect, point: Point) -> bool {
+    rect.width > 0.0
+        && rect.height > 0.0
+        && point.x >= rect.x
+        && point.x < rect.x + rect.width
+        && point.y >= rect.y
+        && point.y < rect.y + rect.height
+}
+
+/// The largest visible Chromium page window inside `window_id` that contains `point`.
+fn page_window_rect(window_id: u32, point: Point) -> Option<Rect> {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+
     web_content_windows(window_id)
         .into_iter()
+        .filter(|page| unsafe { IsWindowVisible(*page) }.as_bool())
         .filter_map(|page| {
             let mut bounds = RECT::default();
             unsafe { GetWindowRect(page, &mut bounds) }.ok()?;
             Some(rect_from(bounds))
         })
-        .filter(|rect| {
-            rect.width > 0.0
-                && rect.height > 0.0
-                && point.x >= rect.x
-                && point.x < rect.x + rect.width
-                && point.y >= rect.y
-                && point.y < rect.y + rect.height
-        })
+        .filter(|rect| contains(rect, point))
         .max_by(|left, right| (left.width * left.height).total_cmp(&(right.width * right.height)))
+}
+
+/// The largest UI Automation Document element in `window_id` that contains `point`. Runs only
+/// when the browser has no page window there. The walk takes tens of milliseconds, so the page
+/// rectangles are reused for a short time while the window keeps the same position and size.
+fn document_rect(window_id: u32, point: Point) -> Option<Rect> {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    struct Cached {
+        window_id: u32,
+        window: Rect,
+        at: Instant,
+        documents: Vec<Rect>,
+    }
+    static CACHE: Mutex<Option<Cached>> = Mutex::new(None);
+
+    let mut bounds = RECT::default();
+    unsafe { GetWindowRect(HWND(window_id as usize as *mut c_void), &mut bounds) }.ok()?;
+    let window = rect_from(bounds);
+    let pick = |documents: &[Rect]| -> Option<Rect> {
+        documents
+            .iter()
+            .filter(|rect| contains(rect, point))
+            .max_by(|left, right| {
+                (left.width * left.height).total_cmp(&(right.width * right.height))
+            })
+            .copied()
+    };
+
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(cached) = cache.as_ref()
+        && cached.window_id == window_id
+        && cached.window == window
+        && cached.at.elapsed() < DOCUMENT_CACHE_TTL
+    {
+        return pick(&cached.documents);
+    }
+    let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    if initialized.is_err() {
+        return None;
+    }
+    let documents = unsafe { find_documents(window_id) };
+    unsafe { CoUninitialize() };
+    let result = pick(&documents);
+    *cache = Some(Cached {
+        window_id,
+        window,
+        at: Instant::now(),
+        documents,
+    });
+    result
+}
+
+/// Walks the browser's own UI (toolbars, panels) breadth first without entering pages, so the
+/// walk stays small; a page's Document element sits a few levels below the window.
+unsafe fn find_documents(window_id: u32) -> Vec<Rect> {
+    let mut documents = Vec::new();
+    let Ok(automation) = (unsafe {
+        CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+    }) else {
+        return documents;
+    };
+    let Ok(root) =
+        (unsafe { automation.ElementFromHandle(HWND(window_id as usize as *mut c_void)) })
+    else {
+        return documents;
+    };
+    let Ok(walker) = (unsafe { automation.ControlViewWalker() }) else {
+        return documents;
+    };
+    let mut queue = std::collections::VecDeque::from([root]);
+    let mut visited = 0usize;
+    while let Some(element) = queue.pop_front() {
+        visited += 1;
+        if visited > MAX_DOCUMENT_SEARCH_ELEMENTS {
+            break;
+        }
+        if unsafe { element.CurrentControlType() } == Ok(UIA_DocumentControlTypeId) {
+            if let Ok(bounds) = unsafe { element.CurrentBoundingRectangle() } {
+                documents.push(rect_from(bounds));
+            }
+            continue;
+        }
+        let mut child = unsafe { walker.GetFirstChildElement(&element) }.ok();
+        while let Some(current) = child {
+            child = unsafe { walker.GetNextSiblingElement(&current) }.ok();
+            queue.push_back(current);
+        }
+    }
+    documents
 }
 
 fn rects_nearly_equal(left: &Rect, right: &Rect) -> bool {

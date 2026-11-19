@@ -16,6 +16,14 @@ describe("protocol", () => {
     expect(parseExtensionMessage(JSON.stringify({ ...base, v: 2 }))).toBeNull();
   });
 
+  it("accepts CapKit's accent on ready and theme, and rejects anything that isn't #rrggbb", () => {
+    expect(parseAppMessage(JSON.stringify({ v: 1, type: "ready", accent: "#39ff88" }))).toMatchObject({ accent: "#39ff88" });
+    expect(parseAppMessage(JSON.stringify({ v: 1, type: "ready" }))).toMatchObject({ type: "ready" });
+    expect(parseAppMessage(JSON.stringify({ v: 1, type: "theme", accent: "#7C5CFF" }))).toMatchObject({ type: "theme" });
+    expect(parseAppMessage(JSON.stringify({ v: 1, type: "theme", accent: "red" }))).toBeNull();
+    expect(parseAppMessage(JSON.stringify({ v: 1, type: "theme", accent: "#fff" }))).toBeNull();
+  });
+
   it("rejects non-JSON and oversize frames", () => {
     expect(parseAppMessage("nope")).toBeNull();
     expect(parseAppMessage(" ".repeat(MAX_MESSAGE_BYTES + 1))).toBeNull();

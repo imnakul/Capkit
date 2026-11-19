@@ -34,6 +34,8 @@ export type LinkOptions = {
   /** Answers a request from CapKit; null means no reply. */
   handleRequest: (message: AppMessage) => Promise<ExtensionMessage | null>;
   onStatus?: (status: LinkStatus) => void;
+  /** CapKit's accent colour, sent on connect and whenever it changes there. */
+  onAccent?: (accent: string) => void;
 };
 
 const REJECT_TEXT: Record<string, string> = {
@@ -195,6 +197,7 @@ export class Link {
         this.setStatus({ state: "rejected", reason: REJECT_TEXT["unknown-token"] ?? "Pair again." });
         return;
       case "ready":
+        if (message.accent !== undefined) this.options.onAccent?.(message.accent);
         this.attempt = 0;
         this.setStatus({ state: "connected" });
         if (this.pingTimer !== null) clearInterval(this.pingTimer);
@@ -203,6 +206,9 @@ export class Link {
         }, PING_INTERVAL_MS);
         return;
       case "pong":
+        return;
+      case "theme":
+        this.options.onAccent?.(message.accent);
         return;
       case "hitTest":
       case "inspect":

@@ -46,7 +46,12 @@ export function ensureMainWorld(doc: Document): Promise<string | null> {
       return null;
     }
   })();
-  return mainReady;
+  const pending = mainReady;
+  // A failed injection is retried on the next request instead of being remembered for the page.
+  void pending.then((channel) => {
+    if (channel === null && mainReady === pending) mainReady = null;
+  });
+  return pending;
 }
 
 /** Asks the main-world script for the component and source of an element. */

@@ -2,6 +2,7 @@ import { StrictMode, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Popup, type RequestPermission, type Transport } from "./Popup";
 import "./popup.css";
+import { readAccent } from "../accent";
 
 const transport: Transport = (request) => chrome.runtime.sendMessage(request);
 // Must run inside the click handler: Chrome only shows the prompt during a user gesture.
@@ -18,6 +19,9 @@ function registerFonts(): void {
 }
 
 registerFonts();
+void readAccent().then((accent) => {
+  document.documentElement.style.setProperty("--color-accent", accent);
+});
 const container = document.getElementById("root");
 if (container !== null) {
   const app: ReactElement = (

@@ -245,6 +245,12 @@ enum Outgoing<'a> {
     },
     Ready {
         v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        accent: Option<String>,
+    },
+    Theme {
+        v: u8,
+        accent: &'a str,
     },
     HelloRejected {
         v: u8,
@@ -604,6 +610,8 @@ struct Shared {
     connections: HashMap<u64, Connection>,
     next_connection: u64,
     pending: HashMap<String, Pending>,
+    /// CapKit's theme accent (`#rrggbb`), set by the frontend; sent to the extension.
+    accent: Option<String>,
 }
 
 type StatusEmitter = dyn Fn(&BrowserLinkStatusDto) + Send + Sync;
@@ -667,6 +675,10 @@ impl Inner {
     }
 }
 
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn truncate_title(title: &str) -> String {
     title.chars().take(MAX_TITLE_CHARS).collect()
 }
@@ -699,6 +711,7 @@ impl BrowserLinkService {
                     listener: None,
                     bind_error: None,
                     connections: HashMap::new(),
+                    accent: None,
                     next_connection: 1,
                     pending: HashMap::new(),
                 }),
@@ -745,6 +758,26 @@ impl BrowserLinkService {
             code,
             expires_at: expires_at.to_rfc3339(),
         })
+    }
+
+    /// Remembers CapKit's accent colour and sends it to every connected extension.
+    /// Ignores anything that isn't `#rrggbb`.
+    pub fn set_accent(&self, accent: &str) {
+        if !is_hex_color(accent) {
+            return;
+        }
+        let mut shared = lock(&self.inner.state);
+        if shared.accent.as_deref() == Some(accent) {
+            return;
+        }
+        shared.accent = Some(accent.to_owned());
+        let message = frame(&Outgoing::Theme {
+            v: PROTOCOL_VERSION,
+            accent,
+        });
+        for connection in shared.connections.values().filter(|c| c.authed) {
+            let _ = connection.tx.send(Outbound::Text(message.clone()));
+        }
     }
 
     pub fn cancel_pairing(&self) {
@@ -1226,15 +1259,17 @@ fn handle_text(
                 })
             };
             if known {
-                {
+                let accent = {
                     let mut shared = lock(&inner.state);
                     if let Some(connection) = shared.connections.get_mut(&id) {
                         connection.authed = true;
                         connection.browser = Some(browser);
                     }
-                }
+                    shared.accent.clone()
+                };
                 send(&Outgoing::Ready {
                     v: PROTOCOL_VERSION,
+                    accent,
                 });
                 inner.emit_status();
                 None
@@ -1681,6 +1716,36 @@ mod tests {
                 .await
                 .unwrap();
             assert!(next_text(&mut other).await.contains("helloRejected"));
+        });
+    }
+
+    #[test]
+    fn the_accent_reaches_the_extension_on_connect_and_on_change() {
+        let link = service(temp_config("accent"));
+        link.set_enabled(true).unwrap();
+        let port = link.status().port.unwrap();
+        let code = link.start_pairing().unwrap().code;
+        link.set_accent("not a colour");
+        link.set_accent("#39ff88");
+
+        tauri::async_runtime::block_on(async {
+            let mut socket = connect(port, EXTENSION_ORIGIN).await.unwrap();
+            socket.send(Message::text(pair_frame(&code))).await.unwrap();
+            let token = token_from(&next_text(&mut socket).await);
+            let mut socket = connect(port, EXTENSION_ORIGIN).await.unwrap();
+            socket
+                .send(Message::text(hello_frame(&token)))
+                .await
+                .unwrap();
+            let ready = next_text(&mut socket).await;
+            assert!(ready.contains(r##""accent":"#39ff88""##), "{ready}");
+
+            link.set_accent("#7c5cff");
+            let theme = next_text(&mut socket).await;
+            assert!(
+                theme.contains(r##""type":"theme","v":1,"accent":"#7c5cff""##),
+                "{theme}"
+            );
         });
     }
 

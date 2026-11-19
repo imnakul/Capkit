@@ -3,6 +3,7 @@ import {
   defaultSnaphubSettings,
   parsePersistedSnaphubSettings,
   snaphubSettingsSchema,
+  migratePersistedNoteTool,
 } from "./settings";
 
 describe("Snaphub settings", () => {
@@ -224,5 +225,26 @@ describe("toolbar placement", () => {
       ...defaultSnaphubSettings,
       toolbar: { ...defaultSnaphubSettings.toolbar, verticalTools: ["laser"] },
     }).success).toBe(false);
+  });
+
+  it("adds Note once after Counter to toolbars saved before Note existed", () => {
+    const individual = Object.fromEntries(Object.entries(defaultSnaphubSettings.toolbar.individual).filter(([id]) => id !== "note"));
+    const old = {
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, individual, groups: [["text", "counter", "blur"], ["undo"]], verticalTools: ["counter"] },
+    };
+    const parsed = parsePersistedSnaphubSettings(old);
+    expect(parsed?.toolbar.groups).toEqual([["text", "counter", "note", "blur"], ["undo"]]);
+    expect(parsed?.toolbar.verticalTools).toEqual(["counter", "note"]);
+    expect(parsed?.toolbar.individual.note).toBe(true);
+  });
+
+  it("leaves a toolbar alone once it has saved a Note choice", () => {
+    const saved = {
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, individual: { ...defaultSnaphubSettings.toolbar.individual, note: false }, groups: [["text", "counter"]] },
+    };
+    expect(migratePersistedNoteTool(saved)).toBe(saved);
+    expect(parsePersistedSnaphubSettings(saved)?.toolbar.groups).toEqual([["text", "counter"]]);
   });
 });

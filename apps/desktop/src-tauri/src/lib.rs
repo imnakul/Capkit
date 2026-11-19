@@ -650,6 +650,11 @@ fn browser_link_start_pairing(
 }
 
 #[tauri::command]
+fn browser_link_set_accent(link: tauri::State<'_, BrowserLinkService>, accent: String) {
+    link.set_accent(&accent);
+}
+
+#[tauri::command]
 fn browser_link_cancel_pairing(link: tauri::State<'_, BrowserLinkService>) {
     link.cancel_pairing();
 }
@@ -2895,6 +2900,7 @@ pub fn run() {
             browser_link_set_enabled,
             browser_link_start_pairing,
             browser_link_cancel_pairing,
+            browser_link_set_accent,
             browser_link_forget,
             inspect_web_target,
             find_sensitive_web,

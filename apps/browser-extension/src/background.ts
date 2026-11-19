@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION, type AppMessage, type ExtensionMessage } from "@snaphub/devtools-protocol/protocol";
+import { ACCENT_KEY } from "./accent";
 import { Link, type SocketLike, type TokenStore } from "./link";
 import { backgroundRequestSchema, type LinkStatus, type PageRequest } from "./messages";
 import { activeTabs, askTab, injectMainWorld, matchTab, originPattern, siteAccessFor, type TabRef } from "./tabs";
@@ -64,7 +65,9 @@ async function answer(message: AppMessage): Promise<ExtensionMessage | null> {
       break;
   }
 
-  const result = await askTab(tab, request);
+  // Try even without a stored site permission: a tab the user opened the extension on has
+  // temporary access. If injection fails, CapKit falls back to Windows accessibility.
+  const result = await askTab(tab, request, { requireSiteAccess: false });
   if (result.response === null) return fail(result.status === "ok" ? "error" : result.status);
   const response = result.response;
   if (response.kind === "hitTest" && message.type === "hitTest") {
@@ -92,6 +95,9 @@ const link = new Link({
   browser: browserInfo(),
   extensionVersion: chrome.runtime.getManifest().version,
   handleRequest: answer,
+  onAccent: (accent): void => {
+    void chrome.storage.local.set({ [ACCENT_KEY]: accent });
+  },
 });
 
 async function currentTab(): Promise<TabRef | null> {

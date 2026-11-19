@@ -6,6 +6,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Added
 
+- The CapKit Inspector extension now uses the accent colour you chose in CapKit.
 - Developer tools (off by default): link the CapKit Inspector browser extension to see exact page elements, find sensitive text precisely, and pin numbered notes on a page. Notes copy as Markdown with a screenshot and are kept in a new Notes tab.
 - CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
 - Copy any capture from the Screenshots page, and drag it straight into another app.
@@ -24,6 +25,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Fixed
 
+- Screenshots in Aside now highlight exact page elements when the CapKit Inspector extension is linked.
 - Detection mode finds parts of web pages in Chrome, Edge and other Chromium browsers again, not just the browser's own buttons.
 
 ## Earlier — 2026-10-29
