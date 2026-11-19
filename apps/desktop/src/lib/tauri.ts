@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type { AnnotationScene } from "../domain/annotations";
-import type { SnaphubSettings } from "../domain/settings";
+import type { OverlayMotion, SnaphubSettings } from "../domain/settings";
 import {
   mediaFileSchema,
   mediaFolderSchema,
@@ -117,9 +117,12 @@ export async function requestCapture(): Promise<CaptureSession> {
   };
 }
 
-export async function showCaptureSurface(): Promise<void> {
+export async function showCaptureSurface(
+  motion: OverlayMotion = "fade-in",
+  reducedMotion = false,
+): Promise<void> {
   if (!isTauri()) return;
-  await invoke("show_capture_surface");
+  await invoke("show_capture_surface", { motion, reducedMotion });
 }
 
 export async function requestOnScreenSession(): Promise<OnScreenSession> {
@@ -227,9 +230,13 @@ export async function retryCaptureSave(sessionId: string): Promise<CompletionRes
   return completionResultSchema.parse(raw);
 }
 
-export async function cancelCapture(sessionId: string): Promise<void> {
+export async function cancelCapture(
+  sessionId: string,
+  motion: OverlayMotion = "fade-in",
+  reducedMotion = false,
+): Promise<void> {
   if (!isTauri()) return;
-  await invoke("cancel_capture", { sessionId });
+  await invoke("cancel_capture", { sessionId, motion, reducedMotion });
 }
 
 type ScrollingMode = "automatic" | "manual-start" | "manual-add";

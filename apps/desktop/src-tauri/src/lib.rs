@@ -43,6 +43,30 @@ use windows::Win32::UI::WindowsAndMessaging::{
 // AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
 // has composited fresh content, which otherwise reads as a black flash on reveal.
 const CAPTURE_REVEAL_MS: u32 = 90;
+const CAPTURE_CONCEAL_MS: u32 = 120;
+
+/// How the capture overlay enters and leaves; chosen in Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum OverlayMotion {
+    FadeIn,
+    DimRise,
+    FadeBoth,
+}
+
+/// Fades the window out through Win32. It hides the window without telling
+/// tao, so callers must still run `hide_capture_window` afterwards.
+#[cfg(target_os = "windows")]
+fn conceal_window_smoothly(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::AW_HIDE;
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        let _ = unsafe { AnimateWindow(hwnd, CAPTURE_CONCEAL_MS, AW_HIDE | AW_BLEND) };
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn conceal_window_smoothly(_window: &tauri::WebviewWindow) {}
 
 #[cfg(target_os = "windows")]
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
@@ -165,13 +189,26 @@ async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError
 }
 
 #[tauri::command]
-fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
+fn show_capture_surface(
+    app: AppHandle,
+    motion: OverlayMotion,
+    reduced_motion: bool,
+) -> Result<(), SnaphubError> {
+    // Every motion mode keeps the short blend-in: it masks WebView2's first-frame
+    // flash. `dim-rise` hides the blend by starting its scrim at opacity 0.
+    let _ = motion;
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
     #[cfg(debug_assertions)]
     let reveal_started = Instant::now();
-    reveal_window_smoothly(&window)?;
+    if reduced_motion {
+        window
+            .show()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    } else {
+        reveal_window_smoothly(&window)?;
+    }
     #[cfg(debug_assertions)]
     eprintln!(
         "[capture-timing] reveal={}ms",
@@ -498,8 +535,13 @@ async fn cancel_capture(
     window: WebviewWindow,
     app: AppHandle,
     session_id: String,
+    motion: OverlayMotion,
+    reduced_motion: bool,
 ) -> Result<(), SnaphubError> {
     ensure_capture_window(&window)?;
+    if motion == OverlayMotion::FadeBoth && !reduced_motion {
+        conceal_window_smoothly(&window);
+    }
     let hide_result = hide_capture_window(&app);
     let worker_app = app.clone();
     let worker_session_id = session_id.clone();

@@ -33,6 +33,7 @@ import type {
 import { useSnaphubSettings } from "./domain/settings";
 import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
+import { prefersReducedMotion } from "./lib/motion";
 import { eyedropperFormat } from "./lib/eyedropper";
 import { suggestRedactions } from "./lib/redactionPatterns";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
@@ -94,6 +95,10 @@ export function App(): React.JSX.Element {
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const exitTimer = useRef<number | null>(null);
+  const revealFrames = useRef<number[]>([]);
   const [completionState, setCompletionState] = useState<SelectedCompletionState>({
     phase: "idle",
     message: "",
@@ -162,7 +167,19 @@ export function App(): React.JSX.Element {
       });
   }, [session, settings.detection.uiRegions]);
 
+  function clearPendingMotion(): void {
+    if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
+    exitTimer.current = null;
+    for (const frame of revealFrames.current) window.cancelAnimationFrame(frame);
+    revealFrames.current = [];
+  }
+
+  useEffect(() => clearPendingMotion, []);
+
   function clearCaptureUi(): void {
+    clearPendingMotion();
+    setExiting(false);
+    setRevealed(false);
     activationState.current = "idle";
     activeSessionId.current = null;
     const pendingBackdrop = backdropReadyResolver.current;
@@ -181,12 +198,24 @@ export function App(): React.JSX.Element {
   }
 
   const startSession = useCallback(async (): Promise<void> => {
+    if (exitTimer.current !== null) {
+      // A new request during the exit fade: finish the old session once, then start fresh.
+      const oldSessionId = activeSessionId.current;
+      clearPendingMotion();
+      setExiting(false);
+      activationState.current = "idle";
+      sessionGeneration.current += 1;
+      if (oldSessionId !== null) await cancelCapture(oldSessionId, "fade-in", true).catch(() => undefined);
+    }
     if (activationState.current !== "idle") return;
     const timingStartedAt = import.meta.env.DEV ? performance.now() : null;
     let timingAfterRequest: number | null = null;
     let timingAfterReady: number | null = null;
     activationState.current = "preparing";
     sessionGeneration.current += 1;
+    clearPendingMotion();
+    setExiting(false);
+    setRevealed(false);
     completionInFlight.current = false;
     activeSessionId.current = null;
     let preparedSession: CaptureSession | null = null;
@@ -231,7 +260,19 @@ export function App(): React.JSX.Element {
       if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
         return;
       }
-      await showCaptureSurface();
+      const motion = settingsRef.current.overlay.motion;
+      const reduced = prefersReducedMotion();
+      await showCaptureSurface(motion, reduced);
+      if (motion === "dim-rise" && !reduced) {
+        // Two frames so the hidden styles paint before the transition target applies.
+        const first = window.requestAnimationFrame(() => {
+          const second = window.requestAnimationFrame(() => setRevealed(true));
+          revealFrames.current.push(second);
+        });
+        revealFrames.current.push(first);
+      } else {
+        setRevealed(true);
+      }
       if (
         timingStartedAt !== null &&
         timingAfterRequest !== null &&
@@ -581,9 +622,10 @@ export function App(): React.JSX.Element {
 
   const handleCancel = useCallback(async (): Promise<void> => {
     sessionGeneration.current += 1;
+    const exitMotion = settingsRef.current.overlay.motion;
     try {
       if (session !== null) {
-        await cancelCapture(session.id).catch(async () => dismissCapture());
+        await cancelCapture(session.id, exitMotion, prefersReducedMotion()).catch(async () => dismissCapture());
         await cancelManualScrolling(session.id).catch(() => undefined);
       } else {
         await dismissCapture();
@@ -595,6 +637,19 @@ export function App(): React.JSX.Element {
       clearCaptureUi();
     }
   }, [session]);
+
+  const requestExit = useCallback((): void => {
+    if (exitTimer.current !== null) return;
+    if (settingsRef.current.overlay.motion !== "dim-rise" || prefersReducedMotion() || session === null) {
+      void handleCancel();
+      return;
+    }
+    setExiting(true);
+    exitTimer.current = window.setTimeout(() => {
+      exitTimer.current = null;
+      void handleCancel();
+    }, 120);
+  }, [handleCancel, session]);
 
   const handleComplete = useCallback(
     async (action: CompletionAction, followUp: "none" | "showcase" = "none"): Promise<void> => {
@@ -902,7 +957,7 @@ export function App(): React.JSX.Element {
           void closeScrollingCapture();
           return;
         }
-        void handleCancel();
+        requestExit();
         return;
       }
 
@@ -973,7 +1028,7 @@ export function App(): React.JSX.Element {
   }, [
     busy,
     completionState.phase,
-    handleCancel,
+    requestExit,
     handleComplete,
     isDraftingSelection,
     pickColor,
@@ -1007,6 +1062,19 @@ export function App(): React.JSX.Element {
       ? 10
       : Math.max(10, Math.min(selection.y, viewport.height - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
+  const dimRise = settings.overlay.motion === "dim-rise" && !prefersReducedMotion();
+  const shown = revealed && !exiting;
+  const fadeStyle: React.CSSProperties = dimRise
+    ? {
+      opacity: shown ? 1 : 0,
+      transition: exiting
+        ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
+        : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)",
+    }
+    : {};
+  const exitOnlyStyle: React.CSSProperties = dimRise
+    ? { opacity: exiting ? 0 : 1, transition: "opacity 120ms cubic-bezier(0.4, 0, 1, 1)" }
+    : {};
 
   return (
     <main
@@ -1038,10 +1106,22 @@ export function App(): React.JSX.Element {
         />
       ) : null}
 
-      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" /> : null}
+      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" data-testid="capture-scrim" style={fadeStyle} /> : null}
 
       {selection === null ? (
-        <div className="pointer-events-none absolute left-1/2 top-7 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl">
+        <div
+          className="pointer-events-none absolute left-1/2 top-7 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl"
+          data-testid="capture-hint"
+          style={dimRise
+            ? {
+              opacity: fadeStyle.opacity,
+              transform: shown || exiting ? "translateY(0px)" : "translateY(6px)",
+              transition: exiting
+                ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
+                : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), transform 160ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }
+            : undefined}
+        >
           {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
           {message}
         </div>
@@ -1062,6 +1142,7 @@ export function App(): React.JSX.Element {
         </div>
       ) : (
         <SelectionFrame
+          motionStyle={exitOnlyStyle}
           rect={selection}
           onMoveStart={handleMoveStart}
           onResizeStart={handleResizeStart}
@@ -1093,7 +1174,7 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
-              style={{ left: toolBarX, top: toolBarY }}
+              style={{ left: toolBarX, top: toolBarY, ...exitOnlyStyle }}
             >
             <AnnotationToolbar
               activeTool={activeTool}
@@ -1114,7 +1195,7 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
-              style={{ left: actionRailX, top: actionRailY }}
+              style={{ left: actionRailX, top: actionRailY, ...exitOnlyStyle }}
             >
               <CompletionToolbar
                 copyAndSaveShortcut={settings.shortcuts.captureModeCopyAndSave}
