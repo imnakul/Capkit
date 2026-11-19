@@ -3,7 +3,8 @@ import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId, SnaphubSettings } from "../domain/settings";
 import { SelectPointer, type CapkitIconComponent } from "./icons";
 import { ContextControls } from "./ContextControls";
-import { getToolbarTool, toolbarCatalog, type ToolbarToolDefinition } from "./toolbarCatalog";
+import type { RailItem } from "./captureActions";
+import { getToolbarTool, runToolbarTool, toolbarCatalog, type ToolbarToolDefinition } from "./toolbarCatalog";
 
 type AnnotationToolbarProps = {
   activeTool: ToolId;
@@ -16,6 +17,8 @@ type AnnotationToolbarProps = {
   placement?: "top" | "bottom";
   lastToolByGroup: Readonly<Partial<Record<number, CaptureToolbarToolId>>>;
   openGroupIndex: number | null;
+  /** Finishing actions the user moved into this toolbar; shown after the tools. */
+  actionItems?: readonly RailItem[];
   onToolChange: (tool: ToolId) => void;
   onStyleChange: (style: AnnotationStyle) => void;
   onUndo: () => void;
@@ -49,6 +52,7 @@ export function AnnotationToolbar({
   placement = "bottom",
   lastToolByGroup,
   openGroupIndex,
+  actionItems = [],
   onToolChange,
   onStyleChange,
   onUndo,
@@ -60,14 +64,7 @@ export function AnnotationToolbar({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   function runTool(toolId: CaptureToolbarToolId): void {
-    const tool = getToolbarTool(toolId);
-    if (tool.annotationTool !== undefined) {
-      onToolChange(tool.annotationTool);
-      return;
-    }
-    if (toolId === "scrolling-capture") onScrollCapture();
-    else if (toolId === "undo") onUndo();
-    else onRedo();
+    runToolbarTool(toolId, { onToolChange, onScrollCapture, onUndo, onRedo });
   }
 
   const groups = toolbar.mode === "group" ? toolbar.groups : [];
@@ -97,7 +94,7 @@ export function AnnotationToolbar({
 
   if (toolbar.mode === "individual") {
     for (const tool of toolbarCatalog) {
-      if (!toolbar.individual[tool.id]) continue;
+      if (!toolbar.individual[tool.id] || toolbar.verticalTools.includes(tool.id)) continue;
       const active = tool.annotationTool === activeTool;
       items.push({
         id: `tool-${tool.id}`,
@@ -141,13 +138,27 @@ export function AnnotationToolbar({
     });
   }
 
+  for (const action of actionItems) {
+    items.push({
+      id: action.id,
+      label: action.label,
+      icon: action.icon,
+      ...(action.shortcut === undefined ? {} : { shortcut: action.shortcut }),
+      active: false,
+      disabled: action.disabled ?? false,
+      tools: [],
+      showStyleControls: false,
+      onSelect: action.onSelect,
+    });
+  }
+
   const activeIndex = items.findIndex((item) => item.active);
   const indicatorIndex = hoveredIndex ?? activeIndex;
   const openGroup = items.find(
     (item) => item.groupIndex !== undefined && item.groupIndex === openGroupIndex,
   );
   const activeStyleItem = toolbar.mode === "individual"
-    ? items.find((item) => item.active && item.showStyleControls)
+    ? items.find((item) => item.active && item.showStyleControls) ?? railStyleItem(toolbar, activeTool)
     : undefined;
   const rowTwo = openGroup ?? activeStyleItem;
 
@@ -220,4 +231,21 @@ export function AnnotationToolbar({
       )}
     </div>
   );
+}
+
+/** A style tool moved to the vertical rail still gets its colour and size row here. */
+function railStyleItem(toolbar: SnaphubSettings["toolbar"], activeTool: ToolId): PrimaryItem | undefined {
+  const tool = toolbarCatalog.find((candidate) =>
+    candidate.annotationTool === activeTool && toolbar.verticalTools.includes(candidate.id) && toolbar.individual[candidate.id]);
+  if (!tool?.supportsStyle) return undefined;
+  return {
+    id: `rail-${tool.id}`,
+    label: tool.label,
+    icon: tool.icon,
+    active: true,
+    disabled: false,
+    tools: [],
+    showStyleControls: true,
+    onSelect: () => undefined,
+  };
 }

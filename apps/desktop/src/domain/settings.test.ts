@@ -185,20 +185,44 @@ describe("Snaphub settings", () => {
 });
 
 describe("overlay motion", () => {
-  it("defaults older saved overlay settings to dim-rise", () => {
+  it("drops the motion choice saved by older versions", () => {
     const parsed = snaphubSettingsSchema.parse({
       ...defaultSnaphubSettings,
-      overlay: { color: "#070807", opacity: 0.5 },
+      overlay: { color: "#070807", opacity: 0.5, motion: "dim-rise" },
     });
-    expect(parsed.overlay.motion).toBe("dim-rise");
+    expect(parsed.overlay).toEqual({ color: "#070807", opacity: 0.5 });
+  });
+});
+
+describe("toolbar placement", () => {
+  it("gives older settings every finishing action, enabled in the vertical toolbar", () => {
+    const olderToolbar = Object.fromEntries(
+      Object.entries(defaultSnaphubSettings.toolbar).filter(([key]) => key !== "actions" && key !== "verticalTools"),
+    );
+    const parsed = snaphubSettingsSchema.parse({ ...defaultSnaphubSettings, toolbar: olderToolbar });
+    expect(parsed.toolbar.verticalTools).toEqual([]);
+    expect(Object.values(parsed.toolbar.actions)).toHaveLength(7);
+    expect(Object.values(parsed.toolbar.actions).every((action) => action.enabled && action.placement === "vertical")).toBe(true);
   });
 
-  it("rejects unknown motion values", () => {
-    expect(() =>
-      snaphubSettingsSchema.parse({
-        ...defaultSnaphubSettings,
-        overlay: { ...defaultSnaphubSettings.overlay, motion: "bounce" },
-      }),
-    ).toThrow();
+  it("fills in an action added after the settings were saved", () => {
+    const withoutPin = Object.fromEntries(Object.entries(defaultSnaphubSettings.toolbar.actions).filter(([key]) => key !== "pin"));
+    const parsed = snaphubSettingsSchema.parse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, actions: { ...withoutPin, save: { enabled: false, placement: "horizontal" } } },
+    });
+    expect(parsed.toolbar.actions.pin).toEqual({ enabled: true, placement: "vertical" });
+    expect(parsed.toolbar.actions.save).toEqual({ enabled: false, placement: "horizontal" });
+  });
+
+  it("rejects an unknown placement or tool", () => {
+    expect(snaphubSettingsSchema.safeParse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, actions: { ...defaultSnaphubSettings.toolbar.actions, copy: { enabled: true, placement: "diagonal" } } },
+    }).success).toBe(false);
+    expect(snaphubSettingsSchema.safeParse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, verticalTools: ["laser"] },
+    }).success).toBe(false);
   });
 });

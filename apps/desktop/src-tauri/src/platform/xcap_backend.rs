@@ -14,7 +14,29 @@ use crate::{
 
 #[derive(Default)]
 pub struct XcapPlatformBackend {
-    ui_regions: Mutex<HashMap<u32, Vec<DetectedTargetDto>>>,
+    ui_regions: Mutex<HashMap<u32, CachedUiRegions>>,
+}
+
+/// After this long, a thin browser scan is worth repeating: the browser has had
+/// time to build the accessibility tree our first query asked for.
+const PROVISIONAL_RESCAN_AFTER: std::time::Duration = std::time::Duration::from_millis(350);
+/// Stop rescanning a window that keeps coming back thin (it may truly be empty).
+const MAX_SCAN_ATTEMPTS: u8 = 5;
+
+/// UI regions found in one window during the current capture session.
+struct CachedUiRegions {
+    regions: Vec<DetectedTargetDto>,
+    provisional: bool,
+    scanned_at: std::time::Instant,
+    attempts: u8,
+}
+
+impl CachedUiRegions {
+    fn needs_rescan(&self, now: std::time::Instant) -> bool {
+        self.provisional
+            && self.attempts < MAX_SCAN_ATTEMPTS
+            && now.saturating_duration_since(self.scanned_at) >= PROVISIONAL_RESCAN_AFTER
+    }
 }
 
 impl CaptureBackend for XcapPlatformBackend {
@@ -160,11 +182,26 @@ impl TargetDetectionBackend for XcapPlatformBackend {
                 .ui_regions
                 .lock()
                 .map_err(|_| SnaphubError::Capture("UI-region cache is unavailable".into()))?;
-            if let std::collections::hash_map::Entry::Vacant(entry) = cache.entry(window_id) {
-                entry.insert(super::windows_ui::regions_for_window(window_id)?);
+            let now = std::time::Instant::now();
+            let stale = cache
+                .get(&window_id)
+                .is_none_or(|cached| cached.needs_rescan(now));
+            if stale {
+                let attempts = cache.get(&window_id).map_or(0, |cached| cached.attempts);
+                let scan = super::windows_ui::scan_window(window_id)?;
+                cache.insert(
+                    window_id,
+                    CachedUiRegions {
+                        regions: scan.regions,
+                        provisional: scan.provisional,
+                        scanned_at: now,
+                        attempts: attempts + 1,
+                    },
+                );
             }
-            Ok(cache.get(&window_id).and_then(|regions| {
-                regions
+            Ok(cache.get(&window_id).and_then(|cached| {
+                cached
+                    .regions
                     .iter()
                     .find(|target| physical_rect_contains(target.bounds, point))
                     .cloned()
@@ -307,6 +344,25 @@ impl PinnedWindowBackend for XcapPlatformBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cached(provisional: bool, attempts: u8, scanned_at: std::time::Instant) -> CachedUiRegions {
+        CachedUiRegions {
+            regions: Vec::new(),
+            provisional,
+            scanned_at,
+            attempts,
+        }
+    }
+
+    #[test]
+    fn rescans_a_thin_browser_scan_only_after_a_pause_and_a_few_times() {
+        let start = std::time::Instant::now();
+        let later = start + PROVISIONAL_RESCAN_AFTER;
+        assert!(!cached(true, 1, start).needs_rescan(start));
+        assert!(cached(true, 1, start).needs_rescan(later));
+        assert!(!cached(true, MAX_SCAN_ATTEMPTS, start).needs_rescan(later));
+        assert!(!cached(false, 1, start).needs_rescan(later));
+    }
 
     #[test]
     fn locates_points_on_negative_origin_monitors() {

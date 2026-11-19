@@ -50,15 +50,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const CAPTURE_REVEAL_MS: u32 = 90;
 const CAPTURE_CONCEAL_MS: u32 = 120;
 
-/// How the capture overlay enters and leaves; chosen in Settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum OverlayMotion {
-    FadeIn,
-    DimRise,
-    FadeBoth,
-}
-
 /// Fades the window out through Win32. It hides the window without telling
 /// tao, so callers must still run `hide_capture_window` afterwards.
 #[cfg(target_os = "windows")]
@@ -194,14 +185,8 @@ async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError
 }
 
 #[tauri::command]
-fn show_capture_surface(
-    app: AppHandle,
-    motion: OverlayMotion,
-    reduced_motion: bool,
-) -> Result<(), SnaphubError> {
-    // Every motion mode keeps the short blend-in: it masks WebView2's first-frame
-    // flash. `dim-rise` hides the blend by starting its scrim at opacity 0.
-    let _ = motion;
+fn show_capture_surface(app: AppHandle, reduced_motion: bool) -> Result<(), SnaphubError> {
+    // The overlay fades in and out. The fade-in also masks WebView2's first-frame flash.
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
@@ -540,11 +525,10 @@ async fn cancel_capture(
     window: WebviewWindow,
     app: AppHandle,
     session_id: String,
-    motion: OverlayMotion,
     reduced_motion: bool,
 ) -> Result<(), SnaphubError> {
     ensure_capture_window(&window)?;
-    if motion == OverlayMotion::FadeBoth && !reduced_motion {
+    if !reduced_motion {
         conceal_window_smoothly(&window);
     }
     let hide_result = hide_capture_window(&app);

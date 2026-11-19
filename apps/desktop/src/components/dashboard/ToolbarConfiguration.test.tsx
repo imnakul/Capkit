@@ -56,4 +56,35 @@ describe("ToolbarConfiguration", () => {
       Reflect.deleteProperty(document, "elementFromPoint");
     }
   });
+
+  it("moves an Individual-mode tool to the vertical toolbar and back with the arrow keys", () => {
+    const changes: SnaphubSettings["toolbar"][] = [];
+    function Spy(): React.JSX.Element {
+      const [toolbar, setToolbar] = useState<SnaphubSettings["toolbar"]>({ ...defaultSnaphubSettings.toolbar, mode: "individual" });
+      return <ToolbarConfiguration toolbar={toolbar} onChange={(next) => { changes.push(next); setToolbar(next); }} />;
+    }
+    const view = render(<Spy />);
+    const placement = view.getByRole("radiogroup", { name: "Pencil toolbar" });
+    fireEvent.click(within(placement).getByRole("radio", { name: "Vertical" }));
+    expect(changes.at(-1)?.verticalTools).toEqual(["pencil"]);
+    expect(within(placement).getByRole("radio", { name: "Vertical" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.keyDown(within(placement).getByRole("radio", { name: "Vertical" }), { key: "ArrowLeft" });
+    expect(changes.at(-1)?.verticalTools).toEqual([]);
+    expect(within(placement).getByRole("radio", { name: "Horizontal" })).toHaveFocus();
+  });
+
+  it("hides a finishing action and moves another to the horizontal toolbar", () => {
+    const changes: SnaphubSettings["toolbar"][] = [];
+    function Spy(): React.JSX.Element {
+      const [toolbar, setToolbar] = useState<SnaphubSettings["toolbar"]>(defaultSnaphubSettings.toolbar);
+      return <ToolbarConfiguration toolbar={toolbar} onChange={(next) => { changes.push(next); setToolbar(next); }} />;
+    }
+    const view = render(<Spy />);
+    expect(view.getByText("Finishing actions")).toBeVisible();
+    fireEvent.click(view.getByRole("switch", { name: "Show Pin" }));
+    expect(changes.at(-1)?.actions.pin).toEqual({ enabled: false, placement: "vertical" });
+    expect(within(view.getByRole("radiogroup", { name: "Pin toolbar" })).getByRole("radio", { name: "Vertical" })).toBeDisabled();
+    fireEvent.click(within(view.getByRole("radiogroup", { name: "Save toolbar" })).getByRole("radio", { name: "Horizontal" }));
+    expect(changes.at(-1)?.actions.save).toEqual({ enabled: true, placement: "horizontal" });
+  });
 });

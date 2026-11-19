@@ -1,3 +1,4 @@
+import { translateAnnotation } from "./annotationGeometry";
 import type { Point, Rect } from "./capture";
 
 export type ToolId =
@@ -107,7 +108,9 @@ export type SceneAction =
   | { type: "replace"; scene: AnnotationScene }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "reset" };
+  | { type: "reset" }
+  /** Moves every drawing, in every undo step, so it stays put on screen when the capture area moves. */
+  | { type: "shift"; dx: number; dy: number };
 
 export const initialSceneHistory: SceneHistory = {
   past: [],
@@ -175,5 +178,12 @@ export function sceneHistoryReducer(state: SceneHistory, action: SceneAction): S
     }
     case "reset":
       return initialSceneHistory;
+    case "shift": {
+      if (action.dx === 0 && action.dy === 0) return state;
+      const shift = (scene: AnnotationScene): AnnotationScene => scene.elements.length === 0
+        ? scene
+        : { version: 1, elements: scene.elements.map((element) => translateAnnotation(element, action.dx, action.dy)) };
+      return { past: state.past.map(shift), present: shift(state.present), future: state.future.map(shift) };
+    }
   }
 }

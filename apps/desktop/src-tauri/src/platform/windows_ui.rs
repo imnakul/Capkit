@@ -8,7 +8,8 @@ use windows::Win32::{
     },
     UI::{
         Accessibility::{
-            CUIAutomation, IUIAutomation, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
+            CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationCondition,
+            IUIAutomationElement, TreeScope_Descendants, UIA_BoundingRectanglePropertyId,
             UIA_ControlTypePropertyId, UIA_CustomControlTypeId, UIA_DocumentControlTypeId,
             UIA_GroupControlTypeId, UIA_IsContentElementPropertyId, UIA_IsControlElementPropertyId,
             UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_PaneControlTypeId,
@@ -23,6 +24,8 @@ use crate::{
 };
 
 const MAX_CACHED_ELEMENTS: i32 = 4_000;
+// Regions smaller than this (in physical pixels) are too small to aim at.
+const MIN_REGION_SIZE: f64 = 6.0;
 // Layout containers (Chromium maps a plain, role-less <div> to Group/Pane/Document/
 // Custom) are only worth surfacing up to this fraction of the window; beyond that
 // they're indistinguishable from "the whole page", which is already covered by the
@@ -33,13 +36,35 @@ const MAX_LAYOUT_CONTAINER_RATIO: f64 = 0.9;
 const DEDUPE_TOLERANCE: f64 = 2.0;
 // Chromium/Firefox activate their full accessibility tree lazily, in response to the
 // first UIA query (WM_GETOBJECT). An immediate scan of a browser window often only
-// sees the frame chrome, so we retry briefly if too few candidates come back.
+// sees the frame chrome, so we retry briefly if too few candidates come back, and
+// the caller rescans later if the result is still thin (see `UiScan::provisional`).
 const BROWSER_WINDOW_CLASSES: [&str; 2] = ["Chrome_WidgetWin_1", "MozillaWindowClass"];
 const BROWSER_SCAN_MIN_REGIONS: usize = 6;
-const BROWSER_SCAN_RETRIES: u32 = 2;
-const BROWSER_SCAN_RETRY_DELAY: Duration = Duration::from_millis(180);
+const BROWSER_SCAN_RETRIES: u32 = 1;
+const BROWSER_SCAN_RETRY_DELAY: Duration = Duration::from_millis(150);
 
-pub fn regions_for_window(window_id: u32) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
+/// The result of one scan. A browser scan that found almost nothing is
+/// provisional: the browser was probably still building its accessibility tree,
+/// so the caller should scan again on a later hover instead of keeping it.
+pub struct UiScan {
+    pub regions: Vec<DetectedTargetDto>,
+    pub provisional: bool,
+}
+
+pub fn scan_window(window_id: u32) -> Result<UiScan, SnaphubError> {
+    let browser = is_browser_window(window_id);
+    let regions = regions_for_window(window_id, browser)?;
+    let provisional = browser && regions.len() < BROWSER_SCAN_MIN_REGIONS;
+    Ok(UiScan {
+        regions,
+        provisional,
+    })
+}
+
+fn regions_for_window(
+    window_id: u32,
+    browser: bool,
+) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
     // UI Automation objects are apartment-bound. Each bounded scan initializes and releases COM
     // on the worker thread that performs it; callers cache the resulting plain rectangles.
     let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -49,8 +74,8 @@ pub fn regions_for_window(window_id: u32) -> Result<Vec<DetectedTargetDto>, Snap
         )));
     }
 
-    let mut result = unsafe { collect_regions(window_id) };
-    if is_browser_window(window_id) {
+    let mut result = unsafe { collect_regions(window_id, browser) };
+    if browser {
         for _ in 0..BROWSER_SCAN_RETRIES {
             let needs_retry = match &result {
                 Ok(regions) => regions.len() < BROWSER_SCAN_MIN_REGIONS,
@@ -60,7 +85,7 @@ pub fn regions_for_window(window_id: u32) -> Result<Vec<DetectedTargetDto>, Snap
                 break;
             }
             sleep(BROWSER_SCAN_RETRY_DELAY);
-            let retry = unsafe { collect_regions(window_id) };
+            let retry = unsafe { collect_regions(window_id, browser) };
             let retry_is_better = match (&result, &retry) {
                 (Ok(existing), Ok(candidate)) => candidate.len() > existing.len(),
                 (Err(_), Ok(_)) => true,
@@ -93,7 +118,10 @@ fn is_browser_window(window_id: u32) -> bool {
         .any(|candidate| class_name == *candidate)
 }
 
-unsafe fn collect_regions(window_id: u32) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
+unsafe fn collect_regions(
+    window_id: u32,
+    browser: bool,
+) -> Result<Vec<DetectedTargetDto>, SnaphubError> {
     let automation: IUIAutomation = unsafe {
         CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
             .map_err(SnaphubError::capture)?
@@ -128,13 +156,6 @@ unsafe fn collect_regions(window_id: u32) -> Result<Vec<DetectedTargetDto>, Snap
                 .map_err(SnaphubError::capture)?;
         }
     }
-    let elements = unsafe {
-        root.FindAllBuildCache(TreeScope_Descendants, &condition, &cache_request)
-            .map_err(SnaphubError::capture)?
-    };
-    let count =
-        unsafe { elements.Length().map_err(SnaphubError::capture)? }.clamp(0, MAX_CACHED_ELEMENTS);
-    let mut regions = Vec::with_capacity(count as usize);
 
     let mut window_rect = RECT::default();
     let window_area = if unsafe { GetWindowRect(window_handle, &mut window_rect) }.is_ok() {
@@ -144,67 +165,42 @@ unsafe fn collect_regions(window_id: u32) -> Result<Vec<DetectedTargetDto>, Snap
         0.0
     };
 
-    for index in 0..count {
-        let Ok(element) = (unsafe { elements.GetElement(index) }) else {
-            continue;
+    let mut regions = Vec::new();
+    let window_scope = ScanScope {
+        window_id,
+        window_area,
+        viewport: None,
+        id_prefix: "ui",
+    };
+    let page = unsafe {
+        scan_subtree(
+            &root,
+            &condition,
+            &cache_request,
+            &window_scope,
+            &mut regions,
+        )?
+    };
+
+    // A browser's own tabs, toolbar and side panels can use up the element cap
+    // before the walk reaches the page. Scan the visible page on its own as well,
+    // with its own cap, clipped to the page's viewport.
+    if browser && let Some((document, viewport)) = page {
+        let page_scope = ScanScope {
+            window_id,
+            window_area,
+            viewport: Some(viewport),
+            id_prefix: "web",
         };
-        let is_control = unsafe { element.CachedIsControlElement() }
-            .map(windows::core::BOOL::as_bool)
-            .unwrap_or(false);
-        let is_content = unsafe { element.CachedIsContentElement() }
-            .map(windows::core::BOOL::as_bool)
-            .unwrap_or(false);
-        // Web pages made of role-less <div>s report neither flag: Chromium/Firefox
-        // still expose them as Group/Pane/Document/Custom nodes, so accept those as
-        // a lower-confidence "layout container" match rather than dropping them.
-        let is_layout_container = matches!(
-            unsafe { element.CachedControlType() },
-            Ok(control_type)
-                if control_type == UIA_GroupControlTypeId
-                    || control_type == UIA_PaneControlTypeId
-                    || control_type == UIA_DocumentControlTypeId
-                    || control_type == UIA_CustomControlTypeId
-        );
-        if !(is_control || is_content || is_layout_container)
-            || unsafe { element.CachedIsOffscreen() }
-                .map(windows::core::BOOL::as_bool)
-                .unwrap_or(true)
-        {
-            continue;
+        unsafe {
+            scan_subtree(
+                &document,
+                &condition,
+                &cache_request,
+                &page_scope,
+                &mut regions,
+            )?;
         }
-        let Ok(bounds) = (unsafe { element.CachedBoundingRectangle() }) else {
-            continue;
-        };
-        let width = bounds.right.saturating_sub(bounds.left);
-        let height = bounds.bottom.saturating_sub(bounds.top);
-        if width < 6 || height < 6 {
-            continue;
-        }
-        let is_relaxed_only = is_layout_container && !(is_control || is_content);
-        if is_relaxed_only && window_area > 0.0 {
-            let area = f64::from(width) * f64::from(height);
-            if area > window_area * MAX_LAYOUT_CONTAINER_RATIO {
-                continue;
-            }
-        }
-        let name = unsafe { element.CachedName() }
-            .map(|value| value.to_string())
-            .unwrap_or_else(|_| "UI region".into());
-        regions.push(DetectedTargetDto {
-            id: format!("ui-{window_id}-{index}"),
-            title: if name.trim().is_empty() {
-                "UI region".into()
-            } else {
-                name
-            },
-            kind: "ui-region",
-            bounds: Rect {
-                x: f64::from(bounds.left),
-                y: f64::from(bounds.top),
-                width: f64::from(width),
-                height: f64::from(height),
-            },
-        });
     }
 
     regions.sort_by(|left, right| {
@@ -225,9 +221,170 @@ unsafe fn collect_regions(window_id: u32) -> Result<Vec<DetectedTargetDto>, Snap
     Ok(deduped)
 }
 
+struct ScanScope {
+    window_id: u32,
+    window_area: f64,
+    /// Inside a web page: the page's visible rectangle. Elements are clipped to
+    /// it, and the browser's offscreen flag is not trusted on its own (a page
+    /// behind the capture overlay can report its elements as offscreen).
+    viewport: Option<Rect>,
+    id_prefix: &'static str,
+}
+
+unsafe fn scan_subtree(
+    root: &IUIAutomationElement,
+    condition: &IUIAutomationCondition,
+    cache_request: &IUIAutomationCacheRequest,
+    scope: &ScanScope,
+    regions: &mut Vec<DetectedTargetDto>,
+) -> Result<Option<(IUIAutomationElement, Rect)>, SnaphubError> {
+    let elements = unsafe {
+        root.FindAllBuildCache(TreeScope_Descendants, condition, cache_request)
+            .map_err(SnaphubError::capture)?
+    };
+    let count =
+        unsafe { elements.Length().map_err(SnaphubError::capture)? }.clamp(0, MAX_CACHED_ELEMENTS);
+    regions.reserve(count as usize);
+    // The largest Document seen: in a browser, the active tab's web page.
+    let mut largest_document: Option<(IUIAutomationElement, Rect)> = None;
+
+    for index in 0..count {
+        let Ok(element) = (unsafe { elements.GetElement(index) }) else {
+            continue;
+        };
+        let is_control = unsafe { element.CachedIsControlElement() }
+            .map(windows::core::BOOL::as_bool)
+            .unwrap_or(false);
+        let is_content = unsafe { element.CachedIsContentElement() }
+            .map(windows::core::BOOL::as_bool)
+            .unwrap_or(false);
+        // Web pages made of role-less <div>s report neither flag: Chromium/Firefox
+        // still expose them as Group/Pane/Document/Custom nodes, so accept those as
+        // a lower-confidence "layout container" match rather than dropping them.
+        let control_type = unsafe { element.CachedControlType() };
+        if scope.viewport.is_none()
+            && control_type == Ok(UIA_DocumentControlTypeId)
+            && let Ok(bounds) = unsafe { element.CachedBoundingRectangle() }
+        {
+            let rect = rect_from(bounds);
+            let area = rect.width * rect.height;
+            if area > 0.0
+                && largest_document
+                    .as_ref()
+                    .is_none_or(|(_, current)| area > current.width * current.height)
+            {
+                largest_document = Some((element.clone(), rect));
+            }
+        }
+        let is_layout_container = matches!(
+            control_type,
+            Ok(control_type)
+                if control_type == UIA_GroupControlTypeId
+                    || control_type == UIA_PaneControlTypeId
+                    || control_type == UIA_DocumentControlTypeId
+                    || control_type == UIA_CustomControlTypeId
+        );
+        if !(is_control || is_content || is_layout_container) {
+            continue;
+        }
+        let offscreen = unsafe { element.CachedIsOffscreen() }
+            .map(windows::core::BOOL::as_bool)
+            .unwrap_or(true);
+        if offscreen && scope.viewport.is_none() {
+            continue;
+        }
+        let Ok(bounds) = (unsafe { element.CachedBoundingRectangle() }) else {
+            continue;
+        };
+        let raw = rect_from(bounds);
+        let visible = match scope.viewport {
+            Some(viewport) => clip_rect(raw, viewport),
+            None => Some(raw),
+        };
+        let Some(rect) = visible else {
+            continue;
+        };
+        if rect.width < MIN_REGION_SIZE || rect.height < MIN_REGION_SIZE {
+            continue;
+        }
+        let is_relaxed_only = is_layout_container && !(is_control || is_content);
+        if is_relaxed_only
+            && scope.window_area > 0.0
+            && rect.width * rect.height > scope.window_area * MAX_LAYOUT_CONTAINER_RATIO
+        {
+            continue;
+        }
+        let name = unsafe { element.CachedName() }
+            .map(|value| value.to_string())
+            .unwrap_or_else(|_| "UI region".into());
+        regions.push(DetectedTargetDto {
+            id: format!("{}-{}-{index}", scope.id_prefix, scope.window_id),
+            title: if name.trim().is_empty() {
+                "UI region".into()
+            } else {
+                name
+            },
+            kind: "ui-region",
+            bounds: rect,
+        });
+    }
+    Ok(largest_document)
+}
+
+fn rect_from(bounds: RECT) -> Rect {
+    Rect {
+        x: f64::from(bounds.left),
+        y: f64::from(bounds.top),
+        width: f64::from(bounds.right.saturating_sub(bounds.left).max(0)),
+        height: f64::from(bounds.bottom.saturating_sub(bounds.top).max(0)),
+    }
+}
+
+/// The part of `rect` inside `clip`, or `None` when they don't overlap.
+fn clip_rect(rect: Rect, clip: Rect) -> Option<Rect> {
+    let left = rect.x.max(clip.x);
+    let top = rect.y.max(clip.y);
+    let right = (rect.x + rect.width).min(clip.x + clip.width);
+    let bottom = (rect.y + rect.height).min(clip.y + clip.height);
+    (right > left && bottom > top).then_some(Rect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    })
+}
+
 fn rects_nearly_equal(left: &Rect, right: &Rect) -> bool {
     (left.x - right.x).abs() <= DEDUPE_TOLERANCE
         && (left.y - right.y).abs() <= DEDUPE_TOLERANCE
         && (left.width - right.width).abs() <= DEDUPE_TOLERANCE
         && (left.height - right.height).abs() <= DEDUPE_TOLERANCE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn clip_keeps_the_visible_part_of_a_partly_scrolled_element() {
+        let viewport = rect(0.0, 100.0, 800.0, 600.0);
+        let clipped = clip_rect(rect(10.0, 60.0, 200.0, 80.0), viewport);
+        assert_eq!(clipped, Some(rect(10.0, 100.0, 200.0, 40.0)));
+    }
+
+    #[test]
+    fn clip_drops_an_element_scrolled_out_of_the_page() {
+        let viewport = rect(0.0, 100.0, 800.0, 600.0);
+        assert_eq!(clip_rect(rect(10.0, 0.0, 200.0, 90.0), viewport), None);
+        assert_eq!(clip_rect(rect(10.0, 700.0, 200.0, 90.0), viewport), None);
+    }
 }

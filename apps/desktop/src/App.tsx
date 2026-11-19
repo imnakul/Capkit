@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnnotationCanvas } from "./components/AnnotationCanvas";
 import { AnnotationToolbar } from "./components/AnnotationToolbar";
 import { CaptureBackdrop } from "./components/CaptureBackdrop";
+import { completionRailItems, type CompletionHandlers, type RailItem } from "./components/captureActions";
 import { CompletionToolbar } from "./components/CompletionToolbar";
+import { getToolbarTool, runToolbarTool } from "./components/toolbarCatalog";
 import {
   RedactionPreview,
   RedactionReviewPanel,
@@ -31,7 +33,7 @@ import type {
   Point,
   Rect,
 } from "./domain/capture";
-import { useSnaphubSettings, type CaptureToolbarToolId } from "./domain/settings";
+import { useSnaphubSettings, type CaptureToolbarToolId, type CompletionActionId } from "./domain/settings";
 import {
   chooseToolbarPlacement,
   clampRect,
@@ -102,15 +104,12 @@ export function App(): React.JSX.Element {
   const [activeTool, setActiveTool] = useState<ToolId>("select");
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
+  const drawingOrigin = useRef<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastToolByGroup, setLastToolByGroup] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
   const [openGroupIndex, setOpenGroupIndex] = useState<number | null>(null);
   const [toolbarSize, setToolbarSize] = useState<ToolbarSize>({ width: 430, height: 52 });
   const toolbarObserver = useRef<ResizeObserver | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [exiting, setExiting] = useState(false);
-  const exitTimer = useRef<number | null>(null);
-  const revealFrames = useRef<number[]>([]);
   const [completionState, setCompletionState] = useState<SelectedCompletionState>({
     phase: "idle",
     message: "",
@@ -161,6 +160,16 @@ export function App(): React.JSX.Element {
     pending.resolve();
   }, [session]);
 
+  // Drawings are stored relative to the capture area. When the area moves or is
+  // resized from its top or left edge, shift them back so they stay on the same
+  // screen content. A layout effect applies the shift before the browser paints.
+  useLayoutEffect(() => {
+    const previous = drawingOrigin.current;
+    drawingOrigin.current = selection === null ? null : { x: selection.x, y: selection.y };
+    if (previous === null || selection === null) return;
+    dispatchScene({ type: "shift", dx: previous.x - selection.x, dy: previous.y - selection.y });
+  }, [selection]);
+
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
@@ -197,20 +206,8 @@ export function App(): React.JSX.Element {
     setLastToolByGroup((current) => current[groupIndex] === toolId ? current : { ...current, [groupIndex]: toolId });
   }, []);
 
-  function clearPendingMotion(): void {
-    if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
-    exitTimer.current = null;
-    for (const frame of revealFrames.current) window.cancelAnimationFrame(frame);
-    revealFrames.current = [];
-  }
-
-  useEffect(() => clearPendingMotion, []);
-
   function clearCaptureUi(): void {
-    clearPendingMotion();
     setOpenGroupIndex(null);
-    setExiting(false);
-    setRevealed(false);
     activationState.current = "idle";
     activeSessionId.current = null;
     const pendingBackdrop = backdropReadyResolver.current;
@@ -229,24 +226,12 @@ export function App(): React.JSX.Element {
   }
 
   const startSession = useCallback(async (): Promise<void> => {
-    if (exitTimer.current !== null) {
-      // A new request during the exit fade: finish the old session once, then start fresh.
-      const oldSessionId = activeSessionId.current;
-      clearPendingMotion();
-      setExiting(false);
-      activationState.current = "idle";
-      sessionGeneration.current += 1;
-      if (oldSessionId !== null) await cancelCapture(oldSessionId, "fade-in", true).catch(() => undefined);
-    }
     if (activationState.current !== "idle") return;
     const timingStartedAt = import.meta.env.DEV ? performance.now() : null;
     let timingAfterRequest: number | null = null;
     let timingAfterReady: number | null = null;
     activationState.current = "preparing";
     sessionGeneration.current += 1;
-    clearPendingMotion();
-    setExiting(false);
-    setRevealed(false);
     completionInFlight.current = false;
     activeSessionId.current = null;
     let preparedSession: CaptureSession | null = null;
@@ -291,19 +276,7 @@ export function App(): React.JSX.Element {
       if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
         return;
       }
-      const motion = settingsRef.current.overlay.motion;
-      const reduced = prefersReducedMotion();
-      await showCaptureSurface(motion, reduced);
-      if (motion === "dim-rise" && !reduced) {
-        // Two frames so the hidden styles paint before the transition target applies.
-        const first = window.requestAnimationFrame(() => {
-          const second = window.requestAnimationFrame(() => setRevealed(true));
-          revealFrames.current.push(second);
-        });
-        revealFrames.current.push(first);
-      } else {
-        setRevealed(true);
-      }
+      await showCaptureSurface(prefersReducedMotion());
       if (
         timingStartedAt !== null &&
         timingAfterRequest !== null &&
@@ -655,10 +628,9 @@ export function App(): React.JSX.Element {
 
   const handleCancel = useCallback(async (): Promise<void> => {
     sessionGeneration.current += 1;
-    const exitMotion = settingsRef.current.overlay.motion;
     try {
       if (session !== null) {
-        await cancelCapture(session.id, exitMotion, prefersReducedMotion()).catch(async () => dismissCapture());
+        await cancelCapture(session.id, prefersReducedMotion()).catch(async () => dismissCapture());
         await cancelManualScrolling(session.id).catch(() => undefined);
       } else {
         await dismissCapture();
@@ -672,17 +644,8 @@ export function App(): React.JSX.Element {
   }, [session]);
 
   const requestExit = useCallback((): void => {
-    if (exitTimer.current !== null) return;
-    if (settingsRef.current.overlay.motion !== "dim-rise" || prefersReducedMotion() || session === null) {
-      void handleCancel();
-      return;
-    }
-    setExiting(true);
-    exitTimer.current = window.setTimeout(() => {
-      exitTimer.current = null;
-      void handleCancel();
-    }, 120);
-  }, [handleCancel, session]);
+    void handleCancel();
+  }, [handleCancel]);
 
   const handleComplete = useCallback(
     async (action: CompletionAction, followUp: "none" | "showcase" = "none"): Promise<void> => {
@@ -1099,19 +1062,43 @@ export function App(): React.JSX.Element {
       ? 10
       : Math.max(10, Math.min(selection.y, viewport.height - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
-  const dimRise = settings.overlay.motion === "dim-rise" && !prefersReducedMotion();
-  const shown = revealed && !exiting;
-  const fadeStyle: React.CSSProperties = dimRise
-    ? {
-      opacity: shown ? 1 : 0,
-      transition: exiting
-        ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
-        : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)",
-    }
-    : {};
-  const exitOnlyStyle: React.CSSProperties = dimRise
-    ? { opacity: exiting ? 0 : 1, transition: "opacity 120ms cubic-bezier(0.4, 0, 1, 1)" }
-    : {};
+
+  const completionHandlers: CompletionHandlers = {
+    copyShortcut: settings.shortcuts.captureModeCopy,
+    copyAndSaveShortcut: settings.shortcuts.captureModeCopyAndSave,
+    saveShortcut: settings.shortcuts.captureModeSave,
+    disabled: completionState.phase !== "idle",
+    canReadText,
+    onAction: (id: CompletionActionId): void => {
+      if (id === "showcase") void handleComplete("save", "showcase");
+      else if (id === "copy-text") void handleCopyText();
+      else if (id === "find-sensitive") void findSensitiveText();
+      else void handleComplete(id);
+    },
+  };
+  const horizontalActionItems = completionRailItems(settings.toolbar.actions, "horizontal", completionHandlers);
+  const railToolItems: RailItem[] = settings.toolbar.mode === "individual"
+    ? settings.toolbar.verticalTools
+      .filter((toolId) => settings.toolbar.individual[toolId])
+      .map((toolId) => {
+        const tool = getToolbarTool(toolId);
+        return {
+          id: `tool-${toolId}`,
+          label: tool.label,
+          icon: tool.icon,
+          ...(tool.shortcut === undefined ? {} : { shortcut: tool.shortcut }),
+          active: tool.annotationTool !== undefined && tool.annotationTool === activeTool,
+          disabled: toolId === "undo" ? history.past.length === 0 : toolId === "redo" ? history.future.length === 0 : false,
+          onSelect: () => runToolbarTool(toolId, {
+            onToolChange: setActiveTool,
+            onScrollCapture: startScrollingCapture,
+            onUndo: () => dispatchScene({ type: "undo" }),
+            onRedo: () => dispatchScene({ type: "redo" }),
+          }),
+        };
+      })
+    : [];
+  const verticalRailItems = [...completionRailItems(settings.toolbar.actions, "vertical", completionHandlers), ...railToolItems];
 
   return (
     <main
@@ -1137,21 +1124,12 @@ export function App(): React.JSX.Element {
         />
       ) : null}
 
-      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" data-testid="capture-scrim" style={fadeStyle} /> : null}
+      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" data-testid="capture-scrim" /> : null}
 
       {selection === null ? (
         <div
           className="pointer-events-none absolute left-1/2 top-7 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl"
           data-testid="capture-hint"
-          style={dimRise
-            ? {
-              opacity: fadeStyle.opacity,
-              transform: shown || exiting ? "translateY(0px)" : "translateY(6px)",
-              transition: exiting
-                ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
-                : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), transform 160ms cubic-bezier(0.22, 1, 0.36, 1)",
-            }
-            : undefined}
         >
           {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
           {message}
@@ -1173,7 +1151,6 @@ export function App(): React.JSX.Element {
         </div>
       ) : (
         <SelectionFrame
-          motionStyle={exitOnlyStyle}
           rect={selection}
           onMoveStart={handleMoveStart}
           onResizeStart={handleResizeStart}
@@ -1206,7 +1183,7 @@ export function App(): React.JSX.Element {
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
               ref={measureToolbar}
-              style={{ left: toolBarX, top: toolBarY, ...exitOnlyStyle }}
+              style={{ left: toolBarX, top: toolBarY }}
             >
             <AnnotationToolbar
               activeTool={activeTool}
@@ -1225,6 +1202,7 @@ export function App(): React.JSX.Element {
               onStyleChange={setStyle}
               onToolChange={setActiveTool}
               onUndo={() => dispatchScene({ type: "undo" })}
+              actionItems={horizontalActionItems}
               />
             </div>
           ) : null}
@@ -1232,25 +1210,15 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
-              style={{ left: actionRailX, top: actionRailY, ...exitOnlyStyle }}
+              style={{ left: actionRailX, top: actionRailY }}
             >
               <CompletionToolbar
-                copyAndSaveShortcut={settings.shortcuts.captureModeCopyAndSave}
-                copyShortcut={settings.shortcuts.captureModeCopy}
                 diagnostic={completionState.phase === "save-pending" ? completionState.diagnostic : undefined}
-                saveShortcut={settings.shortcuts.captureModeSave}
+                items={verticalRailItems}
                 state={completionState.phase}
                 statusMessage={completionState.phase === "working" ? completionState.message : completionState.phase === "idle" ? completionState.message : ""}
                 statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
-                onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
-                onShowcase={() => void handleComplete("save", "showcase")}
-                {...(canReadText
-                  ? {
-                    onCopyText: () => void handleCopyText(),
-                    onFindSensitive: () => void findSensitiveText(),
-                  }
-                  : {})}
               />
               {redactionReview === null ? null : (
                 <RedactionReviewPanel

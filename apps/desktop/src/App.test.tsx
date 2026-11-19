@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CaptureSession, CompletionAction } from "./domain/capture";
-import { defaultSnaphubSettings, saveSnaphubSettings, type OverlayMotion } from "./domain/settings";
+import { defaultSnaphubSettings } from "./domain/settings";
 import type { CompletionResult } from "./lib/tauri";
 
 const captureMocks = vi.hoisted(() => ({
@@ -691,8 +691,7 @@ describe("App", () => {
 });
 
 describe("App overlay motion", () => {
-  function useMotion(motion: OverlayMotion, reduced = false): void {
-    saveSnaphubSettings({ ...defaultSnaphubSettings, overlay: { ...defaultSnaphubSettings.overlay, motion } });
+  function useReducedMotion(reduced: boolean): void {
     vi.stubGlobal("matchMedia", (media: string) => ({
       matches: reduced,
       media,
@@ -715,85 +714,34 @@ describe("App overlay motion", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-    vi.useRealTimers();
     window.localStorage.clear();
   });
 
-  it("dim-rise: scrim and hint start hidden, then transition in after two frames", async () => {
-    useMotion("dim-rise");
-    const frames = createAnimationFrameQueue();
+  it("fades the overlay in and out natively, with no scrim animation in the page", async () => {
+    useReducedMotion(false);
     render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", false));
-    const scrim = screen.getByTestId("capture-scrim");
-    const hint = screen.getByTestId("capture-hint");
-    expect(scrim).toHaveStyle({ opacity: "0" });
-    expect(hint.style.transform).toBe("translateY(6px)");
-    frames.flushNext();
-    frames.flushNext();
-    expect(scrim).toHaveStyle({ opacity: "1" });
-    expect(scrim.style.transition).toBe("opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)");
-    expect(hint.style.transform).toBe("translateY(0px)");
-  });
-
-  it("dim-rise: Escape fades out and cancels only after 120 ms, once for a double Escape", async () => {
-    useMotion("dim-rise");
-    render(<App />);
-    await screen.findByTestId("capture-scrim");
-    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    fireEvent.keyDown(window, { key: "Escape" });
-    fireEvent.keyDown(window, { key: "Escape" });
-    const scrim = screen.getByTestId("capture-scrim");
-    expect(scrim).toHaveStyle({ opacity: "0" });
-    expect(scrim.style.transition).toBe("opacity 120ms cubic-bezier(0.4, 0, 1, 1)");
-    expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
-    await act(async () => {
-      vi.advanceTimersByTime(120);
-      await Promise.resolve();
-    });
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
-  });
-
-  it("fade-both: Escape cancels immediately with the fade-both motion", async () => {
-    useMotion("fade-both");
-    render(<App />);
-    await screen.findByRole("main");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "fade-both", false);
-  });
-
-  it("fade-in: reveals without scrim animation and cancels immediately", async () => {
-    useMotion("fade-in");
-    render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("fade-in", false));
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(false));
     expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), false);
   });
 
-  it("reduced motion: no scrim animation and Escape cancels immediately in every mode", async () => {
-    useMotion("dim-rise", true);
+  it("skips both fades under reduced motion", async () => {
+    useReducedMotion(true);
     render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", true));
-    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(true));
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "dim-rise", true);
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), true));
   });
 
-  it("a new capture during the exit fade cancels the old session once and reveals the new one", async () => {
-    useMotion("dim-rise");
+  it("ignores a saved motion choice from an older version", async () => {
+    window.localStorage.setItem("snaphub.settings.v1", JSON.stringify({
+      ...defaultSnaphubSettings,
+      overlay: { ...defaultSnaphubSettings.overlay, motion: "dim-rise" },
+    }));
+    useReducedMotion(false);
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
-    fireEvent.keyDown(window, { key: "Escape" });
-    act(() => {
-      captureMocks.listeners.forEach((listener) => listener());
-    });
-    await waitFor(() => expect(captureMocks.requestCapture).toHaveBeenCalledTimes(2));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(2));
-    await new Promise((resolve) => window.setTimeout(resolve, 200));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(false));
   });
 });

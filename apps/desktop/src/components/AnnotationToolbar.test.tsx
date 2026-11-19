@@ -151,4 +151,48 @@ describe("AnnotationToolbar", () => {
     if (lastTopRow === undefined || firstRow === undefined) throw new Error("buttons missing");
     expect(lastTopRow.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+describe("AnnotationToolbar placement", () => {
+  afterEach(() => cleanup());
+
+  it("leaves tools moved to the vertical toolbar out of the horizontal one", () => {
+    render(<Harness toolbar={{ ...individual, verticalTools: ["pencil"] }} />);
+    expect(screen.queryByRole("button", { name: "Pencil" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Rectangle" })).toBeTruthy();
+  });
+
+  it("keeps the colour row for an active style tool that lives in the vertical toolbar", () => {
+    render(<Harness initialTool="pencil" toolbar={{ ...individual, verticalTools: ["pencil"] }} />);
+    expect(screen.queryByRole("button", { name: "Pencil" })).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "Annotation color" })).toBeTruthy();
+  });
+
+  it("shows finishing actions moved to the horizontal toolbar after the tools", () => {
+    const onSelect = vi.fn();
+    render(
+      <AnnotationToolbar
+        actionItems={[{ id: "action-save", label: "Save", icon: (): null => null, shortcut: "S", onSelect }]}
+        activeTool="select"
+        canRedo={false}
+        canUndo={false}
+        lastToolByGroup={{}}
+        openGroupIndex={null}
+        palette={defaultSnaphubSettings.palette}
+        style={defaultAnnotationStyle}
+        toolbar={individual}
+        onGroupToolUsed={() => undefined}
+        onOpenGroupChange={() => undefined}
+        onRedo={() => undefined}
+        onScrollCapture={() => undefined}
+        onStyleChange={() => undefined}
+        onToolChange={() => undefined}
+        onUndo={() => undefined}
+      />,
+    );
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.at(-1)).toHaveAccessibleName("Save");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+});
 });

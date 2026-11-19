@@ -8,8 +8,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 - CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
 - Copy any capture from the Screenshots page, and drag it straight into another app.
-- Choose how the capture overlay appears: Dim and rise, Fade in, or Fade in and out.
 - Capture toolbar groups open when you click them and remember the last tool you used in each group.
+- Settings → Screenshots lets you show or hide each finishing action (Copy, Save, Pin, Showcase and more) and choose whether each tool and action sits in the horizontal or the vertical toolbar.
 
 ### Improved
 
@@ -18,6 +18,12 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 - Shapes, arrows, pen strokes and highlights can be resized: select one and drag any of its eight handles, or focus a handle and use the arrow keys.
 - The highlight that follows your pointer before you select now glides smoothly from one area to the next. It jumps instantly when Windows animation effects are off.
 - Folder paths in Settings no longer start with `\\?\`.
+- The capture overlay fades in and out. The other overlay animations and their setting are gone.
+- Drawings stay where they are on screen when you move or resize the capture area.
+
+### Fixed
+
+- Detection mode finds parts of web pages in Chrome, Edge and other Chromium browsers again, not just the browser's own buttons.
 
 ## Earlier — 2026-10-29
 

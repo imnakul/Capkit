@@ -55,3 +55,19 @@ export function getToolbarTool(id: CaptureToolbarToolId): ToolbarToolDefinition 
   if (tool === undefined) throw new Error(`Unknown capture toolbar tool: ${id}`);
   return tool;
 }
+
+export type ToolbarToolHandlers = {
+  onToolChange: (tool: ToolId) => void;
+  onScrollCapture: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+};
+
+/** Runs a toolbar tool the same way from either capture toolbar. */
+export function runToolbarTool(toolId: CaptureToolbarToolId, handlers: ToolbarToolHandlers): void {
+  const tool = getToolbarTool(toolId);
+  if (tool.annotationTool !== undefined) handlers.onToolChange(tool.annotationTool);
+  else if (toolId === "scrolling-capture") handlers.onScrollCapture();
+  else if (toolId === "undo") handlers.onUndo();
+  else handlers.onRedo();
+}

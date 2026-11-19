@@ -134,8 +134,48 @@ const toolbarIndividualSchema = z.object({
   redo: z.boolean(),
 });
 
-export const overlayMotionValues = ["dim-rise", "fade-in", "fade-both"] as const;
-export type OverlayMotion = (typeof overlayMotionValues)[number];
+/** Buttons that finish a capture; by default they sit in the vertical rail. */
+export const completionActionIds = [
+  "copy",
+  "copy-and-save",
+  "save",
+  "pin",
+  "showcase",
+  "copy-text",
+  "find-sensitive",
+] as const;
+export type CompletionActionId = (typeof completionActionIds)[number];
+
+export const toolbarPlacementValues = ["horizontal", "vertical"] as const;
+export type ToolbarPlacement = (typeof toolbarPlacementValues)[number];
+
+const completionActionSettingSchema = z.object({
+  enabled: z.boolean(),
+  placement: z.enum(toolbarPlacementValues),
+});
+export type CompletionActionSetting = z.infer<typeof completionActionSettingSchema>;
+
+const defaultActionSetting: CompletionActionSetting = { enabled: true, placement: "vertical" };
+
+export const defaultToolbarActions: Record<CompletionActionId, CompletionActionSetting> = {
+  copy: defaultActionSetting,
+  "copy-and-save": defaultActionSetting,
+  save: defaultActionSetting,
+  pin: defaultActionSetting,
+  showcase: defaultActionSetting,
+  "copy-text": defaultActionSetting,
+  "find-sensitive": defaultActionSetting,
+};
+
+const toolbarActionsSchema = z.object({
+  copy: completionActionSettingSchema.default(defaultActionSetting),
+  "copy-and-save": completionActionSettingSchema.default(defaultActionSetting),
+  save: completionActionSettingSchema.default(defaultActionSetting),
+  pin: completionActionSettingSchema.default(defaultActionSetting),
+  showcase: completionActionSettingSchema.default(defaultActionSetting),
+  "copy-text": completionActionSettingSchema.default(defaultActionSetting),
+  "find-sensitive": completionActionSettingSchema.default(defaultActionSetting),
+});
 
 export const snaphubSettingsSchema = z.object({
   version: z.literal(1),
@@ -158,6 +198,10 @@ export const snaphubSettingsSchema = z.object({
     mode: z.enum(["individual", "group"]).default("group"),
     individual: toolbarIndividualSchema.default(defaultToolbarIndividual),
     groups: z.array(z.array(captureToolbarToolIdSchema).max(16)).max(8).default(defaultToolbarGroups),
+    /** Finishing actions: shown or hidden, and which toolbar holds them. */
+    actions: toolbarActionsSchema.default(defaultToolbarActions),
+    /** Individual-mode editing tools moved into the vertical rail. */
+    verticalTools: z.array(captureToolbarToolIdSchema).max(16).default([]),
   }),
   shortcuts: z.object({
     capture: z.string().min(1).max(64),
@@ -191,7 +235,6 @@ export const snaphubSettingsSchema = z.object({
   overlay: z.object({
     color: hexColorSchema,
     opacity: z.number().min(0.15).max(0.85),
-    motion: z.enum(overlayMotionValues).default("dim-rise"),
   }),
   openAtStartup: z.boolean(),
   updates: z.object({ autoCheck: z.boolean() }).default({ autoCheck: true }),
@@ -256,6 +299,8 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     mode: "group",
     individual: defaultToolbarIndividual,
     groups: defaultToolbarGroups,
+    actions: defaultToolbarActions,
+    verticalTools: [],
   },
   shortcuts: {
     capture: "Alt+Shift+S",
@@ -270,7 +315,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   onScreen: defaultOnScreenSettings,
   detection: { windows: true, uiRegions: false },
   scrolling: { defaultMode: "automatic" },
-  overlay: { color: "#070807", opacity: 0.64, motion: "dim-rise" },
+  overlay: { color: "#070807", opacity: 0.64 },
   openAtStartup: false,
   updates: { autoCheck: true },
   cursor: { enabled: true, style: "crosshair", size: "medium" },
