@@ -73,6 +73,16 @@ describe("Popup", () => {
     expect(screen.getByRole("button", { name: "Pair again" })).toBeInTheDocument();
   });
 
+  it("shows the wrong-code and too-many-attempts copy", async () => {
+    const first = fake({ retry: { state: "rejected", reason: "That code didn't match" } });
+    const { unmount } = render(<Popup send={first.send} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That code didn't match");
+    unmount();
+    const second = fake({ retry: { state: "rejected", reason: "Too many wrong codes. Generate a new code in CapKit." } });
+    render(<Popup send={second.send} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many wrong codes. Generate a new code in CapKit.");
+  });
+
   it("offers site access when the page needs it", async () => {
     const { send, calls } = fake({
       retry: { state: "connected" },

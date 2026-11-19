@@ -123,7 +123,7 @@ export function App(): React.JSX.Element {
   const [lookups, setLookups] = useState<Readonly<Record<string, NoteLookupStatus>>>({});
   const [developerTools, setDeveloperTools] = useState(false);
   const noteRetry = useRef<{ noteId: string; request: Parameters<typeof deliverNote>[0] } | null>(null);
-  const lastHoverTitle = useRef<string | null>(null);
+  const lastHover = useRef<DetectedTarget | null>(null);
   const drawingOrigin = useRef<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastToolByGroup, setLastToolByGroup] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
@@ -594,15 +594,28 @@ export function App(): React.JSX.Element {
   }, [history.present.elements, notes]);
 
   useEffect(() => {
-    if (hoverTarget !== null) lastHoverTitle.current = hoverTarget.title;
+    if (hoverTarget !== null) lastHover.current = hoverTarget;
   }, [hoverTarget]);
 
   function placeNote(pin: CounterAnnotation, area: Rect | null): void {
     if (session === null || selection === null) return;
     const id = crypto.randomUUID();
     const sessionId = session.id;
-    const fallbackName = lastHoverTitle.current;
-    const fallback = fallbackName === null ? null : { role: "element", name: fallbackName };
+    const hovered = lastHover.current;
+    // Hover bounds are display-local logical px; the note records physical screen px.
+    const scale = session.display.scaleFactor;
+    const fallback = hovered === null
+      ? null
+      : {
+        role: "element",
+        name: hovered.title,
+        box: {
+          x: Math.round((session.display.bounds.x + hovered.bounds.x) * scale),
+          y: Math.round((session.display.bounds.y + hovered.bounds.y) * scale),
+          width: Math.round(hovered.bounds.width * scale),
+          height: Math.round(hovered.bounds.height * scale),
+        },
+      };
     dispatchScene({ type: "add", annotation: pin });
     dispatchNotes({
       type: "add",

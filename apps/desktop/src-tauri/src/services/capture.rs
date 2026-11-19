@@ -1806,6 +1806,7 @@ mod tests {
         recognized_text: Mutex<String>,
         recognized_size: Mutex<Option<(u32, u32)>>,
         clipboard_calls: AtomicUsize,
+        ui_region_calls: AtomicUsize,
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
         clipboard_release: Mutex<Option<mpsc::Receiver<()>>>,
@@ -1821,6 +1822,7 @@ mod tests {
                 recognized_text: Mutex::new(String::new()),
                 recognized_size: Mutex::new(None),
                 clipboard_calls: AtomicUsize::new(0),
+                ui_region_calls: AtomicUsize::new(0),
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
                 clipboard_release: Mutex::new(None),
@@ -1890,6 +1892,7 @@ mod tests {
         }
 
         fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
+            self.ui_region_calls.fetch_add(1, Ordering::SeqCst);
             Ok(None)
         }
 
@@ -2134,6 +2137,17 @@ mod tests {
         elements: Option<Vec<DetectedTargetDto>>,
         over_page: bool,
     ) -> (CaptureService, TestDirectory) {
+        let (service, directory, _backend) =
+            counted_browser_service(name, connected, elements, over_page);
+        (service, directory)
+    }
+
+    fn counted_browser_service(
+        name: &str,
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+        over_page: bool,
+    ) -> (CaptureService, TestDirectory, Arc<FakeBackend>) {
         let directory = TestDirectory::new(name);
         let backend = FakeBackend::new();
         if over_page {
@@ -2148,12 +2162,13 @@ mod tests {
                 },
             });
         }
-        let service = CaptureService::with_save_directory(Arc::new(backend), directory.0.clone());
+        let backend = Arc::new(backend);
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
         service.set_browser_source(Arc::new(FakeBrowser {
             connected,
             elements,
         }));
-        (service, directory)
+        (service, directory, backend)
     }
 
     #[test]
@@ -2165,6 +2180,19 @@ mod tests {
             .expect("targets");
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].id, "ext-k1");
+    }
+
+    #[test]
+    fn ui_automation_runs_only_when_the_extension_has_no_elements() {
+        let point = Point { x: 20.0, y: 20.0 };
+        let (service, _directory, backend) =
+            counted_browser_service("web-calls-hit", true, Some(vec![page_element()]), true);
+        service.detect_targets(point, true).expect("targets");
+        assert_eq!(backend.ui_region_calls.load(Ordering::SeqCst), 0);
+        let (service, _directory, backend) =
+            counted_browser_service("web-calls-none", true, None, true);
+        service.detect_targets(point, true).expect("targets");
+        assert_eq!(backend.ui_region_calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

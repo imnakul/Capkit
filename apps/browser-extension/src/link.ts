@@ -37,9 +37,9 @@ export type LinkOptions = {
 };
 
 const REJECT_TEXT: Record<string, string> = {
-  "wrong-code": "That code doesn't match. Check the code in CapKit and try again.",
+  "wrong-code": "That code didn't match",
   expired: "That code expired. Open Developer tools in CapKit for a new one.",
-  "too-many-attempts": "Too many wrong tries. Wait a minute, then pair again.",
+  "too-many-attempts": "Too many wrong codes. Generate a new code in CapKit.",
   "not-pairing": "CapKit isn't waiting for a code. Open Developer tools in CapKit and start pairing.",
   "unknown-token": "CapKit no longer knows this browser. Pair again.",
 };

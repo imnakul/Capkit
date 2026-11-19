@@ -823,6 +823,7 @@ async fn deliver_note(
     request: DeliverNoteRequest,
 ) -> Result<DeliveryDto, SnaphubError> {
     ensure_capture_window(&window)?;
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
     tauri::async_runtime::spawn_blocking(move || {
         let outcome = services::notes::deliver(
             &app.state::<NotesStore>(),
@@ -843,6 +844,7 @@ async fn notes_list(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<NoteSummaryDto>, SnaphubError> {
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<NotesStore>()
             .list(query.as_deref(), limit, offset)
@@ -853,6 +855,7 @@ async fn notes_list(
 
 #[tauri::command]
 async fn notes_copy(app: AppHandle, id: String) -> Result<(), SnaphubError> {
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
     tauri::async_runtime::spawn_blocking(move || {
         let markdown = app.state::<NotesStore>().markdown(&id)?;
         app.state::<CaptureService>().copy_plain_text(&markdown)
@@ -863,6 +866,7 @@ async fn notes_copy(app: AppHandle, id: String) -> Result<(), SnaphubError> {
 
 #[tauri::command]
 async fn notes_delete(app: AppHandle, id: String) -> Result<(), SnaphubError> {
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
     tauri::async_runtime::spawn_blocking(move || app.state::<NotesStore>().delete(&id))
         .await
         .map_err(|error| SnaphubError::Notes(error.to_string()))?
@@ -870,6 +874,7 @@ async fn notes_delete(app: AppHandle, id: String) -> Result<(), SnaphubError> {
 
 #[tauri::command]
 async fn notes_cleanup_unsaved(app: AppHandle) -> Result<u32, SnaphubError> {
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<NotesStore>()
             .cleanup_unsaved_images(std::time::Duration::from_secs(7 * 24 * 60 * 60))
@@ -880,7 +885,12 @@ async fn notes_cleanup_unsaved(app: AppHandle) -> Result<u32, SnaphubError> {
 
 /// Opens the note's page in the default browser. Only http and https links open.
 #[tauri::command]
-fn notes_open_url(store: tauri::State<'_, NotesStore>, id: String) -> Result<(), SnaphubError> {
+fn notes_open_url(
+    link: tauri::State<'_, BrowserLinkService>,
+    store: tauri::State<'_, NotesStore>,
+    id: String,
+) -> Result<(), SnaphubError> {
+    services::notes::require_developer_tools(link.status().enabled)?;
     let url = store
         .page_url(&id)?
         .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
@@ -900,10 +910,12 @@ fn notes_open_url(store: tauri::State<'_, NotesStore>, id: String) -> Result<(),
 #[tauri::command]
 fn notes_start_drag(
     window: WebviewWindow,
+    link: tauri::State<'_, BrowserLinkService>,
     store: tauri::State<'_, NotesStore>,
     service: tauri::State<'_, CaptureService>,
     id: String,
 ) -> Result<(), SnaphubError> {
+    services::notes::require_developer_tools(link.status().enabled)?;
     let exported = store.export_for_drag(&id)?;
     let image = store.image_path(&id);
     if !image.is_file() {

@@ -157,7 +157,15 @@ describe("Link", () => {
     last().open();
     last().receive({ type: "pairRejected", reason: "wrong-code" });
     expect(link.status).toMatchObject({ state: "rejected" });
-    expect(link.status.reason).toMatch(/code/i);
+    expect(link.status.reason).toBe("That code didn't match");
+  });
+
+  it("asks for a new code after too many wrong ones, with no time lockout", () => {
+    const { link } = make(null);
+    link.pair("123456");
+    last().open();
+    last().receive({ type: "pairRejected", reason: "too-many-attempts" });
+    expect(link.status.reason).toBe("Too many wrong codes. Generate a new code in CapKit.");
   });
 
   it("clears the token when CapKit no longer knows it", async () => {

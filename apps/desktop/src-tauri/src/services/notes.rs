@@ -375,6 +375,15 @@ pub struct DeliveryDto {
 /// Copies first, then saves, so a failed copy never leaves a saved note the
 /// user believes is on their clipboard. A failure is reported in the result,
 /// not as an error, because the caller needs to know how far it got.
+/// Notes belong to Developer tools: every notes command checks this before touching the store.
+pub fn require_developer_tools(enabled: bool) -> Result<(), SnaphubError> {
+    if enabled {
+        Ok(())
+    } else {
+        Err(SnaphubError::Notes("Developer tools is off".into()))
+    }
+}
+
 pub fn deliver(
     store: &NotesStore,
     copy_text: impl FnOnce(&str) -> Result<(), SnaphubError>,
@@ -502,6 +511,13 @@ fn first_comment(markdown: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn notes_commands_need_developer_tools() {
+        let error = super::require_developer_tools(false).unwrap_err();
+        assert!(error.to_string().contains("Developer tools is off"));
+        assert!(super::require_developer_tools(true).is_ok());
+    }
+
     use super::*;
 
     struct TestRoot(PathBuf);

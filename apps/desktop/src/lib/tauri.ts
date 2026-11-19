@@ -598,6 +598,7 @@ export const browserLinkStatusSchema = z.object({
   state: z.enum(["off", "listening", "error"]),
   port: z.number().int().nullable(),
   error: z.string().nullable(),
+  pairingLocked: z.boolean(),
   connected: z.array(browserNameSchema),
   paired: z.array(
     z.object({ origin: z.string(), browser: browserNameSchema, pairedAt: z.string() }),
@@ -621,6 +622,7 @@ const offlineLinkStatus: BrowserLinkStatus = {
   enabled: false,
   state: "off",
   port: null,
+  pairingLocked: false,
   error: null,
   connected: [],
   paired: [],

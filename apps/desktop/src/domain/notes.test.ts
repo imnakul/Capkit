@@ -35,9 +35,9 @@ describe("notesReducer", () => {
       type: "lookup",
       id: "a",
       detail: null,
-      fallback: { role: "button", name: "Save" },
+      fallback: { role: "button", name: "Save", box: { x: 1, y: 2, width: 3, height: 4 } },
     });
-    expect(state[0]?.fallback).toEqual({ role: "button", name: "Save" });
+    expect(state[0]?.fallback).toEqual({ role: "button", name: "Save", box: { x: 1, y: 2, width: 3, height: 4 } });
     expect(state[1]?.fallback).toBeNull();
   });
 
@@ -78,7 +78,7 @@ describe("noteSummary and buildCaptureNote", () => {
     expect(noteSummary(base, { failed: "no extension connected" })).toBe(
       "No element details (no extension connected)",
     );
-    expect(noteSummary({ ...base, fallback: { role: "button", name: "Save" } }, "done")).toBe("button: Save");
+    expect(noteSummary({ ...base, fallback: { role: "button", name: "Save", box: { x: 1, y: 2, width: 3, height: 4 } } }, "done")).toBe("button: Save");
   });
 
   it("builds masked Markdown without extension data", () => {
@@ -91,5 +91,16 @@ describe("noteSummary and buildCaptureNote", () => {
     expect(result.pinCount).toBe(1);
     expect(result.markdown).toContain("C:\\notes\\a.png");
     expect(result.markdown).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+  });
+
+  it("writes the accessibility fallback's role and screen-pixel box", () => {
+    const result = buildCaptureNote(
+      [{ ...base, fallback: { role: "button", name: "Save", box: { x: 10, y: 20, width: 300, height: 40 } } }],
+      "C:\\notes\\a.png",
+      new Date("2026-11-19T10:00:00Z"),
+    );
+    expect(result.detail).toBe("accessibility");
+    expect(result.markdown).toContain("Role: button");
+    expect(result.markdown).toContain("Box: 300×40 at 10, 20 (screen px)");
   });
 });

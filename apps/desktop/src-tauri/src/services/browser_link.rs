@@ -386,6 +386,11 @@ impl PairingState {
         expires_at
     }
 
+    /// True while a code is live but its guesses are used up.
+    pub fn exhausted(&self) -> bool {
+        self.code.is_some() && self.attempts >= MAX_PAIRING_ATTEMPTS
+    }
+
     pub fn cancel(&mut self) {
         self.code = None;
         self.expires_at = None;
@@ -491,6 +496,7 @@ pub struct BrowserLinkStatusDto {
     pub state: &'static str,
     pub port: Option<u16>,
     pub error: Option<String>,
+    pub pairing_locked: bool,
     pub connected: Vec<BrowserDto>,
     pub paired: Vec<PairedBrowserDto>,
 }
@@ -591,6 +597,8 @@ struct Shared {
     config: LinkConfig,
     config_path: PathBuf,
     pairing: PairingState,
+    /// Set once a code ran out of guesses, so Settings can say so. Cleared by a new code.
+    pairing_locked: bool,
     listener: Option<Listener>,
     bind_error: Option<String>,
     connections: HashMap<u64, Connection>,
@@ -637,6 +645,7 @@ fn status_of(shared: &Shared) -> BrowserLinkStatusDto {
         state,
         port: shared.listener.as_ref().map(|listener| listener.port),
         error: shared.bind_error.clone(),
+        pairing_locked: shared.pairing_locked,
         connected,
         paired: shared
             .config
@@ -686,6 +695,7 @@ impl BrowserLinkService {
                     config,
                     config_path,
                     pairing: PairingState::default(),
+                    pairing_locked: false,
                     listener: None,
                     bind_error: None,
                     connections: HashMap::new(),
@@ -730,6 +740,7 @@ impl BrowserLinkService {
         }
         let code = new_code();
         let expires_at = shared.pairing.start(code.clone(), Utc::now());
+        shared.pairing_locked = false;
         Ok(PairingCodeDto {
             code,
             expires_at: expires_at.to_rfc3339(),
@@ -737,7 +748,9 @@ impl BrowserLinkService {
     }
 
     pub fn cancel_pairing(&self) {
-        lock(&self.inner.state).pairing.cancel();
+        let mut shared = lock(&self.inner.state);
+        shared.pairing.cancel();
+        shared.pairing_locked = false;
     }
 
     /// Removes a pairing and closes that origin's sockets.
@@ -1156,6 +1169,7 @@ fn handle_text(
                     let token = new_token();
                     let saved = {
                         let mut shared = lock(&inner.state);
+                        shared.pairing_locked = false;
                         shared
                             .config
                             .paired
@@ -1184,10 +1198,21 @@ fn handle_text(
                     None
                 }
                 Err(reason) => {
+                    let locked = {
+                        let mut shared = lock(&inner.state);
+                        let locked =
+                            reason == PairReject::TooManyAttempts || shared.pairing.exhausted();
+                        let changed = locked && !shared.pairing_locked;
+                        shared.pairing_locked |= locked;
+                        changed
+                    };
                     send(&Outgoing::PairRejected {
                         v: PROTOCOL_VERSION,
                         reason,
                     });
+                    if locked {
+                        inner.emit_status();
+                    }
                     Some((1008, "pairing rejected"))
                 }
             }
@@ -1434,6 +1459,21 @@ mod tests {
             Err(PairReject::TooManyAttempts)
         );
         assert_eq!(state.verify("123456", at(3)), Err(PairReject::NotPairing));
+    }
+
+    #[test]
+    fn the_code_reports_when_its_guesses_are_used_up() {
+        let mut state = PairingState::default();
+        assert!(!state.exhausted());
+        state.start("123456".into(), at(0));
+        for _ in 0..4 {
+            let _ = state.verify("000000", at(1));
+        }
+        assert!(!state.exhausted());
+        let _ = state.verify("000000", at(1));
+        assert!(state.exhausted());
+        state.start("654321".into(), at(2));
+        assert!(!state.exhausted());
     }
 
     #[test]

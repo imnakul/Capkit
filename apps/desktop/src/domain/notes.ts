@@ -3,7 +3,8 @@ import { maskSensitiveText } from "@snaphub/devtools-protocol/sensitive";
 import type { InspectResult } from "../lib/tauri";
 import type { Point, Rect } from "./capture";
 
-export type NoteFallback = { role: string; name: string };
+/** What the pin landed on when the extension had nothing; `box` is in physical screen px. */
+export type NoteFallback = { role: string; name: string; box: Rect };
 
 /** One numbered pin placed during a capture; point notes have no `area`. */
 export type CaptureNote = {
@@ -120,7 +121,7 @@ export function buildCaptureNote(
       comment: note.comment,
       details: note.detail !== null && note.detail.elements.length > 0 ? note.detail.elements : null,
       isArea: note.area !== null,
-      fallback: note.fallback === null ? null : { ...note.fallback, box: null },
+      fallback: note.fallback,
     })),
   });
   return {
