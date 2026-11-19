@@ -774,10 +774,7 @@ impl CaptureService {
             .into_iter()
             .filter_map(|(path, size_bytes, modified)| {
                 let (width, height) = image::image_dimensions(&path).ok()?;
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                modified.hash(&mut hasher);
-                let thumbnail_path = thumbnails.join(format!("{:016x}.png", hasher.finish()));
+                let thumbnail_path = thumbnail_path_for(&thumbnails, &path, modified);
                 if !thumbnail_path.exists() {
                     let image = image::open(&path).ok()?;
                     image
@@ -797,6 +794,17 @@ impl CaptureService {
                 })
             })
             .collect::<Vec<_>>())
+    }
+
+    /// The drag image for a saved capture: its library thumbnail, or the image itself when none exists yet.
+    pub fn drag_preview_path(&self, path: &Path) -> PathBuf {
+        let thumbnails = session_directory().join("library-thumbnails");
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .map(|modified| thumbnail_path_for(&thumbnails, path, modified))
+            .ok()
+            .filter(|thumbnail| thumbnail.exists())
+            .unwrap_or_else(|| path.to_path_buf())
     }
 
     pub fn validated_saved_capture(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
@@ -1479,6 +1487,14 @@ pub(crate) fn persist_recording_directory(directory: &Path) -> Result<(), Snaphu
     })
 }
 
+/// Where the library thumbnail for `path` lives; keyed by path and modified time.
+fn thumbnail_path_for(thumbnails: &Path, path: &Path, modified: std::time::SystemTime) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    modified.hash(&mut hasher);
+    thumbnails.join(format!("{:016x}.png", hasher.finish()))
+}
+
 #[cfg(test)]
 mod storage_preferences_tests {
     use super::*;
@@ -1996,6 +2012,31 @@ mod tests {
                 height: 4.0,
             },
         }
+    }
+
+    #[test]
+    fn saved_capture_actions_reject_files_outside_the_save_folder() {
+        let directory = TestDirectory::new("saved-validation");
+        let outside = TestDirectory::new("saved-validation-outside");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend, directory.0.clone());
+        let inside_file = directory.0.join("inside.png");
+        let outside_file = outside.0.join("outside.png");
+        RgbaImage::new(2, 2).save(&inside_file).unwrap();
+        RgbaImage::new(2, 2).save(&outside_file).unwrap();
+        assert!(service.validated_saved_capture(&inside_file).is_ok());
+        assert!(service.validated_saved_capture(&outside_file).is_err());
+    }
+
+    #[test]
+    fn thumbnail_path_depends_on_path_and_modified_time() {
+        let folder = Path::new("thumbs");
+        let now = std::time::SystemTime::now();
+        let later = now + std::time::Duration::from_secs(1);
+        let first = thumbnail_path_for(folder, Path::new("a.png"), now);
+        assert_eq!(first, thumbnail_path_for(folder, Path::new("a.png"), now));
+        assert_ne!(first, thumbnail_path_for(folder, Path::new("a.png"), later));
+        assert_ne!(first, thumbnail_path_for(folder, Path::new("b.png"), now));
     }
 
     #[test]

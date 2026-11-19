@@ -35,6 +35,7 @@ uuid = { version = "1.24.0", features = ["v4", "serde"] }
 xcap = { version = "0.9.6", features = ["image", "wgc"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+drag = "=2.1.1"
 windows = { version = "0.62.2", features = [
   "Foundation", "Globalization", "Graphics_Imaging", "Storage", "Storage_Streams",
   # Copy text and redaction suggestions: the OS OCR engine and its installed languages.

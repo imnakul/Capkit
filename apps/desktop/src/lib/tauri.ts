@@ -397,6 +397,19 @@ export async function deleteSavedCapture(path: string): Promise<void> {
   await invoke("delete_saved_capture", { path });
 }
 
+const savedCapturePathSchema = z.string().min(1);
+
+export async function copySavedCapture(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("copy_saved_capture", { path: savedCapturePathSchema.parse(path) });
+}
+
+/** Starts a native OS file drag; must be called synchronously from a pointer move. */
+export async function startSavedCaptureDrag(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("start_saved_capture_drag", { path: savedCapturePathSchema.parse(path) });
+}
+
 /**
  * Adapts a saved capture into Showcase media.
  *

@@ -656,6 +656,57 @@ fn delete_saved_capture(
     service.delete_saved_capture(Path::new(&path))
 }
 
+#[tauri::command]
+async fn copy_saved_capture(app: AppHandle, path: String) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let service = app.state::<CaptureService>();
+        let validated = service.validated_saved_capture(Path::new(&path))?;
+        service.copy_image_path(&validated)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(error.to_string()))?
+}
+
+/// Starts a native OS file drag for a saved capture. The OLE drag loop is
+/// modal on the main thread, so this only validates and schedules it.
+#[tauri::command]
+fn start_saved_capture_drag(
+    window: WebviewWindow,
+    service: tauri::State<'_, CaptureService>,
+    path: String,
+) -> Result<(), SnaphubError> {
+    let validated = service.validated_saved_capture(Path::new(&path))?;
+    #[cfg(target_os = "windows")]
+    {
+        let preview = service.drag_preview_path(&validated);
+        let dragged = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let result = drag::start_drag(
+                    &dragged,
+                    drag::DragItem::Files(vec![validated]),
+                    drag::Image::File(preview),
+                    |_result, _position| {},
+                    drag::Options {
+                        skip_animatation_on_cancel_or_failure: false,
+                        mode: drag::DragMode::Copy,
+                    },
+                );
+                if let Err(error) = result {
+                    eprintln!("SH-DRAG-001: {error}");
+                }
+            })
+            .map_err(|error| SnaphubError::Window(error.to_string()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, validated);
+        Err(SnaphubError::Window(
+            "Dragging captures is not implemented on this platform".into(),
+        ))
+    }
+}
+
 /// Grants the webview read access to images the user explicitly picked from disk.
 ///
 /// The asset protocol scope is otherwise locked to the CapKit save and temp
@@ -2432,6 +2483,8 @@ pub fn run() {
             open_save_directory,
             open_saved_capture,
             delete_saved_capture,
+            copy_saved_capture,
+            start_saved_capture_drag,
             import_media_files,
             list_folder_images,
             scrolling_capture_supported,
