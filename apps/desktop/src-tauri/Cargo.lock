@@ -610,6 +610,7 @@ dependencies = [
  "arboard",
  "chrono",
  "dirs 6.0.0",
+ "dunce",
  "image",
  "imageproc",
  "serde",

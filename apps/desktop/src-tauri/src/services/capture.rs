@@ -42,6 +42,7 @@ use crate::{
     },
 };
 
+use super::paths::display_path;
 use super::scrolling::{frames_are_unchanged, stitch_vertical_with_metadata};
 
 enum SessionOutputState {
@@ -733,7 +734,7 @@ impl CaptureService {
             ));
         }
         fs::create_dir_all(&directory).map_err(SnaphubError::export)?;
-        let directory = directory.canonicalize().map_err(SnaphubError::export)?;
+        let directory = display_path(&directory.canonicalize().map_err(SnaphubError::export)?);
         persist_save_directory(&directory)?;
         *self
             .save_directory
@@ -1390,7 +1391,11 @@ fn load_save_directory() -> PathBuf {
             }
             let _ = persist_save_directory(&directory);
         }
-        return directory;
+        let clean = display_path(&directory);
+        if clean != directory {
+            let _ = persist_save_directory(&clean);
+        }
+        return clean;
     }
     default_save_directory()
 }
@@ -1449,10 +1454,17 @@ fn write_storage_preferences_to(
 
 /// The user's recordings folder, or the Videos default when none was chosen.
 pub(crate) fn load_recording_directory() -> PathBuf {
-    read_storage_preferences()
+    let Some(directory) = read_storage_preferences()
         .recording_directory
         .filter(|directory| directory.is_absolute())
-        .unwrap_or_else(default_recording_directory)
+    else {
+        return default_recording_directory();
+    };
+    let clean = display_path(&directory);
+    if clean != directory {
+        let _ = persist_recording_directory(&clean);
+    }
+    clean
 }
 
 pub(crate) fn default_recording_directory() -> PathBuf {
