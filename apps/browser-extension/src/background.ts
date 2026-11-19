@@ -100,10 +100,11 @@ async function currentTab(): Promise<TabRef | null> {
   return tab?.id === undefined ? null : { id: tab.id, url: tab.url ?? "", title: tab.title ?? "" };
 }
 
+/** Opening the popup or pressing the shortcut grants activeTab, so the inspector needs no site access. */
 async function inspectActiveTab(): Promise<boolean> {
   const tab = await currentTab();
-  if (tab === null) return false;
-  const result = await askTab(tab, { kind: "toggle" });
+  if (tab === null || originPattern(tab.url) === null) return false;
+  const result = await askTab(tab, { kind: "toggle" }, { requireSiteAccess: false });
   return result.response !== null;
 }
 
@@ -136,17 +137,14 @@ async function dispatch(raw: unknown, sender: chrome.runtime.MessageSender): Pro
       return { ok: await inspectActiveTab() };
     case "siteAccess":
       return siteAccessFor(await currentTab());
-    case "requestAccess": {
-      const tab = await currentTab();
-      const origins = request.all ? ["<all_urls>"] : [tab === null ? "" : (originPattern(tab.url) ?? "")];
-      if (origins[0] === "") return { ok: false };
-      return { ok: await chrome.permissions.request({ origins }) };
-    }
   }
 }
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-  void dispatch(message, sender).then(sendResponse);
+  // Always answer, even on failure; otherwise the caller sees "message channel closed".
+  dispatch(message, sender).then(sendResponse, () => {
+    sendResponse({ ok: false });
+  });
   return true;
 });
 

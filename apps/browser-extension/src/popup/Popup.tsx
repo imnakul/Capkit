@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type ClipboardEvent, type SyntheticEvent, type ReactElement } from "react";
+import { z } from "zod";
 import { linkStatusSchema, siteAccessSchema, type BackgroundRequest, type LinkStatus, type SiteAccess } from "../messages";
 
 export type Transport = (request: BackgroundRequest) => Promise<unknown>;
+export type RequestPermission = (origins: string[]) => Promise<boolean>;
 
 const SPINNER_DELAY_MS = 300;
 const SETTLE_POLL_MS = 400;
@@ -26,11 +28,19 @@ function Spinner(): ReactElement {
   );
 }
 
-export function Popup({ send }: { send: Transport }): ReactElement {
+const inspectResultSchema = z.object({ ok: z.boolean() });
+
+export function Popup({ send, requestPermission }: { send: Transport; requestPermission: RequestPermission }): ReactElement {
   const [status, setStatus] = useState<LinkStatus>({ state: "connecting" });
   const [access, setAccess] = useState<SiteAccess | null>(null);
   const [code, setCode] = useState("");
   const [showSpinner, setShowSpinner] = useState(false);
+  const [inspectError, setInspectError] = useState<string | null>(null);
+
+  const refreshAccess = useCallback(async (): Promise<void> => {
+    const parsed = siteAccessSchema.safeParse(await send({ kind: "siteAccess" }));
+    setAccess(parsed.success ? parsed.data : { state: "unavailable" });
+  }, [send]);
 
   const read = useCallback(
     async (request: BackgroundRequest): Promise<LinkStatus> => {
@@ -58,12 +68,8 @@ export function Popup({ send }: { send: Transport }): ReactElement {
   }, [settle]);
 
   useEffect(() => {
-    if (status.state !== "connected") return;
-    void send({ kind: "siteAccess" }).then((raw) => {
-      const parsed = siteAccessSchema.safeParse(raw);
-      setAccess(parsed.success ? parsed.data : { state: "unavailable" });
-    });
-  }, [status.state, send]);
+    void refreshAccess();
+  }, [refreshAccess]);
 
   useEffect(() => {
     if (status.state !== "connecting") {
@@ -88,12 +94,44 @@ export function Popup({ send }: { send: Transport }): ReactElement {
     void settle({ kind: "pair", code });
   };
 
+  // Called synchronously from the click so Chrome sees the user gesture.
   const requestAccess = (all: boolean): void => {
-    void send({ kind: "requestAccess", origin: access?.origin ?? "", all }).then(() => send({ kind: "siteAccess" })).then((raw) => {
-      const parsed = siteAccessSchema.safeParse(raw);
-      if (parsed.success) setAccess(parsed.data);
+    const origins = all ? ["<all_urls>"] : access?.origin === undefined ? [] : [access.origin];
+    if (origins.length === 0) return;
+    void requestPermission(origins)
+      .catch(() => false)
+      .then(refreshAccess);
+  };
+
+  const inspect = (): void => {
+    setInspectError(null);
+    void send({ kind: "inspectActiveTab" }).then((raw) => {
+      const parsed = inspectResultSchema.safeParse(raw);
+      if (parsed.success && parsed.data.ok) {
+        window.close();
+        return;
+      }
+      setInspectError("Couldn't start the inspector here. Reload the page and try again.");
     });
   };
+
+  const canInspect = access !== null && access.state !== "unavailable";
+
+  const inspectBlock = (
+    <div className="flex flex-col gap-2">
+      <button type="button" className={primary} disabled={!canInspect} onClick={inspect}>
+        Inspect page
+      </button>
+      {access?.state === "unavailable" ? (
+        <p className="text-xs text-ink-muted">Inspect works on web pages (http and https) only.</p>
+      ) : null}
+      {inspectError === null ? null : (
+        <p role="alert" className="text-xs text-danger">
+          {inspectError}
+        </p>
+      )}
+    </div>
+  );
 
   return (
     <main className="flex flex-col gap-3 p-4">
@@ -134,6 +172,8 @@ export function Popup({ send }: { send: Transport }): ReactElement {
         </p>
       ) : null}
 
+      {status.state === "connected" ? null : inspectBlock}
+
       {status.state === "unreachable" ? (
         <div className="flex flex-col gap-2">
           <p className="text-sm">CapKit isn&apos;t running or Developer tools is off.</p>
@@ -155,17 +195,7 @@ export function Popup({ send }: { send: Transport }): ReactElement {
             <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
             Connected to CapKit
           </p>
-          <button
-            type="button"
-            className={primary}
-            onClick={() => {
-              void send({ kind: "inspectActiveTab" }).then(() => {
-                window.close();
-              });
-            }}
-          >
-            Inspect page
-          </button>
+          {inspectBlock}
           <div className="flex items-center justify-between gap-2 border-t border-hairline pt-3 text-xs">
             <span className="text-ink-muted">Site access</span>
             {access?.state === "allowed" ? <span>Allowed</span> : null}

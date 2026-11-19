@@ -47,7 +47,6 @@ export const backgroundRequestSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("forget") }),
   z.strictObject({ kind: z.literal("inspectActiveTab") }),
   z.strictObject({ kind: z.literal("siteAccess"), tabId: z.number().int().optional() }),
-  z.strictObject({ kind: z.literal("requestAccess"), origin: z.string(), all: z.boolean() }),
 ]);
 export type BackgroundRequest = z.infer<typeof backgroundRequestSchema>;
 

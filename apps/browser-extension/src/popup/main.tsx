@@ -1,9 +1,11 @@
 import { StrictMode, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { Popup, type Transport } from "./Popup";
+import { Popup, type RequestPermission, type Transport } from "./Popup";
 import "./popup.css";
 
 const transport: Transport = (request) => chrome.runtime.sendMessage(request);
+// Must run inside the click handler: Chrome only shows the prompt during a user gesture.
+const requestPermission: RequestPermission = (origins) => chrome.permissions.request({ origins });
 
 function registerFonts(): void {
   const url = (file: string): string => chrome.runtime.getURL(`fonts/${file}`);
@@ -20,7 +22,7 @@ const container = document.getElementById("root");
 if (container !== null) {
   const app: ReactElement = (
     <StrictMode>
-      <Popup send={transport} />
+      <Popup send={transport} requestPermission={requestPermission} />
     </StrictMode>
   );
   createRoot(container).render(app);
