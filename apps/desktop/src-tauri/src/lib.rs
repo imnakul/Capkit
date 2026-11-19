@@ -2343,7 +2343,24 @@ pub fn run() {
     let shortcuts = RegisteredShortcuts::parse(default_shortcuts())
         .expect("CapKit default shortcuts must be valid");
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be the first plugin registered. Release builds only, so a dev run
+    // can live beside an installed CapKit.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if args.iter().any(|argument| argument == "--background") {
+            return;
+        }
+        let app = app.clone();
+        // Window building from an event handler deadlocks on Windows.
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = show_dashboard(&app) {
+                eprintln!("SH-DASHBOARD-002: {error}");
+            }
+        });
+    }));
+
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
