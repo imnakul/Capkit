@@ -188,4 +188,46 @@ describe("AnnotationCanvas effect previews", () => {
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onDelete).toHaveBeenCalledWith("rectangle-1");
   });
+
+  it("resizes a selected annotation by dragging or nudging a handle", () => {
+    const rectangle = {
+      id: "rectangle-1",
+      kind: "rectangle" as const,
+      bounds: { x: 20, y: 30, width: 80, height: 50 },
+      color: "#d9ff43",
+      fill: "transparent",
+      strokeWidth: 4,
+      opacity: 1,
+    };
+    const onUpdate = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [rectangle] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    expect(screen.queryByRole("button", { name: /Resize rectangle annotation/ })).toBeNull();
+    fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 30, clientY: 40, pointerId: 5 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 30, clientY: 40, pointerId: 5 });
+    onUpdate.mockClear();
+
+    expect(screen.getAllByRole("button", { name: /Resize rectangle annotation/ })).toHaveLength(8);
+    const corner = screen.getByRole("button", { name: "Resize rectangle annotation from the bottom-right corner" });
+    fireEvent.pointerDown(corner, { button: 0, buttons: 1, clientX: 100, clientY: 80, pointerId: 6 });
+    fireEvent.pointerMove(canvas, { buttons: 1, clientX: 130, clientY: 100, pointerId: 6 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 130, clientY: 100, pointerId: 6 });
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "rectangle-1", bounds: { x: 20, y: 30, width: 110, height: 70 } }));
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Resize rectangle annotation from the right edge" }), { key: "ArrowRight", shiftKey: true });
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ bounds: { x: 20, y: 30, width: 90, height: 50 } }));
+  });
 });

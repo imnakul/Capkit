@@ -15,6 +15,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 - The capture toolbar is a single card, with the colour and size row only for tools that use them.
 - Only one CapKit runs at a time; opening it again brings the existing window forward.
+- Shapes, arrows, pen strokes and highlights can be resized: select one and drag any of its eight handles, or focus a handle and use the arrow keys.
+- The highlight that follows your pointer before you select now glides smoothly from one area to the next. It jumps instantly when Windows animation effects are off.
 - Folder paths in Settings no longer start with `\\?\`.
 
 ## Earlier — 2026-10-29

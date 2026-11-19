@@ -1,6 +1,7 @@
 import type { Rect } from "../domain/capture";
+import type { ResizeHandle } from "../lib/geometry";
 
-export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+export type { ResizeHandle };
 
 type SelectionFrameProps = {
   rect: Rect;

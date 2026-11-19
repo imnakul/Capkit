@@ -7,9 +7,45 @@ import type {
   RegionAnnotation,
   ToolId,
 } from "../domain/annotations";
+import {
+  annotationBounds,
+  findAnnotationAtPoint,
+  isResizableAnnotation,
+  resizeAnnotation,
+  translateAnnotation,
+} from "../domain/annotationGeometry";
 import { Cancel } from "./icons";
 import type { Point, Rect as CaptureRect } from "../domain/capture";
-import { normalizeRect } from "../lib/geometry";
+import { normalizeRect, type ResizeHandle } from "../lib/geometry";
+
+const resizeHandles: readonly ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+const handleNames: Record<ResizeHandle, string> = {
+  nw: "top-left corner",
+  n: "top edge",
+  ne: "top-right corner",
+  e: "right edge",
+  se: "bottom-right corner",
+  s: "bottom edge",
+  sw: "bottom-left corner",
+  w: "left edge",
+};
+
+/** Arrow keys on a focused handle nudge that edge: 1px, or 10px with Shift. */
+function keyboardResizeDelta(key: string, step: number): Point | null {
+  switch (key) {
+    case "ArrowLeft":
+      return { x: -step, y: 0 };
+    case "ArrowRight":
+      return { x: step, y: 0 };
+    case "ArrowUp":
+      return { x: 0, y: -step };
+    case "ArrowDown":
+      return { x: 0, y: step };
+    default:
+      return null;
+  }
+}
 
 type AnnotationCanvasProps = {
   bounds: CaptureRect;
@@ -47,7 +83,8 @@ export function AnnotationCanvas({
   const editingValueRef = useRef("");
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
-  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point } | null>(null);
+  // `handle` is null while moving and names the dragged handle while resizing.
+  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null } | null>(null);
 
   const displayedElements = useMemo<readonly Annotation[]>(() => {
     if (movingAnnotation === null) return scene.elements;
@@ -93,7 +130,7 @@ export function AnnotationCanvas({
       setSelectedTextId(hit.kind === "text" ? hit.id : null);
       finishActiveTextEdit();
       if ("setPointerCapture" in event.currentTarget) event.currentTarget.setPointerCapture(event.pointerId);
-      movingAnnotationRef.current = { initial: hit, current: hit, start: point };
+      movingAnnotationRef.current = { initial: hit, current: hit, start: point, handle: null };
       setMovingAnnotation({ initial: hit, current: hit });
       return;
     }
@@ -124,6 +161,20 @@ export function AnnotationCanvas({
     setDraft(nextDraft);
   }
 
+  function startResize(annotation: Annotation, handle: ResizeHandle, event: React.PointerEvent<HTMLButtonElement>): void {
+    if (event.button !== 0) return;
+    // Keep the press away from SelectionFrame, which would move the capture region.
+    event.stopPropagation();
+    event.preventDefault();
+    // Capture on the canvas so its move/up handlers keep receiving the drag.
+    const container = containerRef.current;
+    if (container !== null && "setPointerCapture" in container) container.setPointerCapture(event.pointerId);
+    const host = container?.getBoundingClientRect();
+    const start = host === undefined ? { x: 0, y: 0 } : { x: event.clientX - host.left, y: event.clientY - host.top };
+    movingAnnotationRef.current = { initial: annotation, current: annotation, start, handle };
+    setMovingAnnotation({ initial: annotation, current: annotation });
+  }
+
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     const moving = movingAnnotationRef.current;
     if (moving !== null) {
@@ -133,7 +184,11 @@ export function AnnotationCanvas({
       }
       event.stopPropagation();
       const point = relativePoint(event);
-      const current = translateAnnotation(moving.initial, point.x - moving.start.x, point.y - moving.start.y);
+      const dx = point.x - moving.start.x;
+      const dy = point.y - moving.start.y;
+      const current = moving.handle === null
+        ? translateAnnotation(moving.initial, dx, dy)
+        : resizeAnnotation(moving.initial, moving.handle, dx, dy);
       moving.current = current;
       setMovingAnnotation({ initial: moving.initial, current });
       return;
@@ -342,7 +397,25 @@ export function AnnotationCanvas({
         const selectedBounds = annotationBounds(selected);
         return (
           <div aria-label={`Selected ${selected.kind} annotation`} className="pointer-events-none absolute z-30 border border-dashed border-lime-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]" style={{ left: selectedBounds.x, top: selectedBounds.y, width: selectedBounds.width, height: selectedBounds.height }}>
-            <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-2.5 -top-2.5 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
+            {isResizableAnnotation(selected) ? resizeHandles.map((handle) => (
+              <button
+                aria-label={`Resize ${selected.kind} annotation from the ${handleNames[handle]}`}
+                className={`selection-handle selection-handle-${handle} pointer-events-auto touch-none`}
+                data-capture-interactive="true"
+                key={handle}
+                title="Drag to resize · arrow keys nudge (Shift for 10px)"
+                type="button"
+                onKeyDown={(event) => {
+                  const delta = keyboardResizeDelta(event.key, event.shiftKey ? 10 : 1);
+                  if (delta === null) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onUpdate(resizeAnnotation(selected, handle, delta.x, delta.y));
+                }}
+                onPointerDown={(event) => startResize(selected, handle, event)}
+              />
+            )) : null}
+            <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-7 -top-7 z-30 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
               <Cancel aria-hidden="true" size={11} strokeWidth={2.4} />
             </button>
           </div>
@@ -583,35 +656,6 @@ function isTextAnnotation(
   annotation: Annotation,
 ): annotation is Extract<Annotation, { kind: "text" }> {
   return annotation.kind === "text";
-}
-
-function annotationBounds(annotation: Annotation): CaptureRect {
-  if ("bounds" in annotation) return annotation.bounds;
-  if (annotation.kind === "text") {
-    return { x: annotation.position.x, y: annotation.position.y, width: Math.max(92, annotation.text.length * annotation.fontSize * 0.54), height: annotation.fontSize * 1.35 };
-  }
-  if (annotation.kind === "counter") {
-    return { x: annotation.position.x - annotation.radius, y: annotation.position.y - annotation.radius, width: annotation.radius * 2, height: annotation.radius * 2 };
-  }
-  const xs = annotation.points.map((point) => point.x);
-  const ys = annotation.points.map((point) => point.y);
-  const minX = Math.min(...xs) - annotation.strokeWidth;
-  const minY = Math.min(...ys) - annotation.strokeWidth;
-  return { x: minX, y: minY, width: Math.max(1, Math.max(...xs) - minX + annotation.strokeWidth), height: Math.max(1, Math.max(...ys) - minY + annotation.strokeWidth) };
-}
-
-function findAnnotationAtPoint(elements: readonly Annotation[], point: Point): Annotation | undefined {
-  const tolerance = 10;
-  return [...elements].reverse().find((element) => {
-    const bounds = annotationBounds(element);
-    return point.x >= bounds.x - tolerance && point.x <= bounds.x + bounds.width + tolerance && point.y >= bounds.y - tolerance && point.y <= bounds.y + bounds.height + tolerance;
-  });
-}
-
-function translateAnnotation(annotation: Annotation, dx: number, dy: number): Annotation {
-  if ("bounds" in annotation) return { ...annotation, bounds: { ...annotation.bounds, x: annotation.bounds.x + dx, y: annotation.bounds.y + dy } };
-  if (annotation.kind === "text" || annotation.kind === "counter") return { ...annotation, position: { x: annotation.position.x + dx, y: annotation.position.y + dy } };
-  return { ...annotation, points: annotation.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
 }
 
 function createAnnotation(

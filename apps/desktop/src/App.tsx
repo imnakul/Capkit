@@ -10,6 +10,7 @@ import {
   type RedactionReview,
 } from "./components/RedactionReviewPanel";
 import { SelectionFrame, type ResizeHandle } from "./components/SelectionFrame";
+import { TargetHighlight } from "./components/TargetHighlight";
 import {
   ScrollingCapturePanel,
   type ScrollingCaptureState,
@@ -404,7 +405,8 @@ export function App(): React.JSX.Element {
       setMessage("Visual target ready | click to select");
       return;
     }
-    setHoverTarget((previous) => previous === null ? previous : null);
+    // Keep the current highlight until UI Automation answers, so it glides to
+    // the next target instead of blinking off and back on.
     pendingUiLookup.current = point;
     if (uiLookupInFlight.current) return;
     const lookupPoint = pendingUiLookup.current;
@@ -423,6 +425,7 @@ export function App(): React.JSX.Element {
       })
       .catch((error: unknown) => {
         console.error("SH-TARGET-UIA-001", error);
+        if (sequence === uiLookupSequence.current) setHoverTarget(null);
         setMessage(`Control detection unavailable · ${describeInvokeError(error, "Windows UI Automation did not return a target")}`);
       })
       .finally(() => {
@@ -1128,15 +1131,9 @@ export function App(): React.JSX.Element {
       />
 
       {selection === null && hoverTarget !== null ? (
-        <div
-          aria-label={`Detected ${hoverTarget.kind}: ${hoverTarget.title}`}
-          className="pointer-events-none absolute z-10 border-2 border-lime-300/95 bg-lime-300/8 shadow-[0_0_0_1px_rgba(0,0,0,0.72),0_0_24px_rgba(217,255,67,0.12)]"
-          style={{
-            height: hoverTarget.bounds.height,
-            left: hoverTarget.bounds.x,
-            top: hoverTarget.bounds.y,
-            width: hoverTarget.bounds.width,
-          }}
+        <TargetHighlight
+          bounds={hoverTarget.bounds}
+          label={`Detected ${hoverTarget.kind}: ${hoverTarget.title}`}
         />
       ) : null}
 
