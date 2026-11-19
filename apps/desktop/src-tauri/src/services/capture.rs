@@ -38,7 +38,10 @@ use crate::{
     error::SnaphubError,
     platform::{
         CaptureBackend, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend, WebViewport,
+    },
+    services::browser_link::{
+        BrowserElementSource, InspectResultDto, InspectTarget, SensitiveMatchDto,
     },
 };
 
@@ -86,6 +89,9 @@ struct CompletionWork {
     pending_image: bool,
 }
 
+/// A connected browser source and the page area it should answer for.
+type WebPage<'a> = (&'a Arc<dyn BrowserElementSource>, WebViewport);
+
 pub struct CaptureService {
     capture: Arc<dyn CaptureBackend>,
     clipboard: Arc<dyn ClipboardBackend>,
@@ -94,6 +100,7 @@ pub struct CaptureService {
     scrolling: Arc<dyn ScrollingCaptureBackend>,
     pinning: Arc<dyn PinnedWindowBackend>,
     text_recognition: Arc<dyn TextRecognitionBackend>,
+    browser: OnceLock<Arc<dyn BrowserElementSource>>,
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
@@ -139,6 +146,7 @@ impl CaptureService {
             scrolling: backend.clone(),
             text_recognition: backend.clone(),
             pinning: backend,
+            browser: OnceLock::new(),
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
             save_directory: Mutex::new(save_directory),
@@ -148,6 +156,55 @@ impl CaptureService {
             #[cfg(test)]
             operation_log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Lets detection, inspection and redaction ask a connected browser extension.
+    /// Set once, after the app handle exists. Later calls are ignored.
+    pub fn set_browser_source(&self, source: Arc<dyn BrowserElementSource>) {
+        let _ = self.browser.set(source);
+    }
+
+    /// The browser page under `point` and the connected source, when both exist.
+    fn web_page_at(&self, point: Point) -> Result<Option<WebPage<'_>>, SnaphubError> {
+        let Some(source) = self.browser.get().filter(|source| source.is_connected()) else {
+            return Ok(None);
+        };
+        Ok(self
+            .targets
+            .web_viewport_at(point)?
+            .map(|viewport| (source, viewport)))
+    }
+
+    /// Element details for a point or area over a browser page, or `None` when the extension
+    /// is not connected, the pointer is not over a page, or the page cannot answer.
+    pub fn inspect_web_target(
+        &self,
+        target: InspectTarget,
+    ) -> Result<Option<InspectResultDto>, SnaphubError> {
+        let anchor = match &target {
+            InspectTarget::Point(point) => *point,
+            InspectTarget::Area(area) => Point {
+                x: area.x + area.width / 2.0,
+                y: area.y + area.height / 2.0,
+            },
+        };
+        Ok(self
+            .web_page_at(anchor)?
+            .and_then(|(source, viewport)| source.inspect(&viewport, target)))
+    }
+
+    /// Sensitive text found in the page behind `area`, with screen-pixel rectangles.
+    pub fn find_sensitive_web(
+        &self,
+        area: Rect,
+    ) -> Result<Option<Vec<SensitiveMatchDto>>, SnaphubError> {
+        let anchor = Point {
+            x: area.x + area.width / 2.0,
+            y: area.y + area.height / 2.0,
+        };
+        Ok(self
+            .web_page_at(anchor)?
+            .and_then(|(source, viewport)| source.find_sensitive(&viewport, area)))
     }
 
     pub fn begin(&self, cursor: Point) -> Result<CaptureSessionDto, SnaphubError> {
@@ -526,8 +583,21 @@ impl CaptureService {
                     && point.y <= target.bounds.y + target.bounds.height
             })
             .collect();
-        if include_ui_regions && let Some(region) = self.targets.ui_region_at(point)? {
-            targets.push(region);
+        if include_ui_regions {
+            // Over a browser page the extension knows the real elements; otherwise (or when it
+            // has nothing for this point) fall back to UI Automation.
+            let from_page = match self.web_page_at(point)? {
+                Some((source, viewport)) => source.element_at(&viewport, point),
+                None => None,
+            };
+            match from_page {
+                Some(elements) if !elements.is_empty() => targets.extend(elements),
+                _ => {
+                    if let Some(region) = self.targets.ui_region_at(point)? {
+                        targets.push(region);
+                    }
+                }
+            }
         }
         targets.sort_by(|left, right| target_area(left).total_cmp(&target_area(right)));
         Ok(targets)
@@ -1681,6 +1751,7 @@ mod tests {
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
         clipboard_release: Mutex<Option<mpsc::Receiver<()>>>,
+        web_viewport: Mutex<Option<WebViewport>>,
     }
 
     impl FakeBackend {
@@ -1695,6 +1766,7 @@ mod tests {
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
                 clipboard_release: Mutex::new(None),
+                web_viewport: Mutex::new(None),
             }
         }
 
@@ -1761,6 +1833,10 @@ mod tests {
 
         fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
             Ok(None)
+        }
+
+        fn web_viewport_at(&self, _point: Point) -> Result<Option<WebViewport>, SnaphubError> {
+            Ok(self.web_viewport.lock().unwrap().clone())
         }
     }
 
@@ -1942,6 +2018,141 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    struct FakeBrowser {
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+    }
+
+    impl BrowserElementSource for FakeBrowser {
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+
+        fn element_at(
+            &self,
+            _viewport: &WebViewport,
+            _point: Point,
+        ) -> Option<Vec<DetectedTargetDto>> {
+            self.elements.clone()
+        }
+
+        fn inspect(
+            &self,
+            _viewport: &WebViewport,
+            _target: InspectTarget,
+        ) -> Option<InspectResultDto> {
+            None
+        }
+
+        fn find_sensitive(
+            &self,
+            _viewport: &WebViewport,
+            _area: Rect,
+        ) -> Option<Vec<SensitiveMatchDto>> {
+            Some(Vec::new())
+        }
+    }
+
+    fn page_element() -> DetectedTargetDto {
+        DetectedTargetDto {
+            id: "ext-k1".into(),
+            title: "button".into(),
+            kind: "ui-region",
+            bounds: Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 40.0,
+                height: 20.0,
+            },
+        }
+    }
+
+    fn browser_service(
+        name: &str,
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+        over_page: bool,
+    ) -> (CaptureService, TestDirectory) {
+        let directory = TestDirectory::new(name);
+        let backend = FakeBackend::new();
+        if over_page {
+            *backend.web_viewport.lock().unwrap() = Some(WebViewport {
+                window_id: 1,
+                window_title: "Page".into(),
+                viewport: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+            });
+        }
+        let service = CaptureService::with_save_directory(Arc::new(backend), directory.0.clone());
+        service.set_browser_source(Arc::new(FakeBrowser {
+            connected,
+            elements,
+        }));
+        (service, directory)
+    }
+
+    #[test]
+    fn hover_over_a_browser_page_uses_the_extension_elements() {
+        let (service, _directory) =
+            browser_service("web-hover", true, Some(vec![page_element()]), true);
+        let targets = service
+            .detect_targets(Point { x: 20.0, y: 20.0 }, true)
+            .expect("targets");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "ext-k1");
+    }
+
+    #[test]
+    fn hover_falls_back_when_the_extension_has_nothing_or_is_not_connected_or_not_a_page() {
+        for (name, connected, elements, over_page) in [
+            ("web-none", true, None, true),
+            ("web-empty", true, Some(Vec::new()), true),
+            ("web-off", false, Some(vec![page_element()]), true),
+            ("web-not-page", true, Some(vec![page_element()]), false),
+        ] {
+            let (service, _directory) = browser_service(name, connected, elements, over_page);
+            let targets = service
+                .detect_targets(Point { x: 20.0, y: 20.0 }, true)
+                .expect("targets");
+            assert!(targets.is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn hover_ignores_the_extension_when_ui_regions_are_not_requested() {
+        let (service, _directory) =
+            browser_service("web-skip", true, Some(vec![page_element()]), true);
+        assert!(
+            service
+                .detect_targets(Point { x: 20.0, y: 20.0 }, false)
+                .expect("targets")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn web_inspection_and_redaction_need_a_connected_page() {
+        let (service, _directory) = browser_service("web-redact", true, None, true);
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 50.0,
+            height: 50.0,
+        };
+        assert_eq!(
+            service.find_sensitive_web(area).expect("ok"),
+            Some(Vec::new())
+        );
+        let (offline, _directory) = browser_service("web-redact-off", false, None, true);
+        assert_eq!(offline.find_sensitive_web(area).expect("ok"), None);
+        let (no_page, _directory) = browser_service("web-redact-nopage", true, None, false);
+        assert_eq!(no_page.find_sensitive_web(area).expect("ok"), None);
     }
 
     #[test]

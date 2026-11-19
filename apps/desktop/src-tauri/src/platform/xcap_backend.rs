@@ -8,7 +8,7 @@ use crate::{
     error::SnaphubError,
     platform::{
         CaptureBackend, CapturedDisplay, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend, WebViewport,
     },
 };
 
@@ -224,10 +224,39 @@ impl TargetDetectionBackend for XcapPlatformBackend {
             Ok(None)
         }
     }
+
+    fn web_viewport_at(&self, point: Point) -> Result<Option<WebViewport>, SnaphubError> {
+        #[cfg(target_os = "windows")]
+        {
+            let Some((window_id, window_title)) = underlying_window_with_title_at(point)? else {
+                return Ok(None);
+            };
+            Ok(
+                super::windows_ui::web_viewport_rect(window_id, point).map(|viewport| {
+                    WebViewport {
+                        window_id,
+                        window_title,
+                        viewport,
+                    }
+                }),
+            )
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = point;
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
 fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
+    Ok(underlying_window_with_title_at(point)?.map(|(id, _)| id))
+}
+
+#[cfg(target_os = "windows")]
+fn underlying_window_with_title_at(point: Point) -> Result<Option<(u32, String)>, SnaphubError> {
     // Xcap returns windows in z-order. The first visible match is the actual surface beneath
     // Snaphub; ranking by area could incorrectly select a smaller window hidden behind it.
     for window in Window::all().map_err(SnaphubError::capture)? {
@@ -247,7 +276,10 @@ fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
         if !physical_rect_contains(bounds, point) {
             continue;
         }
-        return window.id().map(Some).map_err(SnaphubError::capture);
+        return window
+            .id()
+            .map(|id| Some((id, title)))
+            .map_err(SnaphubError::capture);
     }
     Ok(None)
 }

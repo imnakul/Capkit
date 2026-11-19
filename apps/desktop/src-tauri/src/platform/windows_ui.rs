@@ -19,7 +19,7 @@ use windows::Win32::{
 };
 
 use crate::{
-    domain::{DetectedTargetDto, Rect},
+    domain::{DetectedTargetDto, Point, Rect},
     error::SnaphubError,
 };
 
@@ -368,9 +368,31 @@ fn wake_web_content(window_id: u32) -> usize {
     use windows::Win32::{
         Foundation::{LPARAM, WPARAM},
         UI::WindowsAndMessaging::{
-            EnumChildWindows, OBJID_CLIENT, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETOBJECT,
+            OBJID_CLIENT, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETOBJECT,
         },
     };
+
+    let pages = web_content_windows(window_id);
+    for page in &pages {
+        let mut result = 0usize;
+        unsafe {
+            SendMessageTimeoutW(
+                *page,
+                WM_GETOBJECT,
+                WPARAM(0),
+                LPARAM(OBJID_CLIENT.0 as isize),
+                SMTO_ABORTIFHUNG,
+                200,
+                Some(&mut result),
+            );
+        }
+    }
+    pages.len()
+}
+
+/// The child windows of `window_id` that host Chromium web pages.
+fn web_content_windows(window_id: u32) -> Vec<HWND> {
+    use windows::Win32::{Foundation::LPARAM, UI::WindowsAndMessaging::EnumChildWindows};
 
     unsafe extern "system" fn collect(child: HWND, found: LPARAM) -> windows::core::BOOL {
         // SAFETY: `found` is the address of the Vec passed below, alive for the whole enumeration.
@@ -392,21 +414,28 @@ fn wake_web_content(window_id: u32) -> usize {
             LPARAM(&mut pages as *mut Vec<HWND> as isize),
         );
     }
-    for page in &pages {
-        let mut result = 0usize;
-        unsafe {
-            SendMessageTimeoutW(
-                *page,
-                WM_GETOBJECT,
-                WPARAM(0),
-                LPARAM(OBJID_CLIENT.0 as isize),
-                SMTO_ABORTIFHUNG,
-                200,
-                Some(&mut result),
-            );
-        }
-    }
-    pages.len()
+    pages
+}
+
+/// Where the web page is on screen (physical pixels): the largest Chromium page window inside
+/// `window_id` that contains `point`. `None` when the window shows no web page there.
+pub fn web_viewport_rect(window_id: u32, point: Point) -> Option<Rect> {
+    web_content_windows(window_id)
+        .into_iter()
+        .filter_map(|page| {
+            let mut bounds = RECT::default();
+            unsafe { GetWindowRect(page, &mut bounds) }.ok()?;
+            Some(rect_from(bounds))
+        })
+        .filter(|rect| {
+            rect.width > 0.0
+                && rect.height > 0.0
+                && point.x >= rect.x
+                && point.x < rect.x + rect.width
+                && point.y >= rect.y
+                && point.y < rect.y + rect.height
+        })
+        .max_by(|left, right| (left.width * left.height).total_cmp(&(right.width * right.height)))
 }
 
 fn rects_nearly_equal(left: &Rect, right: &Rect) -> bool {

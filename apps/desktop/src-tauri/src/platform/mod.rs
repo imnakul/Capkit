@@ -3,7 +3,7 @@ use image::RgbaImage;
 use crate::{
     domain::{
         AudioDeviceDto, DetectedTargetDto, DisplayDto, Point, RecognizedTextDto,
-        RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto, RecordingStatsDto,
+        RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect,
         StartupStateDto,
     },
     error::SnaphubError,
@@ -36,10 +36,20 @@ pub trait CaptureBackend: Send + Sync {
     fn capture_display_at_point(&self, point: Point) -> Result<CapturedDisplay, SnaphubError>;
 }
 
+/// A browser window's page area, in physical screen pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WebViewport {
+    pub window_id: u32,
+    pub window_title: String,
+    pub viewport: Rect,
+}
+
 pub trait TargetDetectionBackend: Send + Sync {
     fn begin_session(&self) -> Result<(), SnaphubError>;
     fn targets(&self) -> Result<Vec<DetectedTargetDto>, SnaphubError>;
     fn ui_region_at(&self, point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError>;
+    /// The page area of the browser window under `point`, or `None` when it isn't a browser page.
+    fn web_viewport_at(&self, point: Point) -> Result<Option<WebViewport>, SnaphubError>;
 }
 
 pub trait ClipboardBackend: Send + Sync {

@@ -298,13 +298,13 @@ describe("DashboardPanel", () => {
       within(tablist)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["General", "Screenshots", "Screen Draw", "Shortcuts"]);
+    ).toEqual(["General", "Screenshots", "Screen Draw", "Shortcuts", "Developer"]);
 
     const general = screen.getByRole("tab", { name: "General" });
     expect(general).toHaveAttribute("aria-selected", "true");
     expect(general).toHaveAttribute("aria-controls", "settings-panel-general");
     expect(general).toHaveAttribute("tabindex", "0");
-    for (const tab of ["Screenshots", "Screen Draw", "Shortcuts"]) {
+    for (const tab of ["Screenshots", "Screen Draw", "Shortcuts", "Developer"]) {
       expect(screen.getByRole("tab", { name: tab })).toHaveAttribute("tabindex", "-1");
     }
 
@@ -313,8 +313,8 @@ describe("DashboardPanel", () => {
     expect(panel).toHaveAttribute("aria-labelledby", "settings-tab-general");
 
     fireEvent.keyDown(tablist, { key: "End" });
-    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel")).toHaveAttribute("id", "settings-panel-shortcuts");
+    expect(screen.getByRole("tab", { name: "Developer" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("id", "settings-panel-developer");
 
     // ArrowRight past the last tab returns to the first.
     fireEvent.keyDown(tablist, { key: "ArrowRight" });
@@ -323,7 +323,7 @@ describe("DashboardPanel", () => {
 
     // ArrowLeft past the first tab wraps to the last.
     fireEvent.keyDown(tablist, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Developer" })).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(tablist, { key: "Home" });
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");

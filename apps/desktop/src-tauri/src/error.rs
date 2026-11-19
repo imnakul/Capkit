@@ -26,6 +26,8 @@ pub enum SnaphubError {
     Startup(String),
     #[error("SH-UPDATE-001: {0}")]
     Update(String),
+    #[error("SH-LINK-001: {0}")]
+    Link(String),
 }
 
 impl SnaphubError {

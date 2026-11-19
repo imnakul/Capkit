@@ -1,3 +1,4 @@
+pub mod browser_link;
 pub mod capture;
 pub mod media;
 pub mod paths;

@@ -85,3 +85,39 @@ export function suggestRedactions(
   });
   return suggestions;
 }
+
+/** What the browser extension reports for one piece of sensitive page text. */
+export type WebSensitiveReport = {
+  kind: SensitiveKind | "password";
+  /** Already masked by the extension; masked again here so it never leaks. */
+  preview: string;
+  /** Display-local logical pixels, one rectangle per line the text spans. */
+  rects: readonly Rect[];
+};
+
+/**
+ * Turns the extension's exact rectangles into redaction suggestions in
+ * selection-local pixels. Rectangles outside the selection are dropped and the
+ * rest are padded and clamped, so a blackout never spills past the capture.
+ */
+export function suggestRedactionsFromWeb(
+  reports: readonly WebSensitiveReport[],
+  selection: Rect,
+): RedactionSuggestion[] {
+  const suggestions: RedactionSuggestion[] = [];
+  reports.forEach((report, reportIndex) => {
+    report.rects.forEach((rect, rectIndex) => {
+      const local = { x: rect.x - selection.x, y: rect.y - selection.y, width: rect.width, height: rect.height };
+      if (local.x >= selection.width || local.y >= selection.height || local.x + local.width <= 0 || local.y + local.height <= 0) return;
+      const bounds = padAndClamp(local, selection);
+      if (bounds.width <= 0 || bounds.height <= 0) return;
+      suggestions.push({
+        id: `web:${String(reportIndex)}:${String(rectIndex)}`,
+        kind: report.kind,
+        preview: maskPreview(report.preview),
+        bounds,
+      });
+    });
+  });
+  return suggestions;
+}

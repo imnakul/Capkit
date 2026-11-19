@@ -6,6 +6,7 @@ import {
   passesLuhn,
   shannonEntropy,
   suggestRedactions,
+  suggestRedactionsFromWeb,
 } from "./redactionPatterns";
 
 function kinds(text: string): string[] {
@@ -105,5 +106,46 @@ describe("suggestRedactions", () => {
         { width: 400, height: 100 },
       ),
     ).toEqual([]);
+  });
+});
+
+describe("suggestRedactionsFromWeb", () => {
+  const selection = { x: 100, y: 50, width: 200, height: 100 };
+
+  it("maps display-local rects into the selection and pads them", () => {
+    const [first] = suggestRedactionsFromWeb(
+      [{ kind: "email", preview: "ada@example.com", rects: [{ x: 120, y: 70, width: 60, height: 12 }] }],
+      selection,
+    );
+    expect(first?.bounds).toEqual({ x: 17, y: 17, width: 66, height: 18 });
+    expect(first?.kind).toBe("email");
+    expect(first?.preview).not.toContain("ada@example.com");
+  });
+
+  it("clamps to the selection and drops rects outside it", () => {
+    const suggestions = suggestRedactionsFromWeb(
+      [
+        {
+          kind: "token",
+          preview: "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+          rects: [
+            { x: 280, y: 140, width: 80, height: 30 },
+            { x: 400, y: 70, width: 20, height: 10 },
+            { x: 100, y: 10, width: 20, height: 10 },
+          ],
+        },
+      ],
+      selection,
+    );
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]?.bounds).toEqual({ x: 177, y: 87, width: 23, height: 13 });
+  });
+
+  it("gives every rectangle of a wrapped match its own id", () => {
+    const suggestions = suggestRedactionsFromWeb(
+      [{ kind: "card", preview: "4111111111111111", rects: [{ x: 110, y: 60, width: 40, height: 10 }, { x: 110, y: 80, width: 40, height: 10 }] }],
+      selection,
+    );
+    expect(new Set(suggestions.map((s) => s.id)).size).toBe(2);
   });
 });

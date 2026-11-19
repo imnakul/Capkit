@@ -584,3 +584,110 @@ export async function listenForUpdateStatus(handler: (status: UpdateStatus) => v
 export function validateSelection(value: unknown): Rect {
   return rectSchema.parse(value);
 }
+
+// ---------------------------------------------------------------------------
+// Browser link (CapKit Inspector extension)
+// ---------------------------------------------------------------------------
+
+const browserNameSchema = z.object({ name: z.string(), version: z.string() });
+
+export const browserLinkStatusSchema = z.object({
+  enabled: z.boolean(),
+  state: z.enum(["off", "listening", "error"]),
+  port: z.number().int().nullable(),
+  error: z.string().nullable(),
+  connected: z.array(browserNameSchema),
+  paired: z.array(
+    z.object({ origin: z.string(), browser: browserNameSchema, pairedAt: z.string() }),
+  ),
+});
+export type BrowserLinkStatus = z.infer<typeof browserLinkStatusSchema>;
+
+const pairingCodeSchema = z.object({ code: z.string().regex(/^\d{6}$/), expiresAt: z.string() });
+export type PairingCode = z.infer<typeof pairingCodeSchema>;
+
+const webSensitiveMatchSchema = z.object({
+  kind: z.enum(["token", "card", "email", "phone", "secret", "password"]),
+  preview: z.string(),
+  rects: z.array(rectSchema),
+});
+
+/** Sensitive text the extension found in the page, in display-local logical pixels. */
+export type WebSensitiveMatch = z.infer<typeof webSensitiveMatchSchema>;
+
+const offlineLinkStatus: BrowserLinkStatus = {
+  enabled: false,
+  state: "off",
+  port: null,
+  error: null,
+  connected: [],
+  paired: [],
+};
+
+export async function getBrowserLinkStatus(): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return offlineLinkStatus;
+  return browserLinkStatusSchema.parse(await invoke("browser_link_status"));
+}
+
+export async function setBrowserLinkEnabled(enabled: boolean): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return { ...offlineLinkStatus, enabled };
+  return browserLinkStatusSchema.parse(await invoke("browser_link_set_enabled", { enabled }));
+}
+
+export async function startBrowserPairing(): Promise<PairingCode> {
+  const raw: unknown = await invoke("browser_link_start_pairing");
+  return pairingCodeSchema.parse(raw);
+}
+
+export async function cancelBrowserPairing(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("browser_link_cancel_pairing");
+}
+
+export async function forgetBrowser(origin: string): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return offlineLinkStatus;
+  return browserLinkStatusSchema.parse(await invoke("browser_link_forget", { origin }));
+}
+
+export async function listenForBrowserLinkStatus(
+  callback: (status: BrowserLinkStatus) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen("browser-link://status", (event) => {
+    const parsed = browserLinkStatusSchema.safeParse(event.payload);
+    if (parsed.success) callback(parsed.data);
+  });
+}
+
+/**
+ * Sensitive text in the browser page behind `area` (display-local logical
+ * pixels), or null when no connected extension can answer.
+ */
+export async function findSensitiveWeb(
+  area: Rect,
+  display: Display,
+): Promise<readonly WebSensitiveMatch[] | null> {
+  if (!isTauri()) return null;
+  const scale = display.scaleFactor;
+  const raw: unknown = await invoke("find_sensitive_web", {
+    area: {
+      x: (display.bounds.x + area.x) * scale,
+      y: (display.bounds.y + area.y) * scale,
+      width: area.width * scale,
+      height: area.height * scale,
+    },
+  });
+  if (raw === null) return null;
+  return z
+    .array(webSensitiveMatchSchema)
+    .parse(raw)
+    .map((match) => ({
+      ...match,
+      rects: match.rects.map((rect) => ({
+        x: rect.x / scale - display.bounds.x,
+        y: rect.y / scale - display.bounds.y,
+        width: rect.width / scale,
+        height: rect.height / scale,
+      })),
+    }));
+}

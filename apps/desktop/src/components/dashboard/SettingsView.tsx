@@ -47,6 +47,7 @@ import {
   setStartupEnabled,
   type StartupState,
 } from "../../lib/startup";
+import { BrowserExtensionSettings } from "./BrowserExtensionSettings";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
 import { useUpdateStatus } from "./useUpdateStatus";
@@ -84,6 +85,7 @@ const settingsTabs = [
   { id: "screenshots", label: "Screenshots" },
   { id: "screen-draw", label: "Screen Draw" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "developer", label: "Developer" },
 ] as const satisfies readonly { id: SettingsTabId; label: string }[];
 
 type SettingsSectionId =
@@ -98,13 +100,15 @@ type SettingsSectionId =
   | "capture-cursor"
   | "scrolling"
   | "on-screen-toolbar"
-  | "shortcuts";
+  | "shortcuts"
+  | "browser-extension";
 
 const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
   general: ["startup", "updates", "save-location", "save-recordings", "theme-accent"],
   screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
   "screen-draw": ["on-screen-toolbar"],
   shortcuts: ["shortcuts"],
+  developer: ["browser-extension"],
 };
 
 /** Sections whose body holds a shortcut row that can be mid-recording. */
@@ -128,6 +132,7 @@ function defaultOpenSections(): Record<SettingsSectionId, boolean> {
     scrolling: false,
     "on-screen-toolbar": false,
     shortcuts: false,
+    "browser-extension": false,
   };
   for (const sections of Object.values(settingsSections)) {
     const first = sections[0];
@@ -653,6 +658,10 @@ export function SettingsView(): React.JSX.Element {
             <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
           </SettingsSection>
           </>
+        ) : activeTab === "developer" ? (
+          <SettingsSection id="browser-extension" onToggle={toggleSection} open={openSections["browser-extension"]} icon={ScanSearch} eyebrow="Developer tools" title="Browser extension" description="Pair the CapKit Inspector extension to inspect page elements and redact sensitive text exactly.">
+            <BrowserExtensionSettings />
+          </SettingsSection>
         ) : activeTab === "screen-draw" ? (
           <SettingsSection id="on-screen-toolbar" onToggle={toggleSection} open={openSections["on-screen-toolbar"]} icon={Presentation} eyebrow="Presentation" title="On-screen toolbar" description="Toggle a temporary drawing layer over the monitor under your pointer. Press the same global shortcut or Escape to leave instantly.">
             <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">

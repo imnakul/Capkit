@@ -34,6 +34,13 @@ tauri-plugin-global-shortcut = "2.3.2"
 thiserror = "2.0.18"
 uuid = { version = "1.24.0", features = ["v4", "serde"] }
 xcap = { version = "0.9.6", features = ["image", "wgc"] }
+# Browser link (localhost WebSocket for the CapKit Inspector extension). tokio is
+# already in the tree through tauri and reqwest; only its features are widened.
+tokio = { version = "1", features = ["net", "sync", "time", "macros"] }
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
+# Notes library. SQLite is compiled in, so there is no system dependency.
+rusqlite = { version = "0.43", features = ["bundled"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 drag = "=2.1.1"

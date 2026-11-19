@@ -23,6 +23,10 @@ use error::SnaphubError;
 use platform::StartupBackend;
 use platform::plugin_startup::PluginStartup;
 use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
+use services::browser_link::{
+    BrowserLinkService, BrowserLinkStatusDto, InspectResultDto, InspectTarget, PairingCodeDto,
+    SensitiveMatchDto,
+};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
@@ -618,6 +622,73 @@ async fn detect_targets(
     })
     .await
     .map_err(|error| SnaphubError::Capture(format!("Target detection worker failed: {error}")))?
+}
+
+#[tauri::command]
+fn browser_link_status(link: tauri::State<'_, BrowserLinkService>) -> BrowserLinkStatusDto {
+    link.status()
+}
+
+#[tauri::command]
+fn browser_link_set_enabled(
+    link: tauri::State<'_, BrowserLinkService>,
+    enabled: bool,
+) -> Result<BrowserLinkStatusDto, SnaphubError> {
+    link.set_enabled(enabled)
+}
+
+#[tauri::command]
+fn browser_link_start_pairing(
+    link: tauri::State<'_, BrowserLinkService>,
+) -> Result<PairingCodeDto, SnaphubError> {
+    link.start_pairing()
+}
+
+#[tauri::command]
+fn browser_link_cancel_pairing(link: tauri::State<'_, BrowserLinkService>) {
+    link.cancel_pairing();
+}
+
+#[tauri::command]
+fn browser_link_forget(
+    link: tauri::State<'_, BrowserLinkService>,
+    origin: String,
+) -> Result<BrowserLinkStatusDto, SnaphubError> {
+    link.forget(&origin)
+}
+
+/// Element details for a point or area over a browser page; `None` when the extension can't answer.
+#[tauri::command]
+async fn inspect_web_target(
+    app: AppHandle,
+    point: Option<Point>,
+    area: Option<Rect>,
+) -> Result<Option<InspectResultDto>, SnaphubError> {
+    let target = match (point, area) {
+        (Some(point), None) => InspectTarget::Point(point),
+        (None, Some(area)) => InspectTarget::Area(area),
+        _ => {
+            return Err(SnaphubError::Link("Pass either a point or an area".into()));
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<CaptureService>().inspect_web_target(target)
+    })
+    .await
+    .map_err(|error| SnaphubError::Link(format!("Inspect worker failed: {error}")))?
+}
+
+/// Sensitive text in the browser page behind `area`; `None` when the extension can't answer.
+#[tauri::command]
+async fn find_sensitive_web(
+    app: AppHandle,
+    area: Rect,
+) -> Result<Option<Vec<SensitiveMatchDto>>, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<CaptureService>().find_sensitive_web(area)
+    })
+    .await
+    .map_err(|error| SnaphubError::Link(format!("Redaction worker failed: {error}")))?
 }
 
 #[tauri::command]
@@ -2670,6 +2741,13 @@ pub fn run() {
             copy_pinned_capture,
             save_pinned_capture,
             detect_targets,
+            browser_link_status,
+            browser_link_set_enabled,
+            browser_link_start_pairing,
+            browser_link_cancel_pairing,
+            browser_link_forget,
+            inspect_web_target,
+            find_sensitive_web,
             list_targets,
             get_save_directory,
             set_save_directory,
@@ -2726,6 +2804,15 @@ pub fn run() {
             open_startup_settings
         ])
         .setup(move |app| {
+            // Developer tools: the browser link reads its settings now and listens only when on.
+            let link = BrowserLinkService::new(
+                app.handle().clone(),
+                app.path().app_config_dir()?.join("browser-link.json"),
+            );
+            app.state::<CaptureService>()
+                .set_browser_source(std::sync::Arc::new(link.clone()));
+            app.manage(link);
+
             if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")
             {

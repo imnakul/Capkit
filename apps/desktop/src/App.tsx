@@ -45,7 +45,7 @@ import {
 import { captureCursor } from "./lib/cursor";
 import { prefersReducedMotion } from "./lib/motion";
 import { eyedropperFormat } from "./lib/eyedropper";
-import { suggestRedactions } from "./lib/redactionPatterns";
+import { suggestRedactions, suggestRedactionsFromWeb } from "./lib/redactionPatterns";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
@@ -63,6 +63,7 @@ import {
   listTargets,
   listenForCaptureRequest,
   pickCaptureColor,
+  findSensitiveWeb,
   recognizeCaptureText,
   requestCapture,
   retryCaptureSave,
@@ -792,9 +793,17 @@ export function App(): React.JSX.Element {
     setCompletionState({ phase: "idle", message: "" });
     setRedactionReview({ phase: "reading" });
     try {
-      const recognized = await recognizeCaptureText(session.id, reviewedSelection);
+      // A paired browser extension knows the exact rectangles of page text; OCR
+      // is the fallback for everything else, and for any extension failure.
+      const web = await findSensitiveWeb(reviewedSelection, session.display).catch(() => null);
       if (redactionSequence.current !== sequence) return;
-      const suggestions = suggestRedactions(recognized, reviewedSelection);
+      const recognized = web === null ? await recognizeCaptureText(session.id, reviewedSelection) : null;
+      if (redactionSequence.current !== sequence) return;
+      const suggestions = web !== null
+        ? suggestRedactionsFromWeb(web, reviewedSelection)
+        : recognized === null
+          ? []
+          : suggestRedactions(recognized, reviewedSelection);
       setRedactionReview({
         phase: "ready",
         suggestions,
