@@ -30,8 +30,15 @@ import type {
   Point,
   Rect,
 } from "./domain/capture";
-import { useSnaphubSettings } from "./domain/settings";
-import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
+import { useSnaphubSettings, type CaptureToolbarToolId } from "./domain/settings";
+import {
+  chooseToolbarPlacement,
+  clampRect,
+  isUsableSelection,
+  normalizeRect,
+  toolbarPosition,
+  type ToolbarSize,
+} from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
 import { prefersReducedMotion } from "./lib/motion";
 import { eyedropperFormat } from "./lib/eyedropper";
@@ -95,6 +102,10 @@ export function App(): React.JSX.Element {
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [busy, setBusy] = useState(false);
+  const [lastToolByGroup, setLastToolByGroup] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
+  const [openGroupIndex, setOpenGroupIndex] = useState<number | null>(null);
+  const [toolbarSize, setToolbarSize] = useState<ToolbarSize>({ width: 430, height: 52 });
+  const toolbarObserver = useRef<ResizeObserver | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [exiting, setExiting] = useState(false);
   const exitTimer = useRef<number | null>(null);
@@ -167,6 +178,24 @@ export function App(): React.JSX.Element {
       });
   }, [session, settings.detection.uiRegions]);
 
+  const measureToolbar = useCallback((element: HTMLDivElement | null): void => {
+    toolbarObserver.current?.disconnect();
+    toolbarObserver.current = null;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    const update = (): void => {
+      const { offsetWidth: width, offsetHeight: height } = element;
+      if (width === 0 || height === 0) return;
+      setToolbarSize((current) => current.width === width && current.height === height ? current : { width, height });
+    };
+    update();
+    toolbarObserver.current = new ResizeObserver(update);
+    toolbarObserver.current.observe(element);
+  }, []);
+
+  const rememberGroupTool = useCallback((groupIndex: number, toolId: CaptureToolbarToolId): void => {
+    setLastToolByGroup((current) => current[groupIndex] === toolId ? current : { ...current, [groupIndex]: toolId });
+  }, []);
+
   function clearPendingMotion(): void {
     if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
     exitTimer.current = null;
@@ -178,6 +207,7 @@ export function App(): React.JSX.Element {
 
   function clearCaptureUi(): void {
     clearPendingMotion();
+    setOpenGroupIndex(null);
     setExiting(false);
     setRevealed(false);
     activationState.current = "idle";
@@ -336,8 +366,8 @@ export function App(): React.JSX.Element {
     () =>
       selection === null
         ? null
-        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null)),
-    [selection, session?.display],
+        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null), toolbarSize.height),
+    [selection, session?.display, toolbarSize.height],
   );
 
   function pointer(event: React.PointerEvent): Point {
@@ -957,6 +987,10 @@ export function App(): React.JSX.Element {
           void closeScrollingCapture();
           return;
         }
+        if (openGroupIndex !== null) {
+          setOpenGroupIndex(null);
+          return;
+        }
         requestExit();
         return;
       }
@@ -1029,6 +1063,7 @@ export function App(): React.JSX.Element {
     busy,
     completionState.phase,
     requestExit,
+    openGroupIndex,
     handleComplete,
     isDraftingSelection,
     pickColor,
@@ -1042,13 +1077,12 @@ export function App(): React.JSX.Element {
 
   const viewport = viewportBounds(session.display);
   const swatchHex = pickedSwatch !== null && pickedSwatch.message === message ? pickedSwatch.hex : null;
-  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, viewport.width - 430));
-  const toolBarY =
-    selection === null || toolbarPlacement === null
-      ? viewport.height - 68
-        : toolbarPlacement.tools === "bottom"
-          ? Math.min(viewport.height - 64, selection.y + selection.height + 10)
-          : Math.max(10, selection.y - 62);
+  const toolbarSide = toolbarPlacement?.tools ?? "bottom";
+  const toolbarSpot = selection === null
+    ? { x: 16, y: viewport.height - toolbarSize.height - 16 }
+    : toolbarPosition(selection, viewport, toolbarSide, toolbarSize);
+  const toolBarX = toolbarSpot.x;
+  const toolBarY = toolbarSpot.y;
   const actionsOnLeft =
     selection !== null && selection.x + selection.width + 62 > viewport.width;
   const actionRailX =
@@ -1174,10 +1208,16 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
+              ref={measureToolbar}
               style={{ left: toolBarX, top: toolBarY, ...exitOnlyStyle }}
             >
             <AnnotationToolbar
               activeTool={activeTool}
+              lastToolByGroup={lastToolByGroup}
+              openGroupIndex={openGroupIndex}
+              placement={toolbarSide}
+              onGroupToolUsed={rememberGroupTool}
+              onOpenGroupChange={setOpenGroupIndex}
               style={style}
               canRedo={history.future.length > 0}
               canUndo={history.past.length > 0}

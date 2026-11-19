@@ -503,6 +503,10 @@ describe("App", () => {
     );
     expect(screen.getByText("440 × 300 px")).toBeInTheDocument();
 
+    // The first Escape closes the open tool row; the next one cancels the capture.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
+    expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => {
       expect(screen.queryByRole("main")).not.toBeInTheDocument();
@@ -580,7 +584,7 @@ describe("App", () => {
   it("ignores the completion key during scrolling preview", async () => {
     render(<App />);
     await selectRegion();
-    fireEvent.pointerEnter(screen.getByRole("button", { name: "Counter group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Counter group" }));
     fireEvent.click(screen.getByRole("button", { name: "Scrolling capture" }));
     expect(await screen.findByAltText("Stitched scrolling capture preview")).toBeVisible();
 

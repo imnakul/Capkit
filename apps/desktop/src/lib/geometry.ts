@@ -58,3 +58,20 @@ export function isUsableSelection(rect: Rect): boolean {
   return rect.width >= MIN_SELECTION_SIZE && rect.height >= MIN_SELECTION_SIZE;
 }
 
+
+export type ToolbarSize = { width: number; height: number };
+
+/** Positions the editing toolbar next to the selection, fully inside the viewport. */
+export function toolbarPosition(
+  selection: Rect,
+  viewport: { width: number; height: number },
+  side: "top" | "bottom",
+  size: ToolbarSize,
+): Point {
+  const x = Math.max(16, Math.min(selection.x, viewport.width - size.width - 16));
+  const y =
+    side === "bottom"
+      ? Math.min(viewport.height - size.height - 12, selection.y + selection.height + 10)
+      : Math.max(10, selection.y - size.height - 10);
+  return { x, y: Math.max(0, y) };
+}

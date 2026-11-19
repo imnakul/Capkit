@@ -103,3 +103,9 @@ button {
     background: Highlight;
   }
 }
+
+@keyframes toolbar-row-in {
+  0% { grid-template-rows: 0fr; opacity: 0; overflow: hidden; }
+  99% { overflow: hidden; }
+  100% { grid-template-rows: 1fr; opacity: 1; }
+}

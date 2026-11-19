@@ -1,116 +1,154 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultAnnotationStyle } from "../domain/annotations";
-import { defaultSnaphubSettings } from "../domain/settings";
+import { defaultAnnotationStyle, type ToolId } from "../domain/annotations";
+import { defaultSnaphubSettings, type CaptureToolbarToolId } from "../domain/settings";
 import { AnnotationToolbar } from "./AnnotationToolbar";
+
+type HarnessProps = {
+  toolbar?: typeof defaultSnaphubSettings.toolbar;
+  initialTool?: ToolId;
+  placement?: "top" | "bottom";
+  onToolChange?: (tool: ToolId) => void;
+};
+
+/** Holds the state App.tsx owns so the toolbar can be driven like the real surface. */
+function Harness({
+  toolbar = defaultSnaphubSettings.toolbar,
+  initialTool = "select",
+  placement = "bottom",
+  onToolChange,
+}: HarnessProps): React.JSX.Element {
+  const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
+  const [last, setLast] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <AnnotationToolbar
+      activeTool={activeTool}
+      canRedo={false}
+      canUndo={false}
+      lastToolByGroup={last}
+      openGroupIndex={open}
+      palette={defaultSnaphubSettings.palette}
+      placement={placement}
+      style={defaultAnnotationStyle}
+      toolbar={toolbar}
+      onGroupToolUsed={(index, toolId) => setLast((current) => ({ ...current, [index]: toolId }))}
+      onOpenGroupChange={setOpen}
+      onRedo={() => undefined}
+      onScrollCapture={() => undefined}
+      onStyleChange={() => undefined}
+      onToolChange={(tool) => {
+        setActiveTool(tool);
+        onToolChange?.(tool);
+      }}
+      onUndo={() => undefined}
+    />
+  );
+}
+
+const individual = { ...defaultSnaphubSettings.toolbar, mode: "individual" as const };
 
 describe("AnnotationToolbar", () => {
   afterEach(() => cleanup());
 
-  it("reveals writing tools on hover without changing the selected tool", () => {
+  it("opens a group on click, not on hover, and selects its first tool", () => {
     const onToolChange = vi.fn();
-    render(
-      <AnnotationToolbar
-        activeTool="select"
-        canRedo={false}
-        canUndo={false}
-        palette={defaultSnaphubSettings.palette}
-        style={defaultAnnotationStyle}
-        toolbar={defaultSnaphubSettings.toolbar}
-        onRedo={() => undefined}
-        onScrollCapture={() => undefined}
-        onStyleChange={() => undefined}
-        onToolChange={onToolChange}
-        onUndo={() => undefined}
-      />,
-    );
+    render(<Harness onToolChange={onToolChange} />);
 
     fireEvent.pointerEnter(screen.getByRole("button", { name: "Text highlighter group" }));
-    expect(screen.getByRole("button", { name: "Pencil" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Text highlighter" })).toBeVisible();
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
     expect(onToolChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Text highlighter group" }));
+    expect(screen.getByRole("group", { name: "Tool properties" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Pencil" })).toBeVisible();
+    expect(onToolChange).toHaveBeenCalledWith("highlighter");
   });
 
-  it("renders only enabled direct tools in Individual mode", () => {
-    const toolbar = {
-      ...defaultSnaphubSettings.toolbar,
-      mode: "individual" as const,
-      individual: {
-        ...defaultSnaphubSettings.toolbar.individual,
-        pencil: false,
-      },
-    };
-    render(
-      <AnnotationToolbar
-        activeTool="select"
-        canRedo={false}
-        canUndo={false}
-        palette={defaultSnaphubSettings.palette}
-        style={defaultAnnotationStyle}
-        toolbar={toolbar}
-        onRedo={() => undefined}
-        onScrollCapture={() => undefined}
-        onStyleChange={() => undefined}
-        onToolChange={() => undefined}
-        onUndo={() => undefined}
-      />,
-    );
+  it("closes the open row when the group button is clicked again and switches rows between groups", () => {
+    render(<Harness />);
+    const first = screen.getByRole("button", { name: "Text highlighter group" });
+    fireEvent.click(first);
+    expect(screen.getByRole("group", { name: "Tool properties" })).toBeVisible();
+    fireEvent.click(first);
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
+
+    fireEvent.click(first);
+    const groups = screen.getAllByRole("button", { expanded: false });
+    const other = groups.find((button) => button !== first);
+    if (other === undefined) throw new Error("expected a second group button");
+    fireEvent.click(other);
+    expect(screen.getAllByRole("group", { name: "Tool properties" })).toHaveLength(1);
+    expect(first).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps the style row inside the same card as the tools", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Text highlighter group" }));
+    const card = screen.getByRole("toolbar", { name: "Quick editing tools" }).parentElement;
+    expect(card).toContainElement(screen.getByRole("group", { name: "Tool properties" }));
+    expect(card).toContainElement(screen.getByRole("slider", { name: "Tool size" }));
+  });
+
+  it("shows the last tool used in a group on the group button", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Text highlighter group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pencil" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.getByRole("button", { name: "Pencil group" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Text highlighter group" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pencil group" }));
+    expect(screen.getByRole("button", { name: "Pencil", pressed: true })).toBeVisible();
+  });
+
+  it("renders only enabled direct tools in Individual mode with no hover rail", () => {
+    const toolbar = { ...individual, individual: { ...individual.individual, pencil: false } };
+    render(<Harness toolbar={toolbar} />);
 
     expect(screen.getByRole("button", { name: "Rectangle" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Pencil" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select" }).querySelector("svg")).toHaveClass("text-white");
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Rectangle" }));
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
+  });
+
+  it("shows a style row in Individual mode only for tools that support style", () => {
+    render(<Harness toolbar={individual} />);
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle" }));
+    expect(screen.getByRole("group", { name: "Tool properties" })).toBeVisible();
+    expect(screen.getByRole("slider", { name: "Tool size" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
   });
 
   it("does not advertise A for the Arrow tool", () => {
-    const toolbar = {
-      ...defaultSnaphubSettings.toolbar,
-      mode: "individual" as const,
-    };
-    render(
-      <AnnotationToolbar
-        activeTool="select"
-        canRedo={false}
-        canUndo={false}
-        palette={defaultSnaphubSettings.palette}
-        style={defaultAnnotationStyle}
-        toolbar={toolbar}
-        onRedo={() => undefined}
-        onScrollCapture={() => undefined}
-        onStyleChange={() => undefined}
-        onToolChange={() => undefined}
-        onUndo={() => undefined}
-      />,
-    );
-
+    render(<Harness toolbar={individual} />);
     const arrow = screen.getByRole("button", { name: "Arrow" });
     expect(arrow.querySelector("kbd")).toBeNull();
     expect(arrow).toHaveTextContent("Arrow");
   });
 
-  it("flips the contextual rail above when the toolbar is at the bottom edge", () => {
-    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function rectForElement(this: HTMLElement): DOMRect {
-      if (this.getAttribute("aria-label") === "Quick editing tools") return new DOMRect(100, 710, 300, 48);
-      if (this.hasAttribute("data-placement")) return new DOMRect(100, 765, 340, 56);
-      return new DOMRect();
-    });
-    render(
-      <AnnotationToolbar
-        activeTool="select"
-        canRedo={false}
-        canUndo={false}
-        palette={defaultSnaphubSettings.palette}
-        style={defaultAnnotationStyle}
-        toolbar={defaultSnaphubSettings.toolbar}
-        onRedo={() => undefined}
-        onScrollCapture={() => undefined}
-        onStyleChange={() => undefined}
-        onToolChange={() => undefined}
-        onUndo={() => undefined}
-      />,
-    );
+  it("puts the style row on the far side of the selection when the toolbar sits above it", () => {
+    render(<Harness placement="top" toolbar={individual} initialTool="rectangle" />);
+    const card = screen.getByRole("toolbar", { name: "Quick editing tools" }).parentElement;
+    expect(card).toHaveClass("flex-col-reverse");
+    expect(card?.dataset.placement).toBe("top");
+  });
 
-    fireEvent.pointerEnter(screen.getByRole("button", { name: "Text highlighter group" }));
-    expect(screen.getByRole("group", { name: "Tool properties" }).parentElement).toHaveAttribute("data-placement", "top");
-    bounds.mockRestore();
+  it("keeps the tool buttons reachable by Tab before the open row", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Text highlighter group" }));
+    const buttons = screen.getAllByRole("button");
+    const toolbar = screen.getByRole("toolbar", { name: "Quick editing tools" });
+    const row = screen.getByRole("group", { name: "Tool properties" });
+    const lastTopRow = buttons.filter((button) => toolbar.contains(button)).at(-1);
+    const firstRow = buttons.find((button) => row.contains(button));
+    if (lastTopRow === undefined || firstRow === undefined) throw new Error("buttons missing");
+    expect(lastTopRow.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
