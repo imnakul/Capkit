@@ -34,27 +34,31 @@ const MAX_LAYOUT_CONTAINER_RATIO: f64 = 0.9;
 // Nested elements (a wrapper <div> around a single child) frequently share an
 // identical bounding rect; keep only one of each near-duplicate.
 const DEDUPE_TOLERANCE: f64 = 2.0;
-// Chromium/Firefox activate their full accessibility tree lazily, in response to the
-// first UIA query (WM_GETOBJECT). An immediate scan of a browser window often only
-// sees the frame chrome, so we retry briefly if too few candidates come back, and
-// the caller rescans later if the result is still thin (see `UiScan::provisional`).
+// Chromium (Chrome, Edge, Electron, WebView2) leaves a web page out of its
+// accessibility tree until an assistive tool asks for it (see `wake_web_content`).
+// The tree then fills in asynchronously, so we retry briefly if too few candidates
+// come back, and the caller rescans on later hovers while the result keeps growing
+// (see `UiScan::provisional`).
 const BROWSER_WINDOW_CLASSES: [&str; 2] = ["Chrome_WidgetWin_1", "MozillaWindowClass"];
+// The child window that hosts a Chromium web page.
+const WEB_CONTENT_CLASS: &str = "Chrome_RenderWidgetHostHWND";
 const BROWSER_SCAN_MIN_REGIONS: usize = 6;
 const BROWSER_SCAN_RETRIES: u32 = 1;
 const BROWSER_SCAN_RETRY_DELAY: Duration = Duration::from_millis(150);
 
-/// The result of one scan. A browser scan that found almost nothing is
-/// provisional: the browser was probably still building its accessibility tree,
-/// so the caller should scan again on a later hover instead of keeping it.
+/// The result of one scan. A scan of a window that shows web content is
+/// provisional: the page may still be building its accessibility tree after we
+/// asked for it, so the caller should scan again on a later hover.
 pub struct UiScan {
     pub regions: Vec<DetectedTargetDto>,
     pub provisional: bool,
 }
 
 pub fn scan_window(window_id: u32) -> Result<UiScan, SnaphubError> {
-    let browser = is_browser_window(window_id);
+    let pages = wake_web_content(window_id);
+    let browser = pages > 0 || is_browser_window(window_id);
     let regions = regions_for_window(window_id, browser)?;
-    let provisional = browser && regions.len() < BROWSER_SCAN_MIN_REGIONS;
+    let provisional = browser;
     Ok(UiScan {
         regions,
         provisional,
@@ -352,6 +356,57 @@ fn clip_rect(rect: Rect, clip: Rect) -> Option<Rect> {
         width: right - left,
         height: bottom - top,
     })
+}
+
+/// Chromium (Chrome, Edge, Electron, WebView2) only builds a web page's
+/// accessibility tree after an assistive tool asks for it. A UI Automation
+/// query on the top-level window isn't enough; the standard request
+/// (WM_GETOBJECT for the client object) sent to the page's own child window
+/// is. The tree then fills in asynchronously. Returns how many page windows
+/// were asked.
+fn wake_web_content(window_id: u32) -> usize {
+    use windows::Win32::{
+        Foundation::{LPARAM, WPARAM},
+        UI::WindowsAndMessaging::{
+            EnumChildWindows, OBJID_CLIENT, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETOBJECT,
+        },
+    };
+
+    unsafe extern "system" fn collect(child: HWND, found: LPARAM) -> windows::core::BOOL {
+        // SAFETY: `found` is the address of the Vec passed below, alive for the whole enumeration.
+        let found = unsafe { &mut *(found.0 as *mut Vec<HWND>) };
+        let mut buffer = [0u16; 64];
+        let length = unsafe { GetClassNameW(child, &mut buffer) };
+        if length > 0 && String::from_utf16_lossy(&buffer[..length as usize]) == WEB_CONTENT_CLASS {
+            found.push(child);
+        }
+        true.into()
+    }
+
+    let parent = HWND(window_id as usize as *mut c_void);
+    let mut pages: Vec<HWND> = Vec::new();
+    unsafe {
+        let _ = EnumChildWindows(
+            Some(parent),
+            Some(collect),
+            LPARAM(&mut pages as *mut Vec<HWND> as isize),
+        );
+    }
+    for page in &pages {
+        let mut result = 0usize;
+        unsafe {
+            SendMessageTimeoutW(
+                *page,
+                WM_GETOBJECT,
+                WPARAM(0),
+                LPARAM(OBJID_CLIENT.0 as isize),
+                SMTO_ABORTIFHUNG,
+                200,
+                Some(&mut result),
+            );
+        }
+    }
+    pages.len()
 }
 
 fn rects_nearly_equal(left: &Rect, right: &Rect) -> bool {

@@ -31,6 +31,12 @@ struct CachedUiRegions {
     attempts: u8,
 }
 
+/// A web page's accessibility tree fills in after we ask for it. Keep
+/// rescanning while each scan finds more than the last; stop once it settles.
+fn still_filling(provisional: bool, previous_count: Option<usize>, count: usize) -> bool {
+    provisional && previous_count.is_none_or(|previous| count > previous)
+}
+
 impl CachedUiRegions {
     fn needs_rescan(&self, now: std::time::Instant) -> bool {
         self.provisional
@@ -187,13 +193,17 @@ impl TargetDetectionBackend for XcapPlatformBackend {
                 .get(&window_id)
                 .is_none_or(|cached| cached.needs_rescan(now));
             if stale {
-                let attempts = cache.get(&window_id).map_or(0, |cached| cached.attempts);
+                let previous = cache.get(&window_id);
+                let attempts = previous.map_or(0, |cached| cached.attempts);
+                let previous_count = previous.map(|cached| cached.regions.len());
                 let scan = super::windows_ui::scan_window(window_id)?;
+                let provisional =
+                    still_filling(scan.provisional, previous_count, scan.regions.len());
                 cache.insert(
                     window_id,
                     CachedUiRegions {
                         regions: scan.regions,
-                        provisional: scan.provisional,
+                        provisional,
                         scanned_at: now,
                         attempts: attempts + 1,
                     },
@@ -352,6 +362,14 @@ mod tests {
             scanned_at,
             attempts,
         }
+    }
+
+    #[test]
+    fn keeps_rescanning_a_web_page_only_while_it_grows() {
+        assert!(still_filling(true, None, 66));
+        assert!(still_filling(true, Some(66), 250));
+        assert!(!still_filling(true, Some(250), 250));
+        assert!(!still_filling(false, None, 300));
     }
 
     #[test]
