@@ -102,6 +102,12 @@ The selected area becomes the editor. Tools appear right beside it.
 - Turn a plain screenshot into something worth posting: backgrounds, gradients and wallpapers; padding, rounded corners and shadows; browser and device frames; tilt and perspective; titles and notes.
 - Save your favourite looks as presets.
 
+### Developer tools (Provisional, off by default)
+
+- Turn on **Settings → Developer → Developer tools** to link the CapKit Inspector browser extension. Hovering a web page then highlights exact page elements, Find sensitive text marks exact rects, and the Note tool pins numbered comments with element details and a Markdown handoff for AI.
+- Load the extension: in Chrome or Aside open chrome://extensions, turn on Developer mode, choose Load unpacked, and select `apps/browser-extension/dist` (build it with `pnpm ext:build`). Then click **Pair a browser** in Settings and enter the 6-digit code in the extension popup.
+- Notes are listed in the **Notes** tab, where you can copy or drag them out.
+
 ### Private by design
 
 - Everything stays on your device. No account, sign-in, telemetry or network access is needed to capture, edit, record or export.

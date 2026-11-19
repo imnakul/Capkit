@@ -50,6 +50,14 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented, signing key pending:** In-app updates. Launch check, sidebar notice, tray item, Settings → General → Updates. The release workflow publishes the signed installer, its `.sig` and `latest.json`. Until the updater key pair exists, `tauri.conf.json` holds a placeholder public key and `release.yml` stops early.
 - **Investigated, not fixed:** The pointer that sometimes does not move over the overlay. See the implementation report in `docs/specs/enhancements-and-fixes.md`.
 
+### Browser devtools (Provisional, Phase 2)
+
+- **Implemented, awaiting manual checks:** Settings → Developer holds the "Developer tools" switch, pairing code, paired browsers and the "Get the extension" steps. The listener opens only while the switch is on.
+- **Implemented:** the extension answers hover and Find sensitive text for the window under the pointer. If it cannot answer, CapKit falls back to Windows accessibility for that one lookup, and `ui_region_at` is not called when the extension returned elements (counted in a test).
+- **Implemented:** the Note tool (shortcut N, shown only with Developer tools on) pins numbered notes. Copy, Save and Copy & save write Markdown plus a screenshot, and the Notes tab lists them. Notes commands return "Developer tools is off" when the switch is off.
+- **Implemented:** when the extension has no details, a note falls back to the hovered element's role, name and screen-pixel box.
+- **Pending:** manual checks in Aside and Chrome, and the release binary size measurement for the SQLite dependency.
+
 ### In-place annotation and completion
 
 - **Implemented:** Versioned, serializable annotation scene model with undo and redo.

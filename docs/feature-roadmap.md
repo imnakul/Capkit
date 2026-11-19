@@ -43,6 +43,8 @@ Implementation progress is tracked separately in [Current implementation status]
 
 CapKit is not intended to become a general PowerPoint replacement.
 
+**Provisional, Phase 2: Browser devtools.** An off-by-default "Developer tools" switch links the CapKit Inspector extension over a paired 127.0.0.1 WebSocket. It adds exact web element detection, exact sensitive-text redaction, a Note tool with a Markdown handoff, and a Notes library. Spec: [browser-devtools](specs/browser-devtools.md).
+
 ## Phase 3: local library
 
 The Phase 1 dashboard's on-demand view of the configured save folder is a convenience surface, not the library. It may open, delete, or route an image toward Showcase. The inert Cloud upload action was removed on 2026-07-27; sharing returns with the Phase 4 account and storage work rather than as a disabled control. Phase 3 begins when CapKit adds durable metadata and organization.

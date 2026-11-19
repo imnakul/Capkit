@@ -6,6 +6,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Added
 
+- Developer tools (off by default): link the CapKit Inspector browser extension to see exact page elements, find sensitive text precisely, and pin numbered notes on a page. Notes copy as Markdown with a screenshot and are kept in a new Notes tab.
 - CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
 - Copy any capture from the Screenshots page, and drag it straight into another app.
 - Capture toolbar groups open when you click them and remember the last tool you used in each group.
