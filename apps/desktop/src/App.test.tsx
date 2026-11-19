@@ -19,6 +19,10 @@ const captureMocks = vi.hoisted(() => ({
   requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
   showCaptureSurface: vi.fn(),
+  deliverNote: vi.fn(),
+  inspectWebTarget: vi.fn(),
+  getBrowserLinkStatus: vi.fn(),
+  canvasProps: { current: null as null | Record<string, (...args: never[]) => void> },
 }));
 
 vi.mock("./lib/tauri", async (importOriginal) => {
@@ -43,6 +47,9 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     requestCapture: captureMocks.requestCapture,
     retryCaptureSave: captureMocks.retryCaptureSave,
     showCaptureSurface: captureMocks.showCaptureSurface,
+    deliverNote: captureMocks.deliverNote,
+    inspectWebTarget: captureMocks.inspectWebTarget,
+    getBrowserLinkStatus: captureMocks.getBrowserLinkStatus,
   };
 });
 
@@ -164,7 +171,8 @@ async function selectRegion(): Promise<HTMLElement> {
 }
 
 vi.mock("./components/AnnotationCanvas", () => ({
-  AnnotationCanvas: function MockAnnotationCanvas(): React.JSX.Element {
+  AnnotationCanvas: function MockAnnotationCanvas(props: Record<string, (...args: never[]) => void>): React.JSX.Element {
+    captureMocks.canvasProps.current = props;
     return <div aria-label="Screenshot annotation canvas" role="application" />;
   },
 }));
@@ -176,6 +184,7 @@ describe("App", () => {
     captureMocks.listeners.length = 0;
     captureMocks.cancelCapture.mockResolvedValue(undefined);
     captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: false, state: "off", port: null, error: null, connected: [], paired: [] });
     captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
     captureMocks.showCaptureSurface.mockResolvedValue(undefined);
     captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
@@ -743,5 +752,116 @@ describe("App overlay motion", () => {
     useReducedMotion(false);
     render(<App />);
     await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(false));
+  });
+});
+
+describe("App notes", () => {
+  function pin(id: string, value: number): { id: string; kind: "counter"; opacity: number; position: { x: number; y: number }; value: number; color: string; radius: number } {
+    return { id, kind: "counter", opacity: 1, position: { x: 20 * value, y: 30 }, value, color: "#d9ff43", radius: 12 };
+  }
+  function place(id: string, value: number, area: { x: number; y: number; width: number; height: number } | null = null): void {
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onNotePlace as unknown as (p: unknown, a: unknown) => void)(pin(id, value), area));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    captureMocks.listeners.length = 0;
+    captureMocks.cancelCapture.mockResolvedValue(undefined);
+    captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
+    captureMocks.showCaptureSurface.mockResolvedValue(undefined);
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: true, state: "listening", port: 47811, error: null, connected: [], paired: [] });
+    captureMocks.inspectWebTarget.mockResolvedValue(null);
+    captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
+      Promise.resolve({ ...completedResult(action), outputPath: "C:/notes/shot.png" }),
+    );
+    captureMocks.deliverNote.mockResolvedValue({ copied: true, saved: "C:/notes/x", diagnostic: null });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  async function openWithNotes(): Promise<void> {
+    render(<App />);
+    await selectRegion();
+    await waitFor(() => expect(captureMocks.getBrowserLinkStatus).toHaveBeenCalled());
+  }
+
+  it("keeps a comment typed on a pin and offers the note actions", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    place("c2", 2, { x: 10, y: 10, width: 50, height: 50 });
+    expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy note" })).toBeInTheDocument();
+  });
+
+  it("renders the note image, then delivers the Markdown", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect(captureMocks.completeCapture.mock.calls.at(-1)?.[0]).toBe("note-image");
+    const request = captureMocks.deliverNote.mock.calls[0]?.[0] as { markdown: string; mode: string };
+    expect(request.mode).toBe("copy");
+    expect(request.markdown).toContain("Too tight");
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalled());
+  });
+
+  it("stays open when the note cannot be copied", async () => {
+    captureMocks.deliverNote.mockResolvedValue({ copied: false, saved: null, diagnostic: "clipboard busy" });
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+    expect((await screen.findAllByText(/Couldn.t copy the note. clipboard busy/)).length).toBeGreaterThan(0);
+    expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
+  });
+
+  it("offers Retry save when the note was copied but not saved", async () => {
+    captureMocks.deliverNote
+      .mockResolvedValueOnce({ copied: true, saved: null, diagnostic: "disk full" })
+      .mockResolvedValueOnce({ copied: true, saved: "C:/notes/x", diagnostic: null });
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: "Copy & save note" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry save" }));
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(2));
+    const retry = captureMocks.deliverNote.mock.calls[1]?.[0] as { mode: string; noteId: string };
+    const first = captureMocks.deliverNote.mock.calls[0]?.[0] as { noteId: string };
+    expect(retry.mode).toBe("save");
+    expect(retry.noteId).toBe(first.noteId);
+    expect(captureMocks.retryCaptureSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalled());
+  });
+
+  it("applies lookups to the right note when they finish out of order", async () => {
+    const first = deferred<null>();
+    const second = deferred<null>();
+    captureMocks.inspectWebTarget.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    place("c2", 2);
+    await act(() => { second.resolve(null); first.resolve(null); return Promise.resolve(); });
+    expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
+  });
+
+  it("hides the note actions and tool when Developer tools is off", async () => {
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: false, state: "off", port: null, error: null, connected: [], paired: [] });
+    await openWithNotes();
+    expect(screen.queryByRole("button", { name: "Copy note" })).not.toBeInTheDocument();
   });
 });

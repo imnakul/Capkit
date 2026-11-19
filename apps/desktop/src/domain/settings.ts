@@ -80,6 +80,7 @@ export const captureToolbarToolIds = [
   "pixelate",
   "blackout",
   "counter",
+  "note",
   "scrolling-capture",
   "undo",
   "redo",
@@ -102,6 +103,7 @@ export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
   pixelate: true,
   blackout: true,
   counter: true,
+  note: true,
   "scrolling-capture": true,
   undo: true,
   redo: true,
@@ -111,7 +113,7 @@ export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
   ["rectangle", "ellipse", "line", "arrow", "curved-arrow"],
   ["highlighter", "pencil", "text"],
   ["blur", "spotlight", "pixelate", "blackout"],
-  ["counter", "scrolling-capture"],
+  ["counter", "note", "scrolling-capture"],
   ["undo", "redo"],
 ];
 
@@ -129,6 +131,7 @@ const toolbarIndividualSchema = z.object({
   pixelate: z.boolean(),
   blackout: z.boolean(),
   counter: z.boolean(),
+  note: z.boolean().default(true),
   "scrolling-capture": z.boolean(),
   undo: z.boolean(),
   redo: z.boolean(),
@@ -143,6 +146,9 @@ export const completionActionIds = [
   "showcase",
   "copy-text",
   "find-sensitive",
+  "note-copy",
+  "note-save",
+  "note-copy-and-save",
 ] as const;
 export type CompletionActionId = (typeof completionActionIds)[number];
 
@@ -165,6 +171,9 @@ export const defaultToolbarActions: Record<CompletionActionId, CompletionActionS
   showcase: defaultActionSetting,
   "copy-text": defaultActionSetting,
   "find-sensitive": defaultActionSetting,
+  "note-copy": { enabled: true, placement: "horizontal" },
+  "note-save": { enabled: true, placement: "horizontal" },
+  "note-copy-and-save": { enabled: true, placement: "horizontal" },
 };
 
 const toolbarActionsSchema = z.object({
@@ -175,6 +184,11 @@ const toolbarActionsSchema = z.object({
   showcase: completionActionSettingSchema.default(defaultActionSetting),
   "copy-text": completionActionSettingSchema.default(defaultActionSetting),
   "find-sensitive": completionActionSettingSchema.default(defaultActionSetting),
+  "note-copy": completionActionSettingSchema.default(defaultToolbarActions["note-copy"]),
+  "note-save": completionActionSettingSchema.default(defaultToolbarActions["note-save"]),
+  "note-copy-and-save": completionActionSettingSchema.default(
+    defaultToolbarActions["note-copy-and-save"],
+  ),
 });
 
 export const snaphubSettingsSchema = z.object({

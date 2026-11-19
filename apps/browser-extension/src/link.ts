@@ -9,7 +9,7 @@ import {
 import type { LinkStatus } from "./messages";
 
 export const PING_INTERVAL_MS = 20_000;
-export const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
+export const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
 export type SocketLike = {
   onopen: ((event: Event) => void) | null;

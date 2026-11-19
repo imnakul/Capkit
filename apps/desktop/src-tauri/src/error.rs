@@ -28,6 +28,8 @@ pub enum SnaphubError {
     Update(String),
     #[error("SH-LINK-001: {0}")]
     Link(String),
+    #[error("SH-NOTES-001: {0}")]
+    Notes(String),
 }
 
 impl SnaphubError {

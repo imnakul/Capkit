@@ -61,6 +61,7 @@ export const completionActionSchema = z.enum([
   "save",
   "save-as",
   "pin",
+  "note-image",
 ]);
 export type CompletionAction = z.infer<typeof completionActionSchema>;
 

@@ -11,6 +11,7 @@ import {
   RedactionReviewPanel,
   type RedactionReview,
 } from "./components/RedactionReviewPanel";
+import { NotePopover } from "./components/NotePopover";
 import { SelectionFrame, type ResizeHandle } from "./components/SelectionFrame";
 import { TargetHighlight } from "./components/TargetHighlight";
 import {
@@ -18,11 +19,19 @@ import {
   type ScrollingCaptureState,
 } from "./components/ScrollingCapturePanel";
 import {
+  buildCaptureNote,
+  noteSummary,
+  notesReducer,
+  type CaptureNote,
+  type NoteLookupStatus,
+} from "./domain/notes";
+import {
   defaultAnnotationStyle,
   initialSceneHistory,
   sceneHistoryReducer,
   type Annotation,
   type AnnotationStyle,
+  type CounterAnnotation,
   type ToolId,
 } from "./domain/annotations";
 import type {
@@ -58,7 +67,10 @@ import {
   detectTargets,
   dismissCapture,
   discardScrollingOutput,
+  deliverNote,
   describeInvokeError,
+  getBrowserLinkStatus,
+  inspectWebTarget,
   isTextRecognitionSupported,
   listTargets,
   listenForCaptureRequest,
@@ -68,6 +80,7 @@ import {
   requestCapture,
   retryCaptureSave,
   showCaptureSurface,
+  type NoteDeliveryMode,
 } from "./lib/tauri";
 
 type Interaction =
@@ -105,6 +118,12 @@ export function App(): React.JSX.Element {
   const [activeTool, setActiveTool] = useState<ToolId>("select");
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
+  const [notes, dispatchNotes] = useReducer(notesReducer, []);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [lookups, setLookups] = useState<Readonly<Record<string, NoteLookupStatus>>>({});
+  const [developerTools, setDeveloperTools] = useState(false);
+  const noteRetry = useRef<{ noteId: string; request: Parameters<typeof deliverNote>[0] } | null>(null);
+  const lastHoverTitle = useRef<string | null>(null);
   const drawingOrigin = useRef<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastToolByGroup, setLastToolByGroup] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
@@ -224,6 +243,10 @@ export function App(): React.JSX.Element {
     setBusy(false);
     setCompletionState({ phase: "idle", message: "" });
     dispatchScene({ type: "reset" });
+    dispatchNotes({ type: "reset" });
+    setEditingNoteId(null);
+    setLookups({});
+    noteRetry.current = null;
   }
 
   const startSession = useCallback(async (): Promise<void> => {
@@ -260,7 +283,15 @@ export function App(): React.JSX.Element {
           strokeWidth: settingsRef.current.annotation.defaultSize,
         });
         dispatchScene({ type: "reset" });
+        dispatchNotes({ type: "reset" });
+        setEditingNoteId(null);
+        setLookups({});
+        noteRetry.current = null;
       });
+      // Read once per session: the Note tool follows the Developer tools switch.
+      void getBrowserLinkStatus()
+        .then((status) => setDeveloperTools(status.enabled))
+        .catch(() => setDeveloperTools(false));
       setMessage("Hover to preview targets / drag to draw a rectangle / I copies a colour");
       let readyTimeout: number | undefined;
       await Promise.race([
@@ -554,6 +585,59 @@ export function App(): React.JSX.Element {
     dispatchScene({ type: "add", annotation });
   }
 
+  // A note lives only while its pin is in the scene, so undo removes it and redo restores it.
+  const activeNotes = useMemo(() => {
+    const counterIds = new Set(
+      history.present.elements.filter((element) => element.kind === "counter").map((element) => element.id),
+    );
+    return notes.filter((note) => counterIds.has(note.counterId));
+  }, [history.present.elements, notes]);
+
+  useEffect(() => {
+    if (hoverTarget !== null) lastHoverTitle.current = hoverTarget.title;
+  }, [hoverTarget]);
+
+  function placeNote(pin: CounterAnnotation, area: Rect | null): void {
+    if (session === null || selection === null) return;
+    const id = crypto.randomUUID();
+    const sessionId = session.id;
+    const fallbackName = lastHoverTitle.current;
+    const fallback = fallbackName === null ? null : { role: "element", name: fallbackName };
+    dispatchScene({ type: "add", annotation: pin });
+    dispatchNotes({
+      type: "add",
+      note: { id, counterId: pin.id, number: pin.value, anchor: pin.position, area, comment: "", detail: null, fallback },
+    });
+    setEditingNoteId(id);
+    setLookups((current) => ({ ...current, [id]: "pending" }));
+    const target = area === null
+      ? { point: { x: selection.x + pin.position.x, y: selection.y + pin.position.y } }
+      : { area: { x: selection.x + area.x, y: selection.y + area.y, width: area.width, height: area.height } };
+    inspectWebTarget(target, session.display)
+      .then((detail) => {
+        if (activeSessionId.current !== sessionId) return;
+        dispatchNotes({ type: "lookup", id, detail, fallback: detail === null ? fallback : null });
+        setLookups((current) => ({
+          ...current,
+          [id]: detail === null ? { failed: "no browser extension answered" } : "done",
+        }));
+      })
+      .catch((error: unknown) => {
+        if (activeSessionId.current !== sessionId) return;
+        dispatchNotes({ type: "lookup", id, detail: null, fallback });
+        setLookups((current) => ({
+          ...current,
+          [id]: { failed: describeInvokeError(error, "the lookup failed") },
+        }));
+      });
+  }
+
+  function discardNote(note: CaptureNote): void {
+    dispatchScene({ type: "delete", annotationId: note.counterId });
+    dispatchNotes({ type: "remove", id: note.id });
+    setEditingNoteId(null);
+  }
+
   async function runScrollingCapture(
     mode: "automatic" | "manual-start" | "manual-add",
   ): Promise<void> {
@@ -728,6 +812,83 @@ export function App(): React.JSX.Element {
     [busy, completionState.phase, history.present, scrollingCapture, selection, session],
   );
 
+  const handleNoteComplete = useCallback(
+    async (mode: NoteDeliveryMode): Promise<void> => {
+      if (
+        session === null
+        || selection === null
+        || busy
+        || scrollingCapture !== null
+        || completionState.phase !== "idle"
+        || completionInFlight.current
+        || activeNotes.length === 0
+      ) return;
+      const sessionId = session.id;
+      const generation = sessionGeneration.current;
+      const isStale = (): boolean =>
+        activeSessionId.current !== sessionId || sessionGeneration.current !== generation;
+      const pendingMessage = mode === "copy"
+        ? "Copying note…"
+        : mode === "save"
+          ? "Saving note…"
+          : "Copying & saving note…";
+      completionInFlight.current = true;
+      setEditingNoteId(null);
+      setCompletionState({ phase: "working", message: pendingMessage });
+      setMessage(pendingMessage);
+      try {
+        const noteId = crypto.randomUUID();
+        const image = await completeCapture("note-image", sessionId, selection, history.present, noteId);
+        if (isStale()) return;
+        if (image.outputPath === null) throw new Error("The note screenshot was not written");
+        const built = buildCaptureNote(activeNotes, image.outputPath, new Date());
+        const request = {
+          noteId,
+          markdown: built.markdown,
+          pageUrl: built.pageUrl,
+          pageTitle: built.pageTitle,
+          pinCount: built.pinCount,
+          detail: built.detail,
+          mode,
+        };
+        const delivery = await deliverNote(request);
+        if (isStale()) return;
+        const diagnostic = delivery.diagnostic ?? "The native service did not return a diagnostic";
+        const fail = (text: string): void => {
+          const failure = text + " " + diagnostic;
+          setCompletionState({ phase: "idle", message: failure });
+          setMessage(failure);
+        };
+        if (mode !== "save" && !delivery.copied) {
+          fail("Couldn't copy the note.");
+          return;
+        }
+        if (mode !== "copy" && delivery.saved === null) {
+          if (mode === "save") {
+            fail("Couldn't save the note.");
+            return;
+          }
+          noteRetry.current = { noteId, request };
+          setCompletionState({ phase: "save-pending", diagnostic });
+          setMessage("Note copied, but not saved. " + diagnostic);
+          return;
+        }
+        setMessage(mode === "copy" ? "Note copied" : mode === "save" ? "Note saved" : "Note copied and saved");
+        await cancelCapture(sessionId, prefersReducedMotion()).catch(async () => dismissCapture());
+        clearCaptureUi();
+      } catch (error: unknown) {
+        if (!isStale()) {
+          const failure = "Could not complete the note. " + describeInvokeError(error, "The native service did not return a diagnostic");
+          setCompletionState({ phase: "idle", message: failure });
+          setMessage(failure);
+        }
+      } finally {
+        if (sessionGeneration.current === generation) completionInFlight.current = false;
+      }
+    },
+    [activeNotes, busy, completionState.phase, history.present, scrollingCapture, selection, session],
+  );
+
   const handleCopyText = useCallback(async (): Promise<void> => {
     if (
       session === null
@@ -873,6 +1034,25 @@ export function App(): React.JSX.Element {
     setCompletionState({ phase: "working", message: "Saving…" });
     setMessage("Saving…");
     try {
+      const noteRetryState = noteRetry.current;
+      if (noteRetryState !== null) {
+        const delivery = await deliverNote({ ...noteRetryState.request, mode: "save" });
+        if (
+          activeSessionId.current !== sessionId
+          || sessionGeneration.current !== generation
+        ) return;
+        if (delivery.saved === null) {
+          const diagnostic = delivery.diagnostic ?? "The native service did not return a diagnostic";
+          setCompletionState({ phase: "save-pending", diagnostic });
+          setMessage("Note copied, but not saved. " + diagnostic);
+          return;
+        }
+        noteRetry.current = null;
+        setMessage("Note copied and saved");
+        await cancelCapture(sessionId, prefersReducedMotion()).catch(async () => dismissCapture());
+        clearCaptureUi();
+        return;
+      }
       const result = await retryCaptureSave(sessionId);
       if (
         activeSessionId.current !== sessionId
@@ -956,6 +1136,8 @@ export function App(): React.JSX.Element {
       // the capture phase before a focused control or WebView handler can consume
       // it, including while the user is still hovering before making a selection.
       if (event.key === "Escape") {
+        // The note popover owns Esc while it is open.
+        if (editingNoteId !== null) return;
         event.preventDefault();
         event.stopPropagation();
         if (scrollingCapture !== null) {
@@ -1015,6 +1197,9 @@ export function App(): React.JSX.Element {
       ) {
         event.preventDefault();
         void handleComplete("save");
+      } else if (selectedCompletionReady && developerTools && hasNoModifiers && key === "N") {
+        event.preventDefault();
+        setActiveTool("note");
       } else if (selectedCompletionReady && event.key === "Enter") {
         event.preventDefault();
         void handleComplete("copy");
@@ -1037,6 +1222,8 @@ export function App(): React.JSX.Element {
   }, [
     busy,
     completionState.phase,
+    developerTools,
+    editingNoteId,
     requestExit,
     openGroupIndex,
     handleComplete,
@@ -1078,17 +1265,32 @@ export function App(): React.JSX.Element {
     saveShortcut: settings.shortcuts.captureModeSave,
     disabled: completionState.phase !== "idle",
     canReadText,
+    hasNotes: developerTools && activeNotes.length > 0,
     onAction: (id: CompletionActionId): void => {
-      if (id === "showcase") void handleComplete("save", "showcase");
+      if (id === "note-copy") void handleNoteComplete("copy");
+      else if (id === "note-save") void handleNoteComplete("save");
+      else if (id === "note-copy-and-save") void handleNoteComplete("copy-and-save");
+      else if (id === "showcase") void handleComplete("save", "showcase");
       else if (id === "copy-text") void handleCopyText();
       else if (id === "find-sensitive") void findSensitiveText();
       else void handleComplete(id);
     },
   };
+  // The Note tool needs Developer tools, so it is hidden from every toolbar layout without it.
+  const toolbar = developerTools
+    ? settings.toolbar
+    : {
+      ...settings.toolbar,
+      groups: settings.toolbar.groups
+        .map((group) => group.filter((toolId) => toolId !== "note"))
+        .filter((group) => group.length > 0),
+      individual: { ...settings.toolbar.individual, note: false },
+      verticalTools: settings.toolbar.verticalTools.filter((toolId) => toolId !== "note"),
+    };
   const horizontalActionItems = completionRailItems(settings.toolbar.actions, "horizontal", completionHandlers);
   const railToolItems: RailItem[] = settings.toolbar.mode === "individual"
-    ? settings.toolbar.verticalTools
-      .filter((toolId) => settings.toolbar.individual[toolId])
+    ? toolbar.verticalTools
+      .filter((toolId) => toolbar.individual[toolId])
       .map((toolId) => {
         const tool = getToolbarTool(toolId);
         return {
@@ -1171,10 +1373,29 @@ export function App(): React.JSX.Element {
             scene={history.present}
             snapshotUrl={session.snapshotUrl}
             style={style}
+            noteColor={settings.accentColor}
             onCommit={handleAnnotation}
+            onNotePlace={placeNote}
+            onPinSelect={(annotationId) => {
+              const pinned = activeNotes.find((note) => note.counterId === annotationId);
+              if (pinned !== undefined) setEditingNoteId(pinned.id);
+            }}
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
           />
+          {activeNotes.filter((note) => note.id === editingNoteId).map((note) => (
+            <NotePopover
+              anchor={note.anchor}
+              comment={note.comment}
+              container={{ width: selection.width, height: selection.height }}
+              key={note.id}
+              number={note.number}
+              summary={noteSummary(note, lookups[note.id])}
+              onChange={(comment) => dispatchNotes({ type: "comment", id: note.id, comment })}
+              onClose={() => setEditingNoteId(null)}
+              onDiscard={() => discardNote(note)}
+            />
+          ))}
           {redactionReview === null ? null : <RedactionPreview review={redactionReview} />}
           {completionState.phase === "idle" ? null : (
             <div
@@ -1205,7 +1426,7 @@ export function App(): React.JSX.Element {
               canRedo={history.future.length > 0}
               canUndo={history.past.length > 0}
               palette={settings.palette}
-              toolbar={settings.toolbar}
+              toolbar={toolbar}
               onRedo={() => dispatchScene({ type: "redo" })}
               onScrollCapture={startScrollingCapture}
               onStyleChange={setStyle}

@@ -101,6 +101,7 @@ pub struct CaptureService {
     pinning: Arc<dyn PinnedWindowBackend>,
     text_recognition: Arc<dyn TextRecognitionBackend>,
     browser: OnceLock<Arc<dyn BrowserElementSource>>,
+    notes_images: OnceLock<PathBuf>,
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
@@ -147,6 +148,7 @@ impl CaptureService {
             text_recognition: backend.clone(),
             pinning: backend,
             browser: OnceLock::new(),
+            notes_images: OnceLock::new(),
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
             save_directory: Mutex::new(save_directory),
@@ -162,6 +164,12 @@ impl CaptureService {
     /// Set once, after the app handle exists. Later calls are ignored.
     pub fn set_browser_source(&self, source: Arc<dyn BrowserElementSource>) {
         let _ = self.browser.set(source);
+    }
+
+    /// Where `note-image` completions write their screenshots (`<notes>/images`).
+    /// Set once; later calls are ignored.
+    pub fn set_notes_images_directory(&self, directory: PathBuf) {
+        let _ = self.notes_images.set(directory);
     }
 
     /// The browser page under `point` and the connected source, when both exist.
@@ -288,11 +296,12 @@ impl CaptureService {
                 Ok(None)
             }
             CompletionAction::Save => Ok(Some(self.save_new_image(&captured.image)?)),
-            CompletionAction::CopyAndSave | CompletionAction::SaveAs | CompletionAction::Pin => {
-                Err(SnaphubError::Capture(
-                    "This completion action requires the capture surface".into(),
-                ))
-            }
+            CompletionAction::CopyAndSave
+            | CompletionAction::SaveAs
+            | CompletionAction::Pin
+            | CompletionAction::NoteImage => Err(SnaphubError::Capture(
+                "This completion action requires the capture surface".into(),
+            )),
         }
     }
 
@@ -361,6 +370,19 @@ impl CaptureService {
                     }
                 }
             }
+            CompletionAction::NoteImage => {
+                // The session stays open so the note can still be retried or
+                // the capture finished another way.
+                let result = self.write_note_image(request, &output);
+                self.finish_operation(&work.output, SessionOutputState::Idle);
+                return result.map(|path| CompletionResult {
+                    action: request.action,
+                    output_path: Some(path.to_string_lossy().into_owned()),
+                    status: CompletionStatus::Completed,
+                    diagnostic: None,
+                    cleanup_warning: None,
+                });
+            }
             CompletionAction::Pin => {
                 if !self.pinning.is_supported() {
                     self.finish_operation(&work.output, SessionOutputState::Idle);
@@ -390,6 +412,37 @@ impl CaptureService {
             diagnostic: None,
             cleanup_warning: None,
         })
+    }
+
+    /// Writes `<notes>/images/<note id>.png` via a temporary file so a crash never
+    /// leaves a half-written screenshot under a note's name.
+    fn write_note_image(
+        &self,
+        request: &CompletionRequest,
+        output: &RgbaImage,
+    ) -> Result<PathBuf, SnaphubError> {
+        let note_id = request
+            .note_id
+            .as_deref()
+            .filter(|id| {
+                Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == *id)
+            })
+            .ok_or_else(|| SnaphubError::Notes("A note needs a valid id".into()))?;
+        let directory = self
+            .notes_images
+            .get()
+            .ok_or_else(|| SnaphubError::Notes("The notes folder is not ready".into()))?;
+        fs::create_dir_all(directory).map_err(SnaphubError::export)?;
+        let path = directory.join(format!("{note_id}.png"));
+        let temporary = directory.join(format!("{note_id}.png.tmp"));
+        output
+            .save_with_format(&temporary, image::ImageFormat::Png)
+            .map_err(SnaphubError::export)?;
+        fs::rename(&temporary, &path).map_err(|error| {
+            let _ = fs::remove_file(&temporary);
+            SnaphubError::export(error)
+        })?;
+        Ok(path)
     }
 
     pub fn retry_save(&self, session_id: &str) -> Result<CompletionResult, SnaphubError> {
@@ -703,6 +756,11 @@ impl CaptureService {
             let _ = fs::remove_file(path);
         }
         Ok(())
+    }
+
+    /// Puts plain text on the clipboard (a note's Markdown).
+    pub fn copy_plain_text(&self, text: &str) -> Result<(), SnaphubError> {
+        self.clipboard.copy_text(text)
     }
 
     pub fn copy_image_path(&self, path: &Path) -> Result<(), SnaphubError> {
@@ -1918,6 +1976,7 @@ mod tests {
                     intensity: 1.0,
                 }],
             },
+            note_id: None,
         }
     }
 
@@ -2362,6 +2421,60 @@ mod tests {
         assert_eq!(operation_log(&service), ["render", "clipboard", "save"]);
         assert!(!has_partial_file(&directory.0));
         service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn note_image_renders_into_the_notes_folder_and_keeps_the_session_open() {
+        let directory = TestDirectory::new("note-image");
+        let images = directory.0.join("notes").join("images");
+        let backend = Arc::new(FakeBackend::new());
+        let service =
+            CaptureService::with_save_directory(backend.clone(), directory.0.join("saves"));
+        service.set_notes_images_directory(images.clone());
+        let session_id = begin_session(&service);
+        let note_id = Uuid::new_v4().to_string();
+        let mut request = request_for(&session_id);
+        request.action = CompletionAction::NoteImage;
+        request.note_id = Some(note_id.clone());
+
+        let result = service
+            .complete(&request)
+            .expect("note image should render");
+
+        assert!(matches!(result.action, CompletionAction::NoteImage));
+        assert!(matches!(result.status, CompletionStatus::Completed));
+        let path = images.join(format!("{note_id}.png"));
+        assert_eq!(result.output_path.as_deref(), path.to_str());
+        let saved = image::open(&path).expect("PNG should decode").into_rgba8();
+        assert_eq!(saved.dimensions(), (10, 10));
+        assert_eq!(saved.get_pixel(4, 4), &Rgba([8, 9, 8, 255]));
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 0);
+        assert!(!images.join(format!("{note_id}.png.tmp")).exists());
+        assert!(png_files(&directory.0.join("saves")).is_empty());
+
+        // The session is still open, so the same capture can be completed again.
+        request.action = CompletionAction::Copy;
+        service
+            .complete(&request)
+            .expect("session stays open after a note image");
+        service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn note_image_rejects_a_missing_or_malformed_note_id() {
+        let directory = TestDirectory::new("note-image-bad");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend, directory.0.join("saves"));
+        service.set_notes_images_directory(directory.0.join("images"));
+        let session_id = begin_session(&service);
+        let mut request = request_for(&session_id);
+        request.action = CompletionAction::NoteImage;
+
+        assert!(service.complete(&request).is_err());
+        request.note_id = Some("../escape".into());
+        assert!(service.complete(&request).is_err());
+        assert!(!directory.0.join("images").exists());
+        service.cancel(&session_id).unwrap();
     }
 
     #[test]

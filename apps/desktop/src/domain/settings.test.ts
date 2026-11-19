@@ -201,8 +201,8 @@ describe("toolbar placement", () => {
     );
     const parsed = snaphubSettingsSchema.parse({ ...defaultSnaphubSettings, toolbar: olderToolbar });
     expect(parsed.toolbar.verticalTools).toEqual([]);
-    expect(Object.values(parsed.toolbar.actions)).toHaveLength(7);
-    expect(Object.values(parsed.toolbar.actions).every((action) => action.enabled && action.placement === "vertical")).toBe(true);
+    expect(Object.values(parsed.toolbar.actions)).toHaveLength(10);
+    expect(Object.entries(parsed.toolbar.actions).every(([id, action]) => action.enabled && action.placement === (id.startsWith("note-") ? "horizontal" : "vertical"))).toBe(true);
   });
 
   it("fills in an action added after the settings were saved", () => {

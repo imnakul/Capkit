@@ -12,6 +12,7 @@ export type ToolId =
   | "pencil"
   | "spotlight"
   | "counter"
+  | "note"
   | "blur"
   | "pixelate"
   | "blackout"

@@ -2,6 +2,7 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
+import { cssViewportSchema, elementDetailsSchema } from "@snaphub/devtools-protocol/protocol";
 import type { AnnotationScene } from "../domain/annotations";
 import type { SnaphubSettings } from "../domain/settings";
 import { updateStatusSchema, type UpdateStatus } from "../domain/updates";
@@ -168,13 +169,14 @@ export async function completeCapture(
   sessionId: string,
   selection: Rect,
   scene: AnnotationScene,
+  noteId?: string,
 ): Promise<CompletionResult> {
   if (!isTauri()) {
     return createDemoCompletionResult(action);
   }
 
   const raw: unknown = await invoke("complete_capture", {
-    request: { action, sessionId, selection, scene },
+    request: { action, sessionId, selection, scene, noteId },
   });
   return completionResultSchema.parse(raw);
 }
@@ -690,4 +692,128 @@ export async function findSensitiveWeb(
         height: rect.height / scale,
       })),
     }));
+}
+
+const inspectResultSchema = z.object({
+  tab: z.object({ url: z.string(), title: z.string() }).nullable(),
+  cssViewport: cssViewportSchema.nullable(),
+  elements: z.array(elementDetailsSchema),
+});
+
+/** Element details from the connected browser extension for a point or area. */
+export type InspectResult = z.infer<typeof inspectResultSchema>;
+
+/**
+ * Asks the connected extension about the page behind a display-local point or
+ * area (logical pixels). Null when no extension can answer.
+ */
+export async function inspectWebTarget(
+  target: { point: Point } | { area: Rect },
+  display: Display,
+): Promise<InspectResult | null> {
+  if (!isTauri()) return null;
+  const scale = display.scaleFactor;
+  const toPhysicalPoint = (point: Point): Point => ({
+    x: (display.bounds.x + point.x) * scale,
+    y: (display.bounds.y + point.y) * scale,
+  });
+  const raw: unknown = await invoke(
+    "inspect_web_target",
+    "point" in target
+      ? { point: toPhysicalPoint(target.point), area: null }
+      : {
+          point: null,
+          area: {
+            ...toPhysicalPoint(target.area),
+            width: target.area.width * scale,
+            height: target.area.height * scale,
+          },
+        },
+  );
+  if (raw === null) return null;
+  return inspectResultSchema.parse(raw);
+}
+
+const noteDetailSchema = z.enum(["extension", "accessibility", "none"]);
+
+export const noteSummarySchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  pageUrl: z.string().nullable(),
+  pageTitle: z.string().nullable(),
+  imagePath: z.string(),
+  pinCount: z.number().int(),
+  detail: noteDetailSchema,
+  firstComment: z.string().nullable(),
+});
+export type NoteSummary = z.infer<typeof noteSummarySchema> & { imageUrl: string };
+
+export type NoteDeliveryMode = "copy" | "save" | "copy-and-save";
+
+export type NoteDeliveryRequest = {
+  noteId: string;
+  markdown: string;
+  pageUrl: string | null;
+  pageTitle: string | null;
+  pinCount: number;
+  detail: z.infer<typeof noteDetailSchema>;
+  mode: NoteDeliveryMode;
+};
+
+const deliverySchema = z.object({
+  copied: z.boolean(),
+  saved: noteSummarySchema.nullable(),
+  diagnostic: z.string().nullable(),
+});
+export type NoteDelivery = z.infer<typeof deliverySchema>;
+
+const withImageUrl = (note: z.infer<typeof noteSummarySchema>): NoteSummary => ({
+  ...note,
+  imageUrl: convertFileSrc(note.imagePath),
+});
+
+export async function deliverNote(request: NoteDeliveryRequest): Promise<NoteDelivery> {
+  if (!isTauri()) return { copied: true, saved: null, diagnostic: null };
+  const raw: unknown = await invoke("deliver_note", { request });
+  return deliverySchema.parse(raw);
+}
+
+export async function listNotes(
+  query: string,
+  limit: number,
+  offset: number,
+): Promise<readonly NoteSummary[]> {
+  if (!isTauri()) return [];
+  const raw: unknown = await invoke("notes_list", {
+    query: query === "" ? null : query,
+    limit,
+    offset,
+  });
+  return z.array(noteSummarySchema).parse(raw).map(withImageUrl);
+}
+
+export async function copyNote(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_copy", { id });
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_delete", { id });
+}
+
+export async function cleanupUnsavedNotes(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_cleanup_unsaved");
+}
+
+export async function openNoteUrl(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_open_url", { id });
+}
+
+/** Starts a native file drag of the note's Markdown; call synchronously from a pointer move. */
+export async function startNoteDrag(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_start_drag", { id });
 }

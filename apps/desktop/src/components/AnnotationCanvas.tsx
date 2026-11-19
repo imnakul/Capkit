@@ -4,6 +4,7 @@ import type {
   Annotation,
   AnnotationScene,
   AnnotationStyle,
+  CounterAnnotation,
   RegionAnnotation,
   ToolId,
 } from "../domain/annotations";
@@ -57,7 +58,16 @@ type AnnotationCanvasProps = {
   onCommit: (annotation: Annotation) => void;
   onUpdate: (annotation: Annotation) => void;
   onDelete: (annotationId: string) => void;
+  /** Pin colour for the Note tool (the accent colour). */
+  noteColor?: string;
+  /** A note was placed: its pin, and the dragged area (null for a point note). */
+  onNotePlace?: (pin: CounterAnnotation, area: CaptureRect | null) => void;
+  /** Select picked a counter pin; the app reopens its note when it has one. */
+  onPinSelect?: (annotationId: string) => void;
 };
+
+/** A press that moves less than this (px) places a point note; further drags an area note. */
+const noteAreaThreshold = 6;
 
 type Draft = { id: string; start: Point; end: Point; points: readonly Point[] };
 
@@ -71,6 +81,9 @@ export function AnnotationCanvas({
   onCommit,
   onUpdate,
   onDelete,
+  noteColor = "#d9ff43",
+  onNotePlace,
+  onPinSelect,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -93,8 +106,20 @@ export function AnnotationCanvas({
 
   const preview = useMemo<Annotation | null>(() => {
     if (draft === null) return null;
+    if (activeTool === "note") {
+      if (Math.hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) < noteAreaThreshold) return null;
+      return {
+        id: draft.id,
+        kind: "rectangle",
+        bounds: normalizeRect(draft.start, draft.end),
+        color: noteColor,
+        fill: "transparent",
+        strokeWidth: 2,
+        opacity: 1,
+      };
+    }
     return createAnnotation(activeTool, draft.start, draft.end, style, scene, draft.id, draft.points);
-  }, [activeTool, draft, scene, style]);
+  }, [activeTool, draft, noteColor, scene, style]);
 
   function relativePoint(event: React.PointerEvent<HTMLDivElement>): Point {
     const host = containerRef.current?.getBoundingClientRect();
@@ -123,6 +148,7 @@ export function AnnotationCanvas({
     if (activeTool === "select") {
       const hit = findAnnotationAtPoint(scene.elements, point);
       setSelectedAnnotationId(hit?.id ?? null);
+      if (hit?.kind === "counter") onPinSelect?.(hit.id);
       // Leave empty-space presses available to SelectionFrame so the capture
       // region itself can still be moved while Select is active.
       if (hit === undefined) return;
@@ -222,6 +248,31 @@ export function AnnotationCanvas({
     const current = draftRef.current;
     if (current === null) return;
     clearDraftFrame();
+    if (activeTool === "note") {
+      const end = relativePoint(event);
+      draftRef.current = null;
+      setDraft(null);
+      const isArea = Math.hypot(end.x - current.start.x, end.y - current.start.y) >= noteAreaThreshold;
+      const area = isArea ? normalizeRect(current.start, end) : null;
+      const anchor = area === null ? current.start : { x: area.x, y: area.y };
+      const highest = scene.elements.reduce(
+        (value, element) => (element.kind === "counter" ? Math.max(value, element.value) : value),
+        0,
+      );
+      onNotePlace?.(
+        {
+          id: crypto.randomUUID(),
+          kind: "counter",
+          position: anchor,
+          value: highest + 1,
+          color: noteColor,
+          radius: Math.max(12, style.strokeWidth * 3),
+          opacity: 1,
+        },
+        area,
+      );
+      return;
+    }
     const annotation = createAnnotation(
       activeTool,
       current.start,
@@ -733,6 +784,7 @@ function createAnnotation(
         radius: Math.max(12, style.strokeWidth * 3),
         opacity,
       };
+    case "note":
     case "select":
       return null;
   }

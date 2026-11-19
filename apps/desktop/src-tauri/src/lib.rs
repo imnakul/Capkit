@@ -28,6 +28,7 @@ use services::browser_link::{
     SensitiveMatchDto,
 };
 use services::capture::CaptureService;
+use services::notes::{DeliverNoteRequest, DeliveryDto, NoteSummaryDto, NotesStore};
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
 use services::updates::{
@@ -403,7 +404,11 @@ async fn complete_capture(
     .map_err(|error| {
         SnaphubError::Capture(format!("Capture completion worker failed: {error}"))
     })??;
-    if matches!(result.status, CompletionStatus::SavePending) {
+    // A note image only stores the screenshot. The overlay closes after the
+    // note itself is delivered, so the window and session stay as they are.
+    if matches!(result.status, CompletionStatus::SavePending)
+        || matches!(action, CompletionAction::NoteImage)
+    {
         return Ok(result);
     }
     if matches!(
@@ -809,6 +814,134 @@ fn start_saved_capture_drag(
     }
 }
 
+/// Copies and/or saves a note's Markdown. Called from the capture overlay after
+/// the note's screenshot was written with the `note-image` completion.
+#[tauri::command]
+async fn deliver_note(
+    window: WebviewWindow,
+    app: AppHandle,
+    request: DeliverNoteRequest,
+) -> Result<DeliveryDto, SnaphubError> {
+    ensure_capture_window(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let outcome = services::notes::deliver(
+            &app.state::<NotesStore>(),
+            |text| app.state::<CaptureService>().copy_plain_text(text),
+            &request,
+        );
+        // Closing the overlay is the frontend's call, once it has seen the outcome.
+        Ok(outcome)
+    })
+    .await
+    .map_err(|error| SnaphubError::Notes(format!("Note worker failed: {error}")))?
+}
+
+#[tauri::command]
+async fn notes_list(
+    app: AppHandle,
+    query: Option<String>,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<NoteSummaryDto>, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<NotesStore>()
+            .list(query.as_deref(), limit, offset)
+    })
+    .await
+    .map_err(|error| SnaphubError::Notes(error.to_string()))?
+}
+
+#[tauri::command]
+async fn notes_copy(app: AppHandle, id: String) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let markdown = app.state::<NotesStore>().markdown(&id)?;
+        app.state::<CaptureService>().copy_plain_text(&markdown)
+    })
+    .await
+    .map_err(|error| SnaphubError::Notes(error.to_string()))?
+}
+
+#[tauri::command]
+async fn notes_delete(app: AppHandle, id: String) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<NotesStore>().delete(&id))
+        .await
+        .map_err(|error| SnaphubError::Notes(error.to_string()))?
+}
+
+#[tauri::command]
+async fn notes_cleanup_unsaved(app: AppHandle) -> Result<u32, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<NotesStore>()
+            .cleanup_unsaved_images(std::time::Duration::from_secs(7 * 24 * 60 * 60))
+    })
+    .await
+    .map_err(|error| SnaphubError::Notes(error.to_string()))?
+}
+
+/// Opens the note's page in the default browser. Only http and https links open.
+#[tauri::command]
+fn notes_open_url(store: tauri::State<'_, NotesStore>, id: String) -> Result<(), SnaphubError> {
+    let url = store
+        .page_url(&id)?
+        .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+        .ok_or_else(|| SnaphubError::Notes("This note has no page address".into()))?;
+    #[cfg(target_os = "windows")]
+    return platform::windows_shell::open_path(Path::new(&url), false);
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = url;
+        Err(SnaphubError::Window(
+            "Opening links is not implemented on this platform".into(),
+        ))
+    }
+}
+
+/// Starts a native file drag of the note as a Markdown file, previewed by its screenshot.
+#[tauri::command]
+fn notes_start_drag(
+    window: WebviewWindow,
+    store: tauri::State<'_, NotesStore>,
+    service: tauri::State<'_, CaptureService>,
+    id: String,
+) -> Result<(), SnaphubError> {
+    let exported = store.export_for_drag(&id)?;
+    let image = store.image_path(&id);
+    if !image.is_file() {
+        return Err(SnaphubError::Notes(
+            "This note has no screenshot to drag".into(),
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let preview = service.drag_preview_path(&image);
+        let dragged = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let result = drag::start_drag(
+                    &dragged,
+                    drag::DragItem::Files(vec![exported]),
+                    drag::Image::File(preview),
+                    |_result, _position| {},
+                    drag::Options {
+                        skip_animatation_on_cancel_or_failure: false,
+                        mode: drag::DragMode::Copy,
+                    },
+                );
+                if let Err(error) = result {
+                    eprintln!("SH-DRAG-001: {error}");
+                }
+            })
+            .map_err(|error| SnaphubError::Window(error.to_string()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, service, exported);
+        Err(SnaphubError::Window(
+            "Dragging notes is not implemented on this platform".into(),
+        ))
+    }
+}
+
 /// Grants the webview read access to images the user explicitly picked from disk.
 ///
 /// The asset protocol scope is otherwise locked to the CapKit save and temp
@@ -981,6 +1114,11 @@ async fn complete_scrolling_capture(
         CompletionAction::CopyAndSave => {
             return Err(SnaphubError::Capture(
                 "Copy & Save is available only for a selected region".into(),
+            ));
+        }
+        CompletionAction::NoteImage => {
+            return Err(SnaphubError::Capture(
+                "Notes are available only for a selected region".into(),
             ));
         }
         CompletionAction::Pin => {
@@ -2758,6 +2896,13 @@ pub fn run() {
             delete_saved_capture,
             copy_saved_capture,
             start_saved_capture_drag,
+            deliver_note,
+            notes_list,
+            notes_copy,
+            notes_delete,
+            notes_cleanup_unsaved,
+            notes_open_url,
+            notes_start_drag,
             import_media_files,
             list_folder_images,
             scrolling_capture_supported,
@@ -2812,6 +2957,12 @@ pub fn run() {
             app.state::<CaptureService>()
                 .set_browser_source(std::sync::Arc::new(link.clone()));
             app.manage(link);
+
+            // Notes live in local app data. Nothing is created until a note is used.
+            let notes = NotesStore::new(app.path().app_local_data_dir()?.join("notes"));
+            app.state::<CaptureService>()
+                .set_notes_images_directory(notes.images_directory());
+            app.manage(notes);
 
             if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")

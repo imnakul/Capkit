@@ -2,7 +2,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
-import { listSavedCaptures, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
+import { getBrowserLinkStatus, listSavedCaptures, listenForBrowserLinkStatus, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
+import { NotesView } from "./NotesView";
 import { SettingsView } from "./SettingsView";
 import { UpdateNotice } from "./UpdateNotice";
 import { useUpdateStatus } from "./useUpdateStatus";
@@ -13,6 +14,7 @@ import { findSavedCapture, type SavedCapture } from "../../domain/capture";
 import {
   Image,
   Moon,
+  NotePin,
   Presentation,
   Record,
   Scan as ScanLine,
@@ -20,10 +22,11 @@ import {
   Sun,
 } from "../icons";
 
-type DashboardTab = "screenshots" | "showcase" | "record" | "settings";
+type DashboardTab = "screenshots" | "notes" | "showcase" | "record" | "settings";
 
 const navigation = [
   { id: "screenshots", label: "Screenshots", icon: Image },
+  { id: "notes", label: "Notes", icon: NotePin },
   { id: "showcase", label: "Showcase", icon: Presentation },
   { id: "record", label: "Record", icon: Record },
   { id: "settings", label: "Settings", icon: Settings },
@@ -34,6 +37,7 @@ export function DashboardPanel(): React.JSX.Element {
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
   const [isShowcaseStylePending, setIsShowcaseStylePending] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [developerTools, setDeveloperTools] = useState(false);
   const { settings, updateSettings } = useSnaphubSettings();
   const updates = useUpdateStatus(settings.updates.autoCheck);
   const clearShowcaseStylePending = useCallback((): void => {
@@ -53,6 +57,23 @@ export function DashboardPanel(): React.JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  // Notes belong to Developer tools, so the tab follows the browser-link switch.
+  useEffect(() => {
+    let cancelled = false;
+    void getBrowserLinkStatus().then((status) => {
+      if (!cancelled) setDeveloperTools(status.enabled);
+    }).catch(() => undefined);
+    const unlisten = listenForBrowserLinkStatus((status) => setDeveloperTools(status.enabled));
+    return (): void => {
+      cancelled = true;
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "notes" && !developerTools) setActiveTab("screenshots");
+  }, [activeTab, developerTools]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -118,7 +139,7 @@ export function DashboardPanel(): React.JSX.Element {
         </div>
 
         <nav aria-label="Capkit sections" className="space-y-1">
-          {navigation.map((item) => {
+          {navigation.filter((item) => item.id !== "notes" || developerTools).map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activeTab;
             return (
@@ -179,6 +200,8 @@ export function DashboardPanel(): React.JSX.Element {
               setActiveTab("showcase");
             }}
           />
+        ) : activeTab === "notes" ? (
+          <NotesView />
         ) : activeTab === "showcase" ? (
           <ShowcaseView
             applyDefaultStyle={isShowcaseStylePending}
