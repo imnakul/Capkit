@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CursorEvent } from "./cursorTrack";
+import type { CursorEvent, KeyEvent } from "./cursorTrack";
 import type { Size } from "./showcase";
 
 /* -------------------------------------------------------------------------- */
@@ -105,6 +105,75 @@ export function clusterClicks(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Typing                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type TypingOptions = {
+  /** A pause longer than this ends the burst. */
+  readonly gapSeconds?: number;
+  /** Fewer presses than this is a shortcut or a stray key, not typing. */
+  readonly minPresses?: number;
+};
+
+/** Unmodified editing keys continue a burst, so correcting a typo does not end it. */
+const editingKeys = new Set(["Backspace", "Delete"]);
+
+function isTypingPress(event: KeyEvent): boolean {
+  if (event.kind === "text") return true;
+  return editingKeys.has(event.key) && !event.ctrl && !event.alt && !event.meta;
+}
+
+/**
+ * Turns bursts of typing into zoom targets, shaped like click clusters so
+ * the same generator can bridge between the two.
+ *
+ * The caret is never recorded, so the focus is the last click before the burst
+ * (almost always the click that placed the caret), falling back to where the
+ * pointer was when typing began. A click ends a burst, because the caret has
+ * moved.
+ */
+export function typingClusters(
+  keys: readonly KeyEvent[],
+  clicks: readonly CursorEvent[],
+  pointerAt: (time: number) => { readonly x: number; readonly y: number } | null,
+  options: TypingOptions = {},
+): readonly ClickCluster[] {
+  const gap = options.gapSeconds ?? 1.2;
+  const minPresses = options.minPresses ?? 3;
+  const presses = clicks.filter((event) => event.kind === "down");
+  const typing = keys.filter(isTypingPress);
+
+  const bursts: { start: number; end: number; count: number }[] = [];
+  // Both lists are in time order, so one cursor finds the clicks that fell
+  // between the previous press and this one.
+  let clickIndex = 0;
+  for (const press of typing) {
+    let clickedSince = false;
+    while (clickIndex < presses.length && (presses[clickIndex]?.time ?? Infinity) <= press.time) {
+      clickedSince = true;
+      clickIndex += 1;
+    }
+    const current = bursts.at(-1);
+    if (current !== undefined && press.time - current.end <= gap && !clickedSince) {
+      current.end = press.time;
+      current.count += 1;
+    } else {
+      bursts.push({ start: press.time, end: press.time, count: 1 });
+    }
+  }
+
+  const clusters: ClickCluster[] = [];
+  for (const burst of bursts) {
+    if (burst.count < minPresses) continue;
+    const placedCaret = presses.filter((click) => click.time <= burst.start).at(-1);
+    const focus = placedCaret ?? pointerAt(burst.start);
+    if (focus === null) continue;
+    clusters.push({ start: burst.start, end: burst.end, cx: focus.x, cy: focus.y, count: burst.count });
+  }
+  return clusters;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Keyframe generation                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -153,10 +222,14 @@ export function generateZoomKeyframes(
     // pulling out, so the camera glides between them instead of popping.
     const bridged = [first];
     let last = first;
+    // A click can land inside a typing burst, so the zoom holds until the
+    // latest end seen, not just the end of the last cluster to start.
+    let end = first.end;
     let next = clusters[index + 1];
-    while (next !== undefined && next.start - last.end <= options.bridgeSeconds) {
+    while (next !== undefined && next.start - end <= options.bridgeSeconds) {
       bridged.push(next);
       last = next;
+      end = Math.max(end, next.end);
       index += 1;
       next = clusters[index + 1];
     }
@@ -170,8 +243,8 @@ export function generateZoomKeyframes(
     }
 
     const focus = { cx: last.cx / source.width, cy: last.cy / source.height };
-    keyframes.push(at(last.end + options.holdSeconds, options.scale, focus.cx, focus.cy));
-    keyframes.push(at(last.end + options.holdSeconds + options.transitionSeconds, 1, focus.cx, focus.cy));
+    keyframes.push(at(end + options.holdSeconds, options.scale, focus.cx, focus.cy));
+    keyframes.push(at(end + options.holdSeconds + options.transitionSeconds, 1, focus.cx, focus.cy));
     index += 1;
   }
 

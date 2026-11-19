@@ -134,6 +134,9 @@ const toolbarIndividualSchema = z.object({
   redo: z.boolean(),
 });
 
+export const overlayMotionValues = ["dim-rise", "fade-in", "fade-both"] as const;
+export type OverlayMotion = (typeof overlayMotionValues)[number];
+
 export const snaphubSettingsSchema = z.object({
   version: z.literal(1),
   palette: z.array(hexColorSchema).min(1).max(5),
@@ -188,8 +191,10 @@ export const snaphubSettingsSchema = z.object({
   overlay: z.object({
     color: hexColorSchema,
     opacity: z.number().min(0.15).max(0.85),
+    motion: z.enum(overlayMotionValues).default("dim-rise"),
   }),
   openAtStartup: z.boolean(),
+  updates: z.object({ autoCheck: z.boolean() }).default({ autoCheck: true }),
   cursor: z.object({
     enabled: z.boolean(),
     style: z.enum(["crosshair", "target", "precision"]),
@@ -265,8 +270,9 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   onScreen: defaultOnScreenSettings,
   detection: { windows: true, uiRegions: false },
   scrolling: { defaultMode: "automatic" },
-  overlay: { color: "#070807", opacity: 0.64 },
+  overlay: { color: "#070807", opacity: 0.64, motion: "dim-rise" },
   openAtStartup: false,
+  updates: { autoCheck: true },
   cursor: { enabled: true, style: "crosshair", size: "medium" },
 };
 

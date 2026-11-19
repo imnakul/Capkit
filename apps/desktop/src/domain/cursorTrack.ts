@@ -23,6 +23,23 @@ export const cursorShapeSpanSchema = z.object({
 export type CursorShapeSpan = z.infer<typeof cursorShapeSpanSchema>;
 
 /**
+ * One key press. Typed characters arrive as `kind: "text"` with an empty key
+ * and no modifiers: the recorder never stores what was typed, only that
+ * typing happened.
+ */
+export const keyEventSchema = z.object({
+  time: z.number(),
+  kind: z.enum(["key", "text"]),
+  key: z.string(),
+  ctrl: z.boolean(),
+  shift: z.boolean(),
+  alt: z.boolean(),
+  meta: z.boolean(),
+});
+
+export type KeyEvent = z.infer<typeof keyEventSchema>;
+
+/**
  * Positions arrive as parallel arrays rather than an array of points.
  *
  * A ten-minute recording is roughly 150k samples: as objects that is ~5 MB of
@@ -35,6 +52,10 @@ export const cursorTrackSchema = z.object({
   ys: z.array(z.number()),
   events: z.array(cursorEventSchema),
   shapes: z.array(cursorShapeSpanSchema),
+  /** False when keystrokes were off for the recording, including every
+   * recording made before the option existed. */
+  keysRecorded: z.boolean().default(false),
+  keys: z.array(keyEventSchema).default([]),
   /** The recorded area: the whole display, or the crop origin for Window and Region. */
   displayBounds: rectSchema,
   scaleFactor: z.number(),

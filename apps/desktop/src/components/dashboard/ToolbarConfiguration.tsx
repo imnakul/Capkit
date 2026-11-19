@@ -211,7 +211,7 @@ export function ToolbarConfiguration({
           <div className="mb-4 grid gap-px overflow-hidden rounded-lg border border-stone-200 bg-stone-200 sm:grid-cols-3 dark:border-white/9 dark:bg-white/9">
             <GroupRule number="01" title="Each row is one group" description="One primary toolbar slot opens the tools in that row." />
             <GroupRule number="02" title="Rows mean enabled" description="Anything left in Available tools stays disabled." />
-            <GroupRule number="03" title="First means default" description="Order tools by dragging; the first tool represents the group." />
+            <GroupRule number="03" title="First is the starting tool" description="A group starts on its first tool, then remembers the one you used last." />
           </div>
 
           <div className="space-y-2">

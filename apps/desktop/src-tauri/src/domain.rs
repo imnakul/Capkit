@@ -205,6 +205,77 @@ pub struct CompletionResult {
     pub cleanup_warning: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ColorFormat {
+    Hex,
+    Rgb,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickColorRequest {
+    pub session_id: String,
+    /// Display-local logical coordinates, the same space as the selection.
+    pub point: Point,
+    pub format: ColorFormat,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedColorDto {
+    pub hex: String,
+    pub copied: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRecognitionRequest {
+    pub session_id: String,
+    pub selection: Rect,
+}
+
+/// A recognised word. `bounds` are selection-local logical coordinates, the
+/// same space as annotations, so the UI can place a redaction straight on it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedWordDto {
+    pub text: String,
+    pub bounds: Rect,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedLineDto {
+    pub text: String,
+    pub words: Vec<RecognizedWordDto>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognizedTextDto {
+    /// Lines joined with `\n`, in reading order.
+    pub text: String,
+    pub lines: Vec<RecognizedLineDto>,
+    /// BCP-47 tag of the recogniser the OS picked from the user's languages.
+    pub language: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextCopyStatus {
+    Copied,
+    Empty,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextCopyResult {
+    pub status: TextCopyStatus,
+    pub text: String,
+    pub cleanup_warning: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScrollingCaptureRequest {
@@ -300,6 +371,10 @@ pub struct RecordingRequestDto {
     pub microphone_device_id: Option<String>,
     #[serde(default)]
     pub system_audio_device_id: Option<String>,
+    /// Opt-in. Stores shortcut and named-key presses with the recording; plain
+    /// typed characters are stored only as "typing happened", never by identity.
+    #[serde(default)]
+    pub capture_keystrokes: bool,
 }
 
 /// Live counters for the recorder dock, emitted at most once per second.
@@ -360,6 +435,22 @@ pub struct CursorEventDto {
     pub y: f32,
 }
 
+/// A key press. `kind` is `"key"` for a named key or a shortcut, with `key`
+/// naming it (`"C"`, `"Enter"`, `"Left"`), or `"text"` for a plain typed
+/// character, whose identity is deliberately not recorded so passwords typed
+/// while recording never reach the file. Modifiers are those held at the press.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyEventDto {
+    pub time: f64,
+    pub kind: &'static str,
+    pub key: &'static str,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
 /// Cursor positions and clicks sampled alongside the video.
 ///
 /// Positions are parallel arrays rather than an array of objects: a ten-minute
@@ -377,6 +468,10 @@ pub struct CursorTrackDto {
     pub ys: Vec<f32>,
     pub events: Vec<CursorEventDto>,
     pub shapes: Vec<CursorShapeSpanDto>,
+    /// False when keystrokes were not recorded, so an empty `keys` list can
+    /// be told apart from "recorded, but nothing was pressed".
+    pub keys_recorded: bool,
+    pub keys: Vec<KeyEventDto>,
     /// The recorded area in physical desktop px: the whole display, or the
     /// crop origin with the video's size for Window and Region recordings.
     pub display_bounds: Rect,
@@ -420,5 +515,92 @@ mod request_tests {
         }))
         .expect("a request without systemAudioDeviceId deserializes");
         assert_eq!(request.system_audio_device_id, None);
+    }
+}
+
+/// Whether CapKit opens when the user signs in, and who decides.
+///
+/// The policy and user variants come from the MSIX startup task: once a user
+/// turns CapKit off in Windows Settings or Task Manager, or a policy pins the
+/// state, the app cannot change it and the UI must say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupStatus {
+    Enabled,
+    Disabled,
+    DisabledByUser,
+    DisabledByPolicy,
+    EnabledByPolicy,
+}
+
+impl StartupStatus {
+    /// Maps a `Windows.ApplicationModel.StartupTaskState` value. Unknown
+    /// future values read as disabled rather than failing the settings page.
+    pub fn from_task_state(state: i32) -> Self {
+        match state {
+            1 => Self::DisabledByUser,
+            2 => Self::Enabled,
+            3 => Self::DisabledByPolicy,
+            4 => Self::EnabledByPolicy,
+            _ => Self::Disabled,
+        }
+    }
+}
+
+/// `package` is the MSIX startup task (Store build); `app` is the per-user
+/// sign-in entry CapKit writes itself in the unpackaged installer and dev builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupManager {
+    Package,
+    App,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupStateDto {
+    pub status: StartupStatus,
+    pub managed_by: StartupManager,
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{StartupManager, StartupStateDto, StartupStatus};
+
+    #[test]
+    fn maps_every_documented_task_state() {
+        assert_eq!(StartupStatus::from_task_state(0), StartupStatus::Disabled);
+        assert_eq!(
+            StartupStatus::from_task_state(1),
+            StartupStatus::DisabledByUser
+        );
+        assert_eq!(StartupStatus::from_task_state(2), StartupStatus::Enabled);
+        assert_eq!(
+            StartupStatus::from_task_state(3),
+            StartupStatus::DisabledByPolicy
+        );
+        assert_eq!(
+            StartupStatus::from_task_state(4),
+            StartupStatus::EnabledByPolicy
+        );
+    }
+
+    #[test]
+    fn unknown_task_state_reads_as_disabled() {
+        assert_eq!(StartupStatus::from_task_state(99), StartupStatus::Disabled);
+        assert_eq!(StartupStatus::from_task_state(-1), StartupStatus::Disabled);
+    }
+
+    #[test]
+    fn startup_state_serializes_for_the_settings_schema() {
+        let value = serde_json::to_value(StartupStateDto {
+            status: StartupStatus::DisabledByUser,
+            managed_by: StartupManager::Package,
+        })
+        .expect("startup state serializes");
+        assert_eq!(
+            value,
+            serde_json::json!({ "status": "disabled-by-user", "managedBy": "package" })
+        );
     }
 }

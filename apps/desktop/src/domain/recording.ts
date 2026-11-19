@@ -95,6 +95,12 @@ export const recorderSettingsSchema = z.object({
    * this on permanently bakes the raw pointer into the frames.
    */
   captureCursor: z.boolean(),
+  /**
+   * Records key presses for the Studio overlay. Off by default and opt-in:
+   * shortcut names are kept, but typed characters are stored only as "typing
+   * happened", never as the text itself.
+   */
+  captureKeystrokes: z.boolean().default(false),
 });
 
 export type RecorderSettings = z.infer<typeof recorderSettingsSchema>;
@@ -109,6 +115,7 @@ export const defaultRecorderSettings: RecorderSettings = {
   microphoneDeviceId: "",
   systemAudioDeviceId: "",
   captureCursor: false,
+  captureKeystrokes: false,
 };
 
 export const recordRegionSelectionSchema = z.object({
@@ -175,6 +182,7 @@ export function toRecordingRequest(
   region: { x: number; y: number; width: number; height: number } | null;
   fps: number;
   captureCursor: boolean;
+  captureKeystrokes: boolean;
   systemAudio: boolean;
   microphone: boolean;
   microphoneDeviceId: string | null;
@@ -188,6 +196,7 @@ export function toRecordingRequest(
     region: crop,
     fps: resolveFrameRate(settings.fps, source.refreshRate),
     captureCursor: settings.captureCursor,
+    captureKeystrokes: settings.captureKeystrokes,
     systemAudio: settings.systemAudio,
     microphone: settings.microphone,
     microphoneDeviceId: settings.microphoneDeviceId === "" ? null : settings.microphoneDeviceId,

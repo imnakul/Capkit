@@ -2,6 +2,39 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased — 2026-11-19
+
+### Added
+
+- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
+- Copy any capture from the Screenshots page, and drag it straight into another app.
+- Choose how the capture overlay appears: Dim and rise, Fade in, or Fade in and out.
+- Capture toolbar groups open when you click them and remember the last tool you used in each group.
+
+### Improved
+
+- The capture toolbar is a single card, with the colour and size row only for tools that use them.
+- Only one CapKit runs at a time; opening it again brings the existing window forward.
+- Folder paths in Settings no longer start with `\\?\`.
+
+## Earlier — 2026-10-29
+
+### Added
+
+- Pick a colour while selecting: press I to copy the colour under the pointer as a hex code, or Shift+I for RGB.
+- Copy text from a capture. It's read on your PC with Windows' built-in text recognition, so nothing is uploaded.
+- Find sensitive text: CapKit spots things like API keys, card numbers, emails and phone numbers in a capture, and you choose which to black out.
+- Save & Showcase sends a capture straight to Showcase. Star a style there to apply it to every capture you send.
+- Recordings can show the shortcuts you press and your clicks as on-screen labels. It's off by default, and CapKit never records what you type.
+- Zoom can follow your typing, so typed text stays readable in recordings.
+- Export a recording to fit under 25 MB or 10 MB, for places with upload limits.
+
+### Improved
+
+- Open at startup works in the Microsoft Store version, using Windows' own startup list.
+- If you turned CapKit off in Windows' startup settings, CapKit's Settings now tells you so and opens the right Windows page to turn it back on.
+- The Store version asks for camera and microphone access through Windows' standard prompts.
+
 ## 0.3.0 — 2026-09-28
 
 ### Fixed

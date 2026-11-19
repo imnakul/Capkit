@@ -121,6 +121,15 @@ describe("requests", () => {
     // smooth it; burning it in would make that impossible.
     expect(toRecordingRequest(defaultRecorderSettings, display, null).captureCursor).toBe(false);
   });
+
+  it("keeps keystrokes off unless the user opts in, including for older stored settings", () => {
+    const legacy = JSON.parse(JSON.stringify(defaultRecorderSettings)) as Record<string, unknown>;
+    delete legacy.captureKeystrokes;
+    const parsed = readRecorderSettings(JSON.stringify(legacy));
+    expect(parsed.captureKeystrokes).toBe(false);
+    expect(toRecordingRequest(parsed, display, null).captureKeystrokes).toBe(false);
+    expect(toRecordingRequest({ ...parsed, captureKeystrokes: true }, display, null).captureKeystrokes).toBe(true);
+  });
 });
 
 describe("stored settings", () => {

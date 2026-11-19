@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cursorTrackSchema } from "./cursorTrack";
+import { defaultKeystrokeSettings, keystrokeSettingsSchema, type KeystrokeChip } from "./keystrokes";
 import {
   defaultEffectSettings,
   defaultFrameSettings,
@@ -104,6 +105,8 @@ export const zoomSettingsSchema = z.object({
   holdSeconds: z.number(),
   bridgeSeconds: z.number(),
   transitionSeconds: z.number(),
+  /** Also zooms to where the user types. Needs keys in the recording. */
+  followTyping: z.boolean().default(true),
   manual: z.array(zoomKeyframeSchema),
 });
 
@@ -112,6 +115,7 @@ export type ZoomSettings = z.infer<typeof zoomSettingsSchema>;
 export const defaultZoomSettings: ZoomSettings = {
   enabled: true,
   ...defaultZoomOptions,
+  followTyping: true,
   manual: [],
 };
 
@@ -123,6 +127,8 @@ export const videoSceneSchema = z.object({
   cursor: cursorStyleSchema,
   camera: cameraLayoutSchema,
   zoom: zoomSettingsSchema,
+  /** Defaulted so scenes saved before the overlay existed still load. */
+  keystrokes: keystrokeSettingsSchema.default(() => ({ ...defaultKeystrokeSettings })),
   trim: trimSchema,
   audio: audioMixSchema,
 });
@@ -140,6 +146,7 @@ export function defaultVideoScene(durationSeconds: number): VideoScene {
     cursor: defaultCursorStyle,
     camera: { ...defaultCameraLayout, show: false },
     zoom: defaultZoomSettings,
+    keystrokes: defaultKeystrokeSettings,
     trim: { start: 0, end: Math.max(0.1, durationSeconds) },
     audio: defaultAudioMix,
   };
@@ -159,6 +166,8 @@ export type VideoSources = {
   readonly cursor: { readonly x: number; readonly y: number } | null;
   /** 0 to 1, ramping down after a click for the highlight ring. */
   readonly clickPulse: number;
+  /** Key and click labels visible at this frame. */
+  readonly keystrokes: readonly KeystrokeChip[];
 };
 
 export const emptyCursorTrack = cursorTrackSchema.parse({

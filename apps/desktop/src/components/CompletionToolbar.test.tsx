@@ -10,7 +10,11 @@ const actions: readonly { action: CompletionAction; label: string }[] = [
   { action: "pin", label: "Pin" },
 ];
 
-function renderToolbar(onComplete: (action: CompletionAction) => void): void {
+function renderToolbar(
+  onComplete: (action: CompletionAction) => void,
+  onCopyText?: () => void,
+  onShowcase: () => void = () => undefined,
+): void {
   render(
     <CompletionToolbar
       copyAndSaveShortcut="A"
@@ -22,6 +26,8 @@ function renderToolbar(onComplete: (action: CompletionAction) => void): void {
       statusSide="right"
       onComplete={onComplete}
       onRetrySave={() => undefined}
+      onShowcase={onShowcase}
+      {...(onCopyText === undefined ? {} : { onCopyText })}
     />,
   );
 }
@@ -64,5 +70,24 @@ describe("CompletionToolbar", () => {
     expect(onComplete).toHaveBeenCalledTimes(2);
     expect(onComplete).toHaveBeenNthCalledWith(1, action);
     expect(onComplete).toHaveBeenNthCalledWith(2, action);
+  });
+
+  it("shows Copy text only when the OS can read text", () => {
+    renderToolbar(() => undefined);
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+    cleanup();
+    const onCopyText = vi.fn();
+    renderToolbar(() => undefined, onCopyText);
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    expect(onCopyText).toHaveBeenCalledOnce();
+  });
+
+  it("saves and opens Showcase from its own action, not through onComplete", () => {
+    const onComplete = vi.fn();
+    const onShowcase = vi.fn();
+    renderToolbar(onComplete, undefined, onShowcase);
+    fireEvent.click(screen.getByRole("button", { name: "Save & Showcase" }));
+    expect(onShowcase).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });

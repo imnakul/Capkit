@@ -218,4 +218,51 @@ describe("ShowcaseView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete the Launch shots style" }));
     expect(screen.queryByRole("button", { name: "Apply the Launch shots style" })).toBeNull();
   });
+
+  it("applies the starred style to captures sent to Showcase, and only to those", () => {
+    render(<ShowcaseView />);
+    fireEvent.click(screen.getByRole("tab", { name: "Show Text controls" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Add title" }));
+    fireEvent.click(screen.getByRole("button", { name: "Saved styles" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Style name" }), { target: { value: "Launch shots" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save the current composition as a style" }));
+
+    const star = screen.getByRole("button", { name: "Apply Launch shots to captures sent to Showcase" });
+    expect(star).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(star);
+    expect(star).toHaveAttribute("aria-pressed", "true");
+    expect(window.localStorage.getItem("capkit.showcase.defaultStyle")).toMatch(/^Launch shots-/);
+    cleanup();
+
+    // Without the stored work in progress, only the default style can turn the title on.
+    window.localStorage.removeItem("capkit.showcase.preset");
+    render(<ShowcaseView />);
+    fireEvent.click(screen.getByRole("tab", { name: "Show Text controls" }));
+    expect(screen.getByRole("switch", { name: "Add title" })).not.toBeChecked();
+    cleanup();
+
+    // Revisiting the tab with the same capture must not re-apply it over edits.
+    render(<ShowcaseView initialCapture={capture} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Show Text controls" }));
+    expect(screen.getByRole("switch", { name: "Add title" })).not.toBeChecked();
+    cleanup();
+
+    const onApplied = vi.fn();
+    render(<ShowcaseView applyDefaultStyle initialCapture={capture} onDefaultStyleApplied={onApplied} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Show Text controls" }));
+    expect(screen.getByRole("switch", { name: "Add title" })).toBeChecked();
+    expect(screen.getByText("Launch shots applied")).toBeVisible();
+    expect(onApplied).toHaveBeenCalled();
+  });
+
+  it("clears the default when its style is deleted", () => {
+    render(<ShowcaseView />);
+    fireEvent.click(screen.getByRole("button", { name: "Saved styles" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Style name" }), { target: { value: "Launch shots" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save the current composition as a style" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply Launch shots to captures sent to Showcase" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete the Launch shots style" }));
+    expect(window.localStorage.getItem("capkit.showcase.defaultStyle")).toBeNull();
+  });
 });

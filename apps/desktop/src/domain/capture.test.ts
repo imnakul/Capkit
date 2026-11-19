@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { completionResultSchema } from "../lib/tauri";
-import { captureSessionSchema, completionActionSchema } from "./capture";
+import { captureSessionSchema, completionActionSchema, findSavedCapture, type SavedCapture } from "./capture";
 
 describe("captureSessionSchema", () => {
   it("accepts the selected-region Copy & Save action", () => {
@@ -54,5 +54,26 @@ describe("captureSessionSchema", () => {
     });
 
     expect(session.createdAt).toBe("2026-07-18T05:37:23.123+00:00");
+  });
+});
+
+describe("findSavedCapture", () => {
+  const capture: SavedCapture = {
+    path: String.raw`C:\Users\me\Pictures\CapKit\capture.png`,
+    fileName: "capture.png",
+    thumbnailPath: String.raw`C:\Temp\capture.png`,
+    thumbnailUrl: "asset://capture.png",
+    width: 10,
+    height: 10,
+    sizeBytes: 1,
+    modifiedAt: "2026-10-29T10:00:00+05:30",
+  };
+
+  it("matches a path spelled with other separators or casing", () => {
+    expect(findSavedCapture([capture], "c:/users/me/pictures/capkit/CAPTURE.png")).toBe(capture);
+  });
+
+  it("returns null when the capture is not in the library", () => {
+    expect(findSavedCapture([capture], String.raw`C:\Users\me\Pictures\CapKit\other.png`)).toBeNull();
   });
 });

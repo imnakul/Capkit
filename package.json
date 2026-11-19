@@ -16,6 +16,7 @@
     "bundle:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-msix.ps1",
     "test:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-msix.ps1",
     "version:bump": "node scripts/bump-version.ts",
-    "version:check": "node scripts/check-version.ts"
+    "version:check": "node scripts/check-version.ts",
+    "notices": "node scripts/third-party-notices.ts"
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseToolbarPlacement, clampRect, normalizeRect } from "./geometry";
+import { chooseToolbarPlacement, clampRect, normalizeRect, toolbarPosition } from "./geometry";
 
 describe("normalizeRect", () => {
   it("normalizes a reverse drag", () => {
@@ -43,3 +43,26 @@ describe("chooseToolbarPlacement", () => {
   });
 });
 
+
+describe("toolbarPosition", () => {
+  const viewport = { width: 1280, height: 720 };
+
+  it("keeps the whole toolbar inside the viewport for a bottom-right selection", () => {
+    const size = { width: 620, height: 104 };
+    const selection = { x: 1000, y: 500, width: 280, height: 220 };
+    for (const side of ["bottom", "top"] as const) {
+      const position = toolbarPosition(selection, viewport, side, size);
+      expect(position.x).toBeGreaterThanOrEqual(0);
+      expect(position.y).toBeGreaterThanOrEqual(0);
+      expect(position.x + size.width).toBeLessThanOrEqual(viewport.width);
+      expect(position.y + size.height).toBeLessThanOrEqual(viewport.height);
+    }
+  });
+
+  it("sits just below or above the selection when there is room", () => {
+    const size = { width: 400, height: 52 };
+    const selection = { x: 100, y: 200, width: 300, height: 100 };
+    expect(toolbarPosition(selection, viewport, "bottom", size)).toEqual({ x: 100, y: 310 });
+    expect(toolbarPosition(selection, viewport, "top", size)).toEqual({ x: 100, y: 138 });
+  });
+});

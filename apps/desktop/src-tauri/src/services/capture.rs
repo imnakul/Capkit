@@ -29,17 +29,20 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        Annotation, AnnotationScene, CaptureSessionDto, CompletionAction, CompletionRequest,
-        CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto, Point, Rect,
-        SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+        Annotation, AnnotationScene, CaptureSessionDto, ColorFormat, CompletionAction,
+        CompletionRequest, CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto,
+        PickColorRequest, PickedColorDto, Point, RecognizedTextDto, Rect, SavedCaptureDto,
+        ScrollingCaptureRequest, ScrollingCaptureResult, TextCopyResult, TextCopyStatus,
+        TextRecognitionRequest,
     },
     error::SnaphubError,
     platform::{
         CaptureBackend, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
     },
 };
 
+use super::paths::display_path;
 use super::scrolling::{frames_are_unchanged, stitch_vertical_with_metadata};
 
 enum SessionOutputState {
@@ -90,6 +93,7 @@ pub struct CaptureService {
     permissions: Arc<dyn PermissionBackend>,
     scrolling: Arc<dyn ScrollingCaptureBackend>,
     pinning: Arc<dyn PinnedWindowBackend>,
+    text_recognition: Arc<dyn TextRecognitionBackend>,
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
@@ -109,6 +113,7 @@ impl CaptureService {
             + PermissionBackend
             + ScrollingCaptureBackend
             + PinnedWindowBackend
+            + TextRecognitionBackend
             + 'static,
     {
         Self::with_save_directory(backend, load_save_directory())
@@ -122,6 +127,7 @@ impl CaptureService {
             + PermissionBackend
             + ScrollingCaptureBackend
             + PinnedWindowBackend
+            + TextRecognitionBackend
             + 'static,
     {
         let _ = fs::create_dir_all(&save_directory);
@@ -131,6 +137,7 @@ impl CaptureService {
             targets: backend.clone(),
             permissions: backend.clone(),
             scrolling: backend.clone(),
+            text_recognition: backend.clone(),
             pinning: backend,
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
@@ -635,6 +642,77 @@ impl CaptureService {
         self.clipboard.copy_image(&image)
     }
 
+    /// Copies the frozen snapshot's colour at a display-local logical point.
+    /// Reads the captured physical pixel, so the value matches the screen rather than the scaled preview.
+    pub fn pick_color(&self, request: &PickColorRequest) -> Result<PickedColorDto, SnaphubError> {
+        let id = parse_session_id(&request.session_id)?;
+        let pixel = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+            let asset = sessions
+                .get(&id)
+                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
+            pixel_at(&asset.image, request.point, asset.scale_factor)?
+        };
+        let picked = format_color(pixel, request.format);
+        self.clipboard.copy_text(&picked.copied)?;
+        Ok(picked)
+    }
+
+    pub fn is_text_recognition_supported(&self) -> bool {
+        self.text_recognition.is_text_recognition_supported()
+    }
+
+    /// Reads text in the raw selection. Annotations are excluded so arrows and
+    /// labels drawn on top don't turn into stray characters.
+    pub fn recognize_text(
+        &self,
+        request: &TextRecognitionRequest,
+    ) -> Result<RecognizedTextDto, SnaphubError> {
+        let id = parse_session_id(&request.session_id)?;
+        validate_selection(request.selection)?;
+        let (crop, scale) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| SnaphubError::Session("Capture state is unavailable".into()))?;
+            let asset = sessions
+                .get(&id)
+                .ok_or_else(|| SnaphubError::Session("Capture session has expired".into()))?;
+            (
+                crop_selection(&asset.image, request.selection, asset.scale_factor)?,
+                asset.scale_factor,
+            )
+        };
+        let recognized = self.text_recognition.recognize_text(&crop)?;
+        Ok(text_to_logical(recognized, scale))
+    }
+
+    /// Copies the selection's text. An empty result copies nothing, so the
+    /// caller can keep the capture open and say so.
+    pub fn copy_text(
+        &self,
+        request: &TextRecognitionRequest,
+    ) -> Result<TextCopyResult, SnaphubError> {
+        let recognized = self.recognize_text(request)?;
+        let text = recognized.text.trim();
+        if text.is_empty() {
+            return Ok(TextCopyResult {
+                status: TextCopyStatus::Empty,
+                text: String::new(),
+                cleanup_warning: None,
+            });
+        }
+        self.clipboard.copy_text(text)?;
+        Ok(TextCopyResult {
+            status: TextCopyStatus::Copied,
+            text: text.to_owned(),
+            cleanup_warning: None,
+        })
+    }
+
     pub fn save_image_path(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
         let image = image::open(path)
             .map_err(SnaphubError::export)?
@@ -656,7 +734,7 @@ impl CaptureService {
             ));
         }
         fs::create_dir_all(&directory).map_err(SnaphubError::export)?;
-        let directory = directory.canonicalize().map_err(SnaphubError::export)?;
+        let directory = display_path(&directory.canonicalize().map_err(SnaphubError::export)?);
         persist_save_directory(&directory)?;
         *self
             .save_directory
@@ -696,10 +774,7 @@ impl CaptureService {
             .into_iter()
             .filter_map(|(path, size_bytes, modified)| {
                 let (width, height) = image::image_dimensions(&path).ok()?;
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                modified.hash(&mut hasher);
-                let thumbnail_path = thumbnails.join(format!("{:016x}.png", hasher.finish()));
+                let thumbnail_path = thumbnail_path_for(&thumbnails, &path, modified);
                 if !thumbnail_path.exists() {
                     let image = image::open(&path).ok()?;
                     image
@@ -719,6 +794,17 @@ impl CaptureService {
                 })
             })
             .collect::<Vec<_>>())
+    }
+
+    /// The drag image for a saved capture: its library thumbnail, or the image itself when none exists yet.
+    pub fn drag_preview_path(&self, path: &Path) -> PathBuf {
+        let thumbnails = session_directory().join("library-thumbnails");
+        fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .map(|modified| thumbnail_path_for(&thumbnails, path, modified))
+            .ok()
+            .filter(|thumbnail| thumbnail.exists())
+            .unwrap_or_else(|| path.to_path_buf())
     }
 
     pub fn validated_saved_capture(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
@@ -877,6 +963,31 @@ fn target_area(target: &DetectedTargetDto) -> f64 {
     target.bounds.width * target.bounds.height
 }
 
+fn pixel_at(image: &RgbaImage, point: Point, scale: f64) -> Result<Rgba<u8>, SnaphubError> {
+    if !point.x.is_finite() || !point.y.is_finite() || point.x < 0.0 || point.y < 0.0 {
+        return Err(SnaphubError::Session("Colour point is invalid".into()));
+    }
+    let x = (point.x * scale).floor();
+    let y = (point.y * scale).floor();
+    if x >= f64::from(image.width()) || y >= f64::from(image.height()) {
+        return Err(SnaphubError::Session(
+            "Colour point falls outside the captured display".into(),
+        ));
+    }
+    // Bounds-checked above, so the truncating casts stay inside the image.
+    Ok(*image.get_pixel(x as u32, y as u32))
+}
+
+fn format_color(pixel: Rgba<u8>, format: ColorFormat) -> PickedColorDto {
+    let [red, green, blue, _] = pixel.0;
+    let hex = format!("#{red:02X}{green:02X}{blue:02X}");
+    let copied = match format {
+        ColorFormat::Hex => hex.clone(),
+        ColorFormat::Rgb => format!("rgb({red}, {green}, {blue})"),
+    };
+    PickedColorDto { hex, copied }
+}
+
 fn parse_session_id(session_id: &str) -> Result<Uuid, SnaphubError> {
     Uuid::parse_str(session_id).map_err(|_| SnaphubError::Session("Invalid capture session".into()))
 }
@@ -888,7 +999,10 @@ fn validate_completion_request(request: &CompletionRequest) -> Result<(), Snaphu
             request.scene.version
         )));
     }
-    let selection = request.selection;
+    validate_selection(request.selection)
+}
+
+fn validate_selection(selection: Rect) -> Result<(), SnaphubError> {
     if !selection.x.is_finite()
         || !selection.y.is_finite()
         || !selection.width.is_finite()
@@ -905,11 +1019,10 @@ fn validate_completion_request(request: &CompletionRequest) -> Result<(), Snaphu
     Ok(())
 }
 
-fn render_output(
+fn crop_selection(
     source: &RgbaImage,
     selection: Rect,
     scale: f64,
-    scene: &AnnotationScene,
 ) -> Result<RgbaImage, SnaphubError> {
     let x = non_negative_u32(selection.x * scale);
     let y = non_negative_u32(selection.y * scale);
@@ -920,7 +1033,34 @@ fn render_output(
             "Selection falls outside the captured display".into(),
         ));
     }
-    let mut output = imageops::crop_imm(source, x, y, width, height).to_image();
+    Ok(imageops::crop_imm(source, x, y, width, height).to_image())
+}
+
+/// Converts recogniser word bounds from captured pixels to selection-local logical coordinates.
+fn text_to_logical(mut recognized: RecognizedTextDto, scale: f64) -> RecognizedTextDto {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    for word in recognized
+        .lines
+        .iter_mut()
+        .flat_map(|line| line.words.iter_mut())
+    {
+        word.bounds = Rect {
+            x: word.bounds.x / scale,
+            y: word.bounds.y / scale,
+            width: word.bounds.width / scale,
+            height: word.bounds.height / scale,
+        };
+    }
+    recognized
+}
+
+fn render_output(
+    source: &RgbaImage,
+    selection: Rect,
+    scale: f64,
+    scene: &AnnotationScene,
+) -> Result<RgbaImage, SnaphubError> {
+    let mut output = crop_selection(source, selection, scale)?;
     for annotation in &scene.elements {
         render_annotation(&mut output, annotation, scale);
     }
@@ -1259,7 +1399,11 @@ fn load_save_directory() -> PathBuf {
             }
             let _ = persist_save_directory(&directory);
         }
-        return directory;
+        let clean = display_path(&directory);
+        if clean != directory {
+            let _ = persist_save_directory(&clean);
+        }
+        return clean;
     }
     default_save_directory()
 }
@@ -1318,10 +1462,17 @@ fn write_storage_preferences_to(
 
 /// The user's recordings folder, or the Videos default when none was chosen.
 pub(crate) fn load_recording_directory() -> PathBuf {
-    read_storage_preferences()
+    let Some(directory) = read_storage_preferences()
         .recording_directory
         .filter(|directory| directory.is_absolute())
-        .unwrap_or_else(default_recording_directory)
+    else {
+        return default_recording_directory();
+    };
+    let clean = display_path(&directory);
+    if clean != directory {
+        let _ = persist_recording_directory(&clean);
+    }
+    clean
 }
 
 pub(crate) fn default_recording_directory() -> PathBuf {
@@ -1334,6 +1485,14 @@ pub(crate) fn persist_recording_directory(directory: &Path) -> Result<(), Snaphu
     update_storage_preferences(|preferences| {
         preferences.recording_directory = Some(directory.to_path_buf());
     })
+}
+
+/// Where the library thumbnail for `path` lives; keyed by path and modified time.
+fn thumbnail_path_for(thumbnails: &Path, path: &Path, modified: std::time::SystemTime) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    modified.hash(&mut hasher);
+    thumbnails.join(format!("{:016x}.png", hasher.finish()))
 }
 
 #[cfg(test)]
@@ -1493,6 +1652,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::domain::{RecognizedLineDto, RecognizedWordDto};
     use crate::platform::CapturedDisplay;
 
     struct TestDirectory(PathBuf);
@@ -1514,6 +1674,9 @@ mod tests {
     struct FakeBackend {
         source: RgbaImage,
         copied: Mutex<Option<RgbaImage>>,
+        copied_text: Mutex<Option<String>>,
+        recognized_text: Mutex<String>,
+        recognized_size: Mutex<Option<(u32, u32)>>,
         clipboard_calls: AtomicUsize,
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
@@ -1525,6 +1688,9 @@ mod tests {
             Self {
                 source: RgbaImage::from_pixel(20, 20, Rgba([240, 241, 237, 255])),
                 copied: Mutex::new(None),
+                copied_text: Mutex::new(None),
+                recognized_text: Mutex::new(String::new()),
+                recognized_size: Mutex::new(None),
                 clipboard_calls: AtomicUsize::new(0),
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
@@ -1574,6 +1740,14 @@ mod tests {
             *self.copied.lock().unwrap() = Some(image.clone());
             Ok(())
         }
+
+        fn copy_text(&self, text: &str) -> Result<(), SnaphubError> {
+            if self.fail_clipboard.load(Ordering::SeqCst) {
+                return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
+            }
+            *self.copied_text.lock().unwrap() = Some(text.to_owned());
+            Ok(())
+        }
     }
 
     impl TargetDetectionBackend for FakeBackend {
@@ -1587,6 +1761,38 @@ mod tests {
 
         fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
             Ok(None)
+        }
+    }
+
+    impl TextRecognitionBackend for FakeBackend {
+        fn is_text_recognition_supported(&self) -> bool {
+            true
+        }
+
+        fn recognize_text(&self, image: &RgbaImage) -> Result<RecognizedTextDto, SnaphubError> {
+            *self.recognized_size.lock().unwrap() = Some((image.width(), image.height()));
+            let text = self.recognized_text.lock().unwrap().clone();
+            let lines = if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![RecognizedLineDto {
+                    text: text.clone(),
+                    words: vec![RecognizedWordDto {
+                        text: text.clone(),
+                        bounds: Rect {
+                            x: 2.0,
+                            y: 4.0,
+                            width: 6.0,
+                            height: 8.0,
+                        },
+                    }],
+                }]
+            };
+            Ok(RecognizedTextDto {
+                text,
+                lines,
+                language: "en-US".into(),
+            })
         }
     }
 
@@ -1736,6 +1942,180 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn pick_color_reads_the_physical_pixel_and_copies_text() {
+        let directory = TestDirectory::new("pick-color");
+        let mut fake = FakeBackend::new();
+        fake.source.put_pixel(7, 9, Rgba([18, 171, 255, 255]));
+        let backend = Arc::new(fake);
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let picked = service
+            .pick_color(&PickColorRequest {
+                session_id: session_id.clone(),
+                point: Point { x: 3.6, y: 4.9 },
+                format: ColorFormat::Rgb,
+            })
+            .expect("colour should be picked");
+        assert_eq!(picked.hex, "#12ABFF");
+        assert_eq!(picked.copied, "rgb(18, 171, 255)");
+        assert_eq!(
+            backend.copied_text.lock().unwrap().as_deref(),
+            Some("rgb(18, 171, 255)")
+        );
+        let hex = service
+            .pick_color(&PickColorRequest {
+                session_id,
+                point: Point { x: 0.0, y: 0.0 },
+                format: ColorFormat::Hex,
+            })
+            .expect("colour should be picked");
+        assert_eq!(hex.copied, "#F0F1ED");
+    }
+
+    #[test]
+    fn pick_color_rejects_points_outside_the_snapshot() {
+        let directory = TestDirectory::new("pick-color-bounds");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        for point in [
+            Point { x: 10.0, y: 2.0 },
+            Point { x: -0.5, y: 2.0 },
+            Point {
+                x: f64::NAN,
+                y: 2.0,
+            },
+        ] {
+            assert!(
+                service
+                    .pick_color(&PickColorRequest {
+                        session_id: session_id.clone(),
+                        point,
+                        format: ColorFormat::Hex,
+                    })
+                    .is_err()
+            );
+        }
+        assert!(backend.copied_text.lock().unwrap().is_none());
+    }
+
+    fn text_request(session_id: &str) -> TextRecognitionRequest {
+        TextRecognitionRequest {
+            session_id: session_id.into(),
+            selection: Rect {
+                x: 1.0,
+                y: 2.0,
+                width: 6.0,
+                height: 4.0,
+            },
+        }
+    }
+
+    #[test]
+    fn saved_capture_actions_reject_files_outside_the_save_folder() {
+        let directory = TestDirectory::new("saved-validation");
+        let outside = TestDirectory::new("saved-validation-outside");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend, directory.0.clone());
+        let inside_file = directory.0.join("inside.png");
+        let outside_file = outside.0.join("outside.png");
+        RgbaImage::new(2, 2).save(&inside_file).unwrap();
+        RgbaImage::new(2, 2).save(&outside_file).unwrap();
+        assert!(service.validated_saved_capture(&inside_file).is_ok());
+        assert!(service.validated_saved_capture(&outside_file).is_err());
+    }
+
+    #[test]
+    fn thumbnail_path_depends_on_path_and_modified_time() {
+        let folder = Path::new("thumbs");
+        let now = std::time::SystemTime::now();
+        let later = now + std::time::Duration::from_secs(1);
+        let first = thumbnail_path_for(folder, Path::new("a.png"), now);
+        assert_eq!(first, thumbnail_path_for(folder, Path::new("a.png"), now));
+        assert_ne!(first, thumbnail_path_for(folder, Path::new("a.png"), later));
+        assert_ne!(first, thumbnail_path_for(folder, Path::new("b.png"), now));
+    }
+
+    #[test]
+    fn recognize_text_crops_physical_pixels_and_returns_logical_bounds() {
+        let directory = TestDirectory::new("ocr-bounds");
+        let backend = Arc::new(FakeBackend::new());
+        *backend.recognized_text.lock().unwrap() = "Invoice 42".into();
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let recognized = service
+            .recognize_text(&text_request(&session_id))
+            .expect("text should be recognised");
+        assert_eq!(*backend.recognized_size.lock().unwrap(), Some((12, 8)));
+        let bounds = recognized.lines[0].words[0].bounds;
+        assert_eq!(
+            (bounds.x, bounds.y, bounds.width, bounds.height),
+            (1.0, 2.0, 3.0, 4.0)
+        );
+        assert_eq!(recognized.language, "en-US");
+    }
+
+    #[test]
+    fn copy_text_copies_trimmed_text() {
+        let directory = TestDirectory::new("ocr-copy");
+        let backend = Arc::new(FakeBackend::new());
+        *backend.recognized_text.lock().unwrap() = "  Invoice 42\n".into();
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let result = service
+            .copy_text(&text_request(&session_id))
+            .expect("text should be copied");
+        assert!(matches!(result.status, TextCopyStatus::Copied));
+        assert_eq!(result.text, "Invoice 42");
+        assert_eq!(
+            backend.copied_text.lock().unwrap().as_deref(),
+            Some("Invoice 42")
+        );
+    }
+
+    #[test]
+    fn copy_text_reports_empty_without_touching_the_clipboard() {
+        let directory = TestDirectory::new("ocr-empty");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        let result = service
+            .copy_text(&text_request(&session_id))
+            .expect("empty text is not an error");
+        assert!(matches!(result.status, TextCopyStatus::Empty));
+        assert!(backend.copied_text.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn recognize_text_rejects_invalid_or_outside_selections() {
+        let directory = TestDirectory::new("ocr-invalid");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        let session_id = begin_session(&service);
+        for selection in [
+            Rect {
+                x: 8.0,
+                y: 0.0,
+                width: 5.0,
+                height: 5.0,
+            },
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 5.0,
+            },
+        ] {
+            let request = TextRecognitionRequest {
+                session_id: session_id.clone(),
+                selection,
+            };
+            assert!(service.recognize_text(&request).is_err());
+        }
+        assert!(backend.recognized_size.lock().unwrap().is_none());
     }
 
     #[test]

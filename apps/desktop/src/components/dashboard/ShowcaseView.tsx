@@ -25,6 +25,7 @@ import {
   mergeMediaFolders,
   mergeMediaItems,
   mergeSavedStyles,
+  readDefaultStyle,
   normalizeCrop,
   orientedSize,
   outputSize,
@@ -34,6 +35,7 @@ import {
   showcaseLibraryStorageKey,
   showcasePresetSchema,
   showcasePresetStorageKey,
+  showcaseDefaultStyleStorageKey,
   showcaseStylesStorageKey,
   spotlightGradient,
   stageAspectRatio,
@@ -76,6 +78,10 @@ type Composition = {
 
 type ShowcaseViewProps = {
   initialCapture?: SavedCapture | null;
+  /** True for the first mount after a capture is handed over, so the default
+   * style is applied once and not again when the tab is revisited. */
+  applyDefaultStyle?: boolean;
+  onDefaultStyleApplied?: () => void;
 };
 
 const demoNaturalSize: Size = { width: 1280, height: 800 };
@@ -101,7 +107,11 @@ const selectClass =
  * happens *around* it, and the canvas owns framing and output. The whole
  * composition is a single undoable snapshot, so nothing here is destructive.
  */
-export function ShowcaseView({ initialCapture = null }: ShowcaseViewProps): React.JSX.Element {
+export function ShowcaseView({
+  initialCapture = null,
+  applyDefaultStyle = false,
+  onDefaultStyleApplied,
+}: ShowcaseViewProps): React.JSX.Element {
   const composition = useUndoable<Composition>(defaultComposition);
   const { image, scene, frame, text } = composition.value;
   const { update, replace, undo, redo } = composition;
@@ -113,6 +123,7 @@ export function ShowcaseView({ initialCapture = null }: ShowcaseViewProps): Reac
   const [libraryImages, setLibraryImages] = useState<readonly MediaItem[]>([]);
   const [folders, setFolders] = useState<readonly MediaFolder[]>([]);
   const [styles, setStyles] = useState<readonly SavedStyle[]>([]);
+  const [defaultStyleId, setDefaultStyleId] = useState<string | null>(null);
   const [styleName, setStyleName] = useState("");
   const [stylesOpen, setStylesOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -215,10 +226,23 @@ export function ShowcaseView({ initialCapture = null }: ShowcaseViewProps): Reac
     if (raw === null) return;
     try {
       setStyles(savedStyleLibrarySchema.parse(JSON.parse(raw) as unknown));
+      setDefaultStyleId(readDefaultStyle(window.localStorage)?.id ?? null);
     } catch {
       // An unreadable style library is dropped rather than blocking the studio.
     }
   }, []);
+
+  // Declared after the restore effects so, on the first mount, the default
+  // style wins over the stored work in progress instead of being overwritten.
+  useEffect(() => {
+    if (initialCapture === null || !applyDefaultStyle) return;
+    onDefaultStyleApplied?.();
+    const style = readDefaultStyle(window.localStorage);
+    if (style === null) return;
+    replace({ image: style.preset.image, scene: style.preset.scene, frame: style.preset.frame, text: style.preset.text });
+    autoStyledRef.current = "*";
+    setStatus(`${style.name} applied`);
+  }, [applyDefaultStyle, initialCapture, onDefaultStyleApplied, replace]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -549,6 +573,14 @@ export function ShowcaseView({ initialCapture = null }: ShowcaseViewProps): Reac
     setStatus(`Saved “${name}”`);
   }
 
+  function changeDefaultStyle(id: string | null): void {
+    setDefaultStyleId(id);
+    if (id === null) window.localStorage.removeItem(showcaseDefaultStyleStorageKey);
+    else window.localStorage.setItem(showcaseDefaultStyleStorageKey, id);
+    const name = styles.find((style) => style.id === id)?.name;
+    setStatus(name === undefined ? "No default style" : `${name} will style captures sent to Showcase`);
+  }
+
   function applyStyle(style: SavedStyle): void {
     replace({ image: style.preset.image, scene: style.preset.scene, frame: style.preset.frame, text: style.preset.text });
     autoStyledRef.current = "*";
@@ -876,7 +908,12 @@ export function ShowcaseView({ initialCapture = null }: ShowcaseViewProps): Reac
           onAddImage={() => void runImport("background")}
           onApplyLook={applyLook}
           onApplyStyle={applyStyle}
-          onDeleteStyle={(id) => persistStyles(styles.filter((style) => style.id !== id))}
+          defaultStyleId={defaultStyleId}
+          onDefaultStyleChange={changeDefaultStyle}
+          onDeleteStyle={(id) => {
+            persistStyles(styles.filter((style) => style.id !== id));
+            if (id === defaultStyleId) changeDefaultStyle(null);
+          }}
           onPaddingChange={updatePadding}
           onPatchFrame={patchFrame}
           onPatchImage={patchImage}

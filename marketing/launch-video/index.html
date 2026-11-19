@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CapKit — launch video</title>
+<style>
+  @font-face { font-family: "Jakarta"; src: url("/fonts/jakarta.woff2") format("woff2"); font-weight: 200 800; }
+  @font-face { font-family: "Mono"; src: url("/fonts/mono.woff2") format("woff2"); font-weight: 100 800; }
+  @font-face { font-family: "Caveat"; src: url("/fonts/caveat.woff2") format("woff2"); font-weight: 400 700; }
+
+  :root {
+    --lime: #d9ff43;
+    --coral: #ff5b4d;
+    --ink: #151714;
+    --panel: #171815;
+    --stage: #0a0b0a;
+    --line: rgb(255 255 255 / 12%);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+  body { font-family: "Jakarta", system-ui, sans-serif; color: #f4f4ef; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: "Mono", ui-monospace, monospace; }
+  .abs { position: absolute; left: 0; top: 0; }
+  .hidden { opacity: 0; }
+
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--stage); }
+  #stage::after { /* fixed film vignette, not animated */
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 90;
+    background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgb(0 0 0 / 38%) 100%);
+  }
+
+  /* ---------- desktop ---------- */
+  #deskWrap { width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0; }
+  #deskCam { width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .wallpaper {
+    width: 1920px; height: 1080px;
+    background:
+      radial-gradient(circle at 14% 10%, rgb(217 255 67 / 16%), transparent 30%),
+      radial-gradient(circle at 86% 88%, rgb(95 148 130 / 34%), transparent 36%),
+      linear-gradient(135deg, #1d2a23, #0e120f 72%);
+  }
+  .taskbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
+    background: rgb(20 22 20 / 88%); border-top: 1px solid rgb(255 255 255 / 6%);
+    display: flex; justify-content: center; align-items: center; gap: 10px;
+  }
+  .taskbar i { width: 30px; height: 30px; border-radius: 7px; background: rgb(255 255 255 / 10%); display: block; }
+  .taskbar i.capkit { background: none; }
+  .tray { position: absolute; right: 22px; top: 0; height: 48px; display: flex; align-items: center; gap: 16px; font: 500 12px "Jakarta"; color: #cfd2c8; }
+
+  /* product window (fictional app used as capture subject) */
+  .win {
+    position: absolute; left: 360px; top: 150px; width: 1200px; height: 780px;
+    background: #f7f6f2; border-radius: 10px; overflow: hidden; color: #1d1f1b;
+    box-shadow: 0 30px 80px rgb(0 0 0 / 45%), 0 0 0 1px rgb(0 0 0 / 30%);
+  }
+  .win .bar { position: absolute; left: 0; top: 0; width: 1200px; height: 40px; background: #eceae4; display: flex; align-items: center; padding-left: 16px; gap: 10px; font: 600 13px "Jakarta"; color: #3b3d37; }
+  .win .bar .dot { width: 14px; height: 14px; border-radius: 4px; background: #2f6fde; }
+  .win .bar .ctl { margin-left: auto; display: flex; height: 40px; }
+  .win .bar .ctl span { width: 46px; display: grid; place-items: center; font: 400 14px "Jakarta"; color: #55574f; }
+  .win .side { position: absolute; left: 0; top: 40px; width: 220px; height: 740px; background: #efeee9; border-right: 1px solid #e2e0d9; padding: 26px 18px; }
+  .win .side .brand { font: 800 18px "Jakarta"; letter-spacing: -0.02em; margin-bottom: 28px; display: flex; align-items: center; gap: 8px; }
+  .win .side .brand b { width: 18px; height: 18px; border-radius: 50%; border: 4px solid #2f6fde; display: block; }
+  .win .side .nav { display: grid; gap: 4px; }
+  .win .side .nav span { padding: 9px 12px; border-radius: 8px; font: 500 14px "Jakarta"; color: #5f6159; }
+  .win .side .nav span.on { background: #fff; color: #1d1f1b; font-weight: 700; box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
+  .win h1 { position: absolute; left: 252px; top: 66px; font: 750 28px "Jakarta"; letter-spacing: -0.025em; }
+  .win .sub { position: absolute; left: 252px; top: 106px; font: 500 14px "Jakarta"; color: #7c7e76; }
+  .win .ship { position: absolute; left: 1010px; top: 76px; width: 158px; height: 40px; border-radius: 9px; background: #1d1f1b; color: #fff; font: 700 14px "Jakarta"; display: grid; place-items: center; }
+  .card { position: absolute; background: #fff; border: 1px solid #e4e2db; border-radius: 12px; }
+  .kpi { top: 150px; height: 110px; padding: 18px 20px; }
+  .kpi .k { font: 600 11px "Mono"; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8c85; }
+  .kpi .v { font: 750 34px "Jakarta"; letter-spacing: -0.03em; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .kpi .d { position: absolute; right: 18px; top: 18px; font: 700 12px "Mono"; padding: 3px 8px; border-radius: 999px; background: #e7f6e9; color: #1f7a39; }
+  .kpi .d.neg { background: #fdecea; color: #b4362b; }
+  .chart { left: 252px; top: 276px; width: 600px; height: 280px; padding: 18px 20px; }
+  .chart .t, .list .t, .table .t { font: 700 15px "Jakarta"; }
+  .chart .legend { position: absolute; right: 20px; top: 20px; font: 600 11px "Mono"; color: #8a8c85; }
+  .chart svg { position: absolute; left: 20px; top: 56px; }
+  .list { left: 868px; top: 276px; width: 300px; height: 280px; padding: 18px 20px; }
+  .list .row { display: flex; align-items: center; gap: 12px; height: 44px; font: 500 14px "Jakarta"; border-bottom: 1px solid #f0eee8; }
+  .list .row:first-of-type { margin-top: 10px; }
+  .list .box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid #c9c7bf; display: grid; place-items: center; }
+  .list .box.ok { background: #1d1f1b; border-color: #1d1f1b; }
+  .list .box.ok::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+  .list .row.done span:last-child { color: #9a9c94; text-decoration: line-through; }
+  .table { left: 252px; top: 572px; width: 916px; height: 184px; padding: 16px 20px; }
+  .table .tr { display: grid; grid-template-columns: 200px 260px 140px 1fr; height: 38px; align-items: center; font: 500 14px "Jakarta"; border-bottom: 1px solid #f0eee8; }
+  .table .tr.h { font: 600 11px "Mono"; letter-spacing: 0.08em; text-transform: uppercase; color: #8a8c85; height: 34px; margin-top: 6px; }
+  .table .tr span:last-child { text-align: right; font-family: "Mono"; font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; background: #eef2fd; color: #2f5fbf; font: 700 12px "Jakarta"; }
+
+  /* ---------- capture overlay ---------- */
+  .tint { background: rgb(7 8 7 / 64%); }
+  .sel { position: absolute; border: 1.5px solid var(--lime); box-shadow: 0 0 0 1px rgb(0 0 0 / 25%); }
+  .handle { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: var(--lime); border: 1.5px solid #1a1d14; }
+  .dims { position: absolute; padding: 5px 9px; border-radius: 7px; background: rgb(12 12 10 / 92%); border: 1px solid var(--line); font: 700 13px "Mono"; letter-spacing: 0.03em; color: #e7e5df; white-space: nowrap; }
+  .snap { position: absolute; border: 2px dashed rgb(217 255 67 / 85%); border-radius: 12px; }
+  .hint { position: absolute; padding: 9px 14px; border-radius: 999px; background: rgb(14 15 13 / 92%); border: 1px solid var(--line); font: 600 14px "Jakarta"; color: #e9e8e2; white-space: nowrap; }
+  .hint b { font-family: "Mono"; color: var(--lime); font-weight: 700; }
+  .dock {
+    position: absolute; display: flex; gap: 6px; padding: 7px; border-radius: 16px;
+    background: rgb(23 24 21 / 97%); border: 1px solid var(--line);
+    box-shadow: 0 22px 60px rgb(0 0 0 / 50%);
+  }
+  .dock.v { flex-direction: column; }
+  .tool { position: relative; width: 46px; height: 46px; border-radius: 11px; display: grid; place-items: center; color: #e9e8e2; }
+  .tool svg { width: 22px; height: 22px; }
+  .tool.on { background: var(--lime); color: #151714; }
+  .tool.hov { background: rgb(255 255 255 / 10%); }
+  .tool .kbd { position: absolute; right: 3px; top: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; background: #2a2c27; border: 1px solid var(--line); font: 700 9px/13px "Mono"; color: #e6e4de; text-align: center; }
+  .sep { width: 1px; align-self: stretch; margin: 8px 3px; background: var(--line); }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; align-self: center; margin: 0 3px; box-shadow: 0 0 0 1px rgb(255 255 255 / 18%); }
+  .swatch.on { box-shadow: 0 0 0 2px #171815, 0 0 0 4px #fff; }
+
+  .anno-rect { position: absolute; border: 4px solid var(--coral); border-radius: 12px; }
+  .anno-hl { position: absolute; background: var(--lime); mix-blend-mode: multiply; border-radius: 3px; }
+  .badge { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: var(--lime); color: #151714; font: 800 16px/34px "Jakarta"; text-align: center; box-shadow: 0 4px 12px rgb(0 0 0 / 25%), 0 0 0 2px #151714; }
+  .blur { position: absolute; backdrop-filter: blur(9px) saturate(0.8); background: rgb(240 240 236 / 35%); border-radius: 6px; overflow: hidden; }
+
+  .toast {
+    position: absolute; display: flex; align-items: center; gap: 10px; padding: 12px 18px 12px 14px;
+    border-radius: 14px; background: rgb(23 24 21 / 97%); border: 1px solid var(--line);
+    box-shadow: 0 22px 60px rgb(0 0 0 / 45%); font: 600 16px "Jakarta"; color: #f2f1ec; white-space: nowrap;
+  }
+  .toast .ok { width: 26px; height: 26px; border-radius: 50%; background: var(--lime); color: #151714; display: grid; place-items: center; }
+  .toast .ok svg { width: 16px; height: 16px; }
+  .toast .meta { font: 600 13px "Mono"; color: #9b9d95; }
+
+  /* cursor */
+  #cursor { position: absolute; left: 0; top: 0; z-index: 40; }
+  #cursor svg { position: absolute; }
+  .ripple { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; border: 3px solid var(--lime); }
+
+  /* screen draw */
+  #spot { position: absolute; inset: 0; }
+  .ink { fill: none; stroke: var(--coral); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+  .scrawl { position: absolute; font: 700 54px "Caveat"; color: var(--coral); white-space: nowrap; }
+  .live { position: absolute; display: flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; background: rgb(14 15 13 / 90%); border: 1px solid var(--line); font: 600 13px "Jakarta"; color: #e9e8e2; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); display: block; }
+
+  /* recorder */
+  .rec { position: absolute; display: flex; align-items: center; gap: 14px; padding: 10px 10px 10px 18px; border-radius: 18px; background: rgb(23 24 21 / 98%); border: 1px solid var(--line); box-shadow: 0 22px 72px rgb(0 0 0 / 48%); }
+  .rec .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--coral); }
+  .rec .time { font: 700 19px "Mono"; color: #fff; font-variant-numeric: tabular-nums; }
+  .rec .src { font: 500 14px "Jakarta"; color: #a8aaa2; }
+  .rec .ctl { display: flex; gap: 6px; margin-left: 10px; }
+  .rec .ctl span { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: #e9e8e2; background: rgb(255 255 255 / 6%); }
+  .rec .ctl span.on { color: var(--lime); }
+  .rec .ctl svg { width: 20px; height: 20px; }
+  .rec .stop { height: 40px; padding: 0 16px; border-radius: 10px; background: var(--coral); color: #fff; font: 800 14px "Jakarta"; display: flex; align-items: center; gap: 8px; }
+  .rec .stop svg { width: 18px; height: 18px; }
+  .count { position: absolute; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; background: rgb(23 24 21 / 96%); border: 1px solid var(--line); font: 700 64px/148px "Jakarta"; text-align: center; color: #fff; box-shadow: 0 22px 72px rgb(0 0 0 / 50%); }
+  .recborder { position: absolute; inset: 0; border: 3px solid var(--coral); }
+  .cam { position: absolute; width: 230px; height: 230px; border-radius: 50%; overflow: hidden; border: 3px solid rgb(255 255 255 / 85%); box-shadow: 0 18px 50px rgb(0 0 0 / 45%); background: linear-gradient(160deg, #3c4a42, #1b211d); }
+
+  /* studio */
+  #studioBg { width: 1920px; height: 1080px; }
+  .timeline { position: absolute; left: 260px; top: 905px; width: 1400px; height: 120px; border-radius: 18px; background: rgb(23 24 21 / 96%); border: 1px solid var(--line); padding: 18px 22px; }
+  .track { position: absolute; left: 110px; right: 22px; height: 30px; border-radius: 8px; }
+  .track-label { position: absolute; left: 22px; font: 700 11px "Mono"; letter-spacing: 0.08em; text-transform: uppercase; color: #8d8f87; }
+  .clip { background: repeating-linear-gradient(90deg, #2c3a32 0 86px, #26322b 86px 88px); }
+  .zoomblk { position: absolute; top: 0; height: 30px; border-radius: 8px; background: var(--lime); color: #151714; font: 800 12px/30px "Mono"; padding-left: 10px; white-space: nowrap; overflow: hidden; }
+  .playhead { position: absolute; top: 10px; width: 2px; height: 100px; background: #fff; border-radius: 2px; }
+  .playhead::before { content: ""; position: absolute; left: -6px; top: -6px; width: 14px; height: 14px; border-radius: 4px; background: #fff; }
+
+  /* showcase */
+  .bd { position: absolute; inset: 0; }
+  #shot { position: absolute; left: 0; top: 0; width: 948px; height: 626px; transform-origin: 50% 50%; }
+  #shotBezel { position: absolute; inset: -18px; border-radius: 34px; background: #121412; box-shadow: inset 0 0 0 2px rgb(255 255 255 / 10%); }
+  #shotClip { position: absolute; inset: 0; overflow: hidden; }
+  #shotInner { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform: translate(-596px, -284px); }
+  .looks { position: absolute; left: 50%; top: 892px; transform: translateX(-50%); display: flex; gap: 12px; padding: 12px; border-radius: 20px; background: rgb(23 24 21 / 94%); border: 1px solid var(--line); box-shadow: 0 22px 60px rgb(0 0 0 / 40%); }
+  .look { width: 150px; }
+  .look .th { height: 84px; border-radius: 11px; position: relative; overflow: hidden; box-shadow: 0 0 0 1px rgb(255 255 255 / 10%); }
+  .look .th::after { content: ""; position: absolute; left: 30%; top: 30%; width: 40%; height: 40%; border-radius: 4px; background: rgb(255 255 255 / 88%); box-shadow: 0 6px 14px rgb(0 0 0 / 30%); }
+  .look.on .th { box-shadow: 0 0 0 2px var(--lime); }
+  .look span { display: block; margin-top: 8px; font: 600 14px "Jakarta"; color: #d9d8d2; text-align: center; }
+  .btn { position: absolute; display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 18px; border-radius: 12px; font: 700 16px "Jakarta"; }
+  .btn svg { width: 19px; height: 19px; }
+  .btn.light { background: #f4f4ef; color: #151714; }
+  .btn.dark { background: rgb(23 24 21 / 94%); color: #f4f4ef; border: 1px solid var(--line); }
+
+  /* typography layers */
+  #scrim { position: absolute; inset: 0; background: rgb(9 10 9 / 90%); z-index: 50; }
+  #hl { position: absolute; left: 0; top: 0; z-index: 60; transform-origin: 0 0; white-space: nowrap; }
+  #hlEye { font: 700 22px "Mono"; letter-spacing: 0.14em; text-transform: uppercase; color: var(--lime); margin-bottom: 22px; }
+  #hlText { font: 750 112px/1.02 "Jakarta"; letter-spacing: -0.045em; color: #f6f6f1; }
+  #hlText .w { display: inline-block; }
+  #keys { position: absolute; z-index: 70; display: flex; gap: 10px; align-items: center; }
+  .key { min-width: 64px; height: 64px; padding: 0 18px; border-radius: 14px; background: linear-gradient(#26281f, #1a1c17); border: 1px solid rgb(255 255 255 / 16%); box-shadow: 0 4px 0 #0b0c0a, 0 18px 40px rgb(0 0 0 / 45%); font: 700 24px/62px "Mono"; color: #f4f4ef; text-align: center; }
+  .plus { font: 600 24px "Mono"; color: #8d8f87; }
+
+  /* outro */
+  #outro { position: absolute; inset: 0; z-index: 80; }
+  .bigsize { position: absolute; left: 0; width: 1920px; text-align: center; font: 750 300px/1 "Jakarta"; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; color: #f6f6f1; }
+  .bigsize small { font: 700 92px "Mono"; letter-spacing: -0.02em; color: var(--lime); margin-left: 18px; }
+  .stat { position: absolute; font: 600 24px "Jakarta"; color: #c9cbc2; white-space: nowrap; }
+  .stat b { color: #fff; font-weight: 800; }
+  .chip { position: absolute; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px 0 18px; border-radius: 18px; background: rgb(23 24 21 / 96%); border: 1px solid var(--line); font: 700 22px "Jakarta"; white-space: nowrap; }
+  .chip svg { width: 26px; height: 26px; color: var(--lime); }
+  .ticks { position: absolute; height: 14px; background: repeating-linear-gradient(90deg, rgb(255 255 255 / 30%) 0 1px, transparent 1px 12px); }
+  #logo { position: absolute; width: 200px; height: 200px; }
+  .word { position: absolute; font: 800 150px/1 "Jakarta"; letter-spacing: -0.05em; color: #f6f6f1; white-space: nowrap; }
+  .tag { position: absolute; left: 0; width: 1920px; text-align: center; font: 500 32px "Jakarta"; color: #c9cbc2; }
+  .meta-line { position: absolute; left: 0; width: 1920px; text-align: center; font: 700 18px "Mono"; letter-spacing: 0.16em; text-transform: uppercase; color: #8d8f87; }
+  .corner { position: absolute; width: 56px; height: 56px; border-color: var(--lime); border-style: solid; border-width: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="studioBg" class="abs"></div>
+  <div id="showcase" class="abs" style="width:1920px;height:1080px"></div>
+  <div id="deskWrap" class="abs"><div id="deskCam"></div></div>
+  <div id="studioUi" class="abs" style="width:1920px;height:1080px"></div>
+  <div id="frameCorners" class="abs"></div>
+  <div id="scrim"></div>
+  <div id="hl"><div id="hlEye"></div><div id="hlText"></div></div>
+  <div id="keys"></div>
+  <div id="outro"></div>
+</div>
+<script src="icons.js"></script>
+<script src="timeline.js"></script>
+</body>
+</html>

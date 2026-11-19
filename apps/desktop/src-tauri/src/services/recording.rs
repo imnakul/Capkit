@@ -14,6 +14,7 @@ use crate::platform::{
 use crate::services::capture::{
     default_recording_directory, load_recording_directory, persist_recording_directory,
 };
+use crate::services::paths::display_path;
 
 /// Owns the one recording that can be in flight at a time.
 ///
@@ -209,9 +210,11 @@ impl RecordingService {
         }
         std::fs::create_dir_all(&directory)
             .map_err(|error| SnaphubError::Record(error.to_string()))?;
-        let directory = directory
-            .canonicalize()
-            .map_err(|error| SnaphubError::Record(error.to_string()))?;
+        let directory = display_path(
+            &directory
+                .canonicalize()
+                .map_err(|error| SnaphubError::Record(error.to_string()))?,
+        );
         persist_recording_directory(&directory)?;
         *self
             .root

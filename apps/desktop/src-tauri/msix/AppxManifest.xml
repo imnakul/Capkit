@@ -4,7 +4,8 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap10 rescap">
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap uap10 rescap desktop">
   <Identity
     Name="JagatBandhu.SnapHub"
     Publisher="CN=8A6295E4-CFC2-4019-B7E3-C5FE35587B52"
@@ -39,10 +40,25 @@
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Open at sign-in. Off until the user turns it on in CapKit
+             Settings; TaskId must match STARTUP_TASK_ID in
+             src/platform/windows_startup.rs. -->
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="capkit-desktop.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="CapKitStartup" Enabled="false" DisplayName="CapKit" />
+        </desktop:Extension>
+      </Extensions>
     </Application>
   </Applications>
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Recording: microphone audio and the camera overlay. Device
+         capabilities must follow every other capability. -->
+    <DeviceCapability Name="microphone" />
+    <DeviceCapability Name="webcam" />
   </Capabilities>
 </Package>

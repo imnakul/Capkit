@@ -183,3 +183,22 @@ describe("Snaphub settings", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("overlay motion", () => {
+  it("defaults older saved overlay settings to dim-rise", () => {
+    const parsed = snaphubSettingsSchema.parse({
+      ...defaultSnaphubSettings,
+      overlay: { color: "#070807", opacity: 0.5 },
+    });
+    expect(parsed.overlay.motion).toBe("dim-rise");
+  });
+
+  it("rejects unknown motion values", () => {
+    expect(() =>
+      snaphubSettingsSchema.parse({
+        ...defaultSnaphubSettings,
+        overlay: { ...defaultSnaphubSettings.overlay, motion: "bounce" },
+      }),
+    ).toThrow();
+  });
+});

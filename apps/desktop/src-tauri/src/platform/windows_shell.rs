@@ -16,6 +16,12 @@ pub fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
     open_uri("ms-settings:privacy-webcam")
 }
 
+/// Opens Settings > Apps > Startup, the only place a user can turn the
+/// startup task back on after turning it off there or in Task Manager.
+pub fn open_startup_settings() -> Result<(), SnaphubError> {
+    open_uri("ms-settings:startupapps")
+}
+
 fn open_uri(uri: &str) -> Result<(), SnaphubError> {
     let verb = wide(OsStr::new("open"));
     let target = wide(OsStr::new(uri));

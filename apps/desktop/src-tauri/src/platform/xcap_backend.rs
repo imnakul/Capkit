@@ -4,11 +4,11 @@ use arboard::{Clipboard, ImageData};
 use xcap::{Monitor, Window};
 
 use crate::{
-    domain::{DetectedTargetDto, DisplayDto, Point, Rect},
+    domain::{DetectedTargetDto, DisplayDto, Point, RecognizedTextDto, Rect},
     error::SnaphubError,
     platform::{
         CaptureBackend, CapturedDisplay, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
     },
 };
 
@@ -215,6 +215,33 @@ impl ClipboardBackend for XcapPlatformBackend {
                 bytes: Cow::Owned(image.clone().into_raw()),
             })
             .map_err(SnaphubError::clipboard)
+    }
+
+    fn copy_text(&self, text: &str) -> Result<(), SnaphubError> {
+        let mut clipboard = Clipboard::new().map_err(SnaphubError::clipboard)?;
+        clipboard
+            .set_text(text.to_owned())
+            .map_err(SnaphubError::clipboard)
+    }
+}
+
+impl TextRecognitionBackend for XcapPlatformBackend {
+    fn is_text_recognition_supported(&self) -> bool {
+        cfg!(target_os = "windows")
+    }
+
+    fn recognize_text(&self, image: &image::RgbaImage) -> Result<RecognizedTextDto, SnaphubError> {
+        #[cfg(target_os = "windows")]
+        {
+            crate::platform::windows_ocr::recognize(image)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = image;
+            Err(SnaphubError::Ocr(
+                "Text recognition is not available on this platform yet".into(),
+            ))
+        }
     }
 }
 

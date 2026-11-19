@@ -40,8 +40,16 @@ import {
   updateGlobalShortcuts,
 } from "../../lib/tauri";
 import { captureCursor, onScreenCursor } from "../../lib/cursor";
+import {
+  getStartupState,
+  openStartupSettings,
+  presentStartupState,
+  setStartupEnabled,
+  type StartupState,
+} from "../../lib/startup";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
+import { useUpdateStatus } from "./useUpdateStatus";
 
 const neonColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ff5b4d", "#ffb547", "#ffffff", "#171717"] as const;
 const accentColors = ["#d9ff43", "#39ff88", "#39e7ff", "#7c5cff", "#ff4fd8", "#ffb547"] as const;
@@ -80,6 +88,7 @@ const settingsTabs = [
 
 type SettingsSectionId =
   | "startup"
+  | "updates"
   | "save-location"
   | "save-recordings"
   | "theme-accent"
@@ -92,7 +101,7 @@ type SettingsSectionId =
   | "shortcuts";
 
 const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
-  general: ["startup", "save-location", "save-recordings", "theme-accent"],
+  general: ["startup", "updates", "save-location", "save-recordings", "theme-accent"],
   screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
   "screen-draw": ["on-screen-toolbar"],
   shortcuts: ["shortcuts"],
@@ -108,6 +117,7 @@ const shortcutSections: ReadonlySet<SettingsSectionId> = new Set<SettingsSection
 function defaultOpenSections(): Record<SettingsSectionId, boolean> {
   const open: Record<SettingsSectionId, boolean> = {
     startup: false,
+    updates: false,
     "save-location": false,
     "save-recordings": false,
     "theme-accent": false,
@@ -137,7 +147,12 @@ export function SettingsView(): React.JSX.Element {
   const [recordingDirectory, setRecordingDirectoryState] = useState("Videos\\Capkit");
   const [recordingMessage, setRecordingMessage] = useState<string | null>(null);
   const [choosingRecordingDirectory, setChoosingRecordingDirectory] = useState(false);
+  // Null until the native state loads; the saved preference stands in.
+  const [startupState, setStartupState] = useState<StartupState | null>(null);
+  const [changingStartup, setChangingStartup] = useState(false);
+  const [startupMessage, setStartupMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  const updates = useUpdateStatus(false);
   const [openSections, setOpenSections] = useState<Record<SettingsSectionId, boolean>>(defaultOpenSections);
 
   useEffect(() => {
@@ -153,13 +168,19 @@ export function SettingsView(): React.JSX.Element {
 
   useEffect(() => {
     if (!isTauri()) return;
-    void import("@tauri-apps/plugin-autostart")
-      .then(({ isEnabled }) => isEnabled())
-      .then((enabled) => {
-        if (enabled !== settings.openAtStartup) updateSettings({ ...settings, openAtStartup: enabled });
-      })
-      .catch((error: unknown) => console.error("SH-AUTOSTART-READ-001", error));
+    void loadStartupState();
   }, []);
+
+  // Turning CapKit back on happens in Windows Settings, so re-read the state
+  // when the user returns. Only while that is the pending fix; no polling.
+  useEffect(() => {
+    if (startupState?.status !== "disabled-by-user") return;
+    function refresh(): void {
+      void loadStartupState();
+    }
+    window.addEventListener("focus", refresh);
+    return (): void => window.removeEventListener("focus", refresh);
+  }, [startupState?.status]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -246,16 +267,42 @@ export function SettingsView(): React.JSX.Element {
     update({ ...settings, customColors, palette });
   }
 
-  async function toggleAutostart(enabled: boolean): Promise<void> {
-    update({ ...settings, openAtStartup: enabled });
-    if (!isTauri()) return;
+  function applyStartupState(state: StartupState): void {
+    setStartupState(state);
+    const isOn = presentStartupState(state).isOn;
+    if (isOn !== settings.openAtStartup) updateSettings({ ...settings, openAtStartup: isOn });
+  }
+
+  async function loadStartupState(): Promise<void> {
     try {
-      const plugin = await import("@tauri-apps/plugin-autostart");
-      if (enabled) await plugin.enable();
-      else await plugin.disable();
+      applyStartupState(await getStartupState());
+      setStartupMessage(null);
     } catch (error: unknown) {
-      update({ ...settings, openAtStartup: !enabled });
-      console.error("SH-AUTOSTART-WRITE-001", error);
+      setStartupMessage(describeInvokeError(error, "Startup setting could not be loaded"));
+    }
+  }
+
+  async function changeStartup(enabled: boolean): Promise<void> {
+    if (!isTauri()) {
+      update({ ...settings, openAtStartup: enabled });
+      return;
+    }
+    setChangingStartup(true);
+    setStartupMessage(null);
+    try {
+      applyStartupState(await setStartupEnabled(enabled));
+    } catch (error: unknown) {
+      setStartupMessage(describeInvokeError(error, "Startup setting could not be changed"));
+    } finally {
+      setChangingStartup(false);
+    }
+  }
+
+  async function showStartupSettings(): Promise<void> {
+    try {
+      await openStartupSettings();
+    } catch (error: unknown) {
+      setStartupMessage(describeInvokeError(error, "Windows Settings could not be opened"));
     }
   }
 
@@ -375,17 +422,6 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
-  async function resetStartup(): Promise<void> {
-    update({ ...settings, openAtStartup: false });
-    if (!isTauri()) return;
-    try {
-      const plugin = await import("@tauri-apps/plugin-autostart");
-      await plugin.disable();
-    } catch (error: unknown) {
-      console.error("SH-AUTOSTART-RESET-001", error);
-    }
-  }
-
   function resetDetection(): void {
     update({
       ...settings,
@@ -480,6 +516,8 @@ export function SettingsView(): React.JSX.Element {
     }
   }
 
+  const startup = presentStartupState(startupState ?? { status: settings.openAtStartup ? "enabled" : "disabled", managedBy: "app" });
+
   return (
     <div className="mx-auto max-w-[960px] px-7 pb-12 pt-7">
       <header className="mb-6 flex items-end justify-between border-b border-stone-300/80 pb-5 dark:border-white/10">
@@ -495,8 +533,37 @@ export function SettingsView(): React.JSX.Element {
         {activeTab === "general" ? (
           <>
           <SettingsSection id="startup" onToggle={toggleSection} open={openSections.startup} icon={Clock} eyebrow="Startup" title="Open at startup" description="Keep Capkit ready in the system tray as soon as you sign in.">
-            <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={settings.openAtStartup} onChange={(enabled) => void toggleAutostart(enabled)} />
-            <SectionReset onClick={() => void resetStartup()} />
+            <ToggleField label="Open at startup" description="Keep Capkit ready in the system tray" checked={startup.isOn} disabled={!startup.canChange || changingStartup} onChange={(enabled) => void changeStartup(enabled)} />
+            {startup.notice === null ? null : (
+              <div className="mt-3 flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2.5 dark:border-white/10 dark:bg-[#2b2c29]">
+                <p className="min-w-0 flex-1 text-[12px] leading-4 text-stone-600 dark:text-stone-400">{startup.notice}</p>
+                {startup.canOpenWindowsSettings ? <button className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" type="button" onClick={() => void showStartupSettings()}>Open Startup settings</button> : null}
+              </div>
+            )}
+            {startupMessage === null ? null : <p aria-live="polite" className="mt-2 text-[12px] text-stone-500 dark:text-stone-400">{startupMessage}</p>}
+            <SectionReset onClick={() => void changeStartup(false)} />
+          </SettingsSection>
+          <SettingsSection id="updates" onToggle={toggleSection} open={openSections.updates} icon={RotateCcw} eyebrow="Updates" title="Keep CapKit current" description="CapKit checks GitHub once when it starts. Nothing installs until you choose to.">
+            {updates.status.state === "unsupported" ? (
+              <p className="text-[12px] text-stone-500 dark:text-stone-400">Updates come from the Microsoft Store.</p>
+            ) : (
+              <>
+                <ToggleField label="Check for updates automatically" description="" checked={settings.updates.autoCheck} onChange={(autoCheck) => update({ ...settings, updates: { autoCheck } })} />
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button className="shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20" disabled={updates.status.state === "checking" || updates.status.state === "installing"} type="button" onClick={updates.check}>Check for updates</button>
+                  <p aria-live="polite" className="text-[12px] text-stone-500 dark:text-stone-400">
+                    {updates.status.state === "checking" ? "Checking…" : null}
+                    {updates.status.state === "up-to-date" ? `You're on the latest version (v${updates.status.currentVersion}).` : null}
+                    {updates.status.state === "available" ? `v${updates.status.version} is available.` : null}
+                    {updates.status.state === "installing" ? `Downloading… ${String(updates.status.percent)}%` : null}
+                    {updates.status.state === "error" ? updates.status.message : null}
+                  </p>
+                  {updates.status.state === "available" ? <button className="shrink-0 rounded-md bg-[var(--snaphub-accent)] px-3 py-1.5 text-[12px] font-semibold text-stone-950 outline-none transition focus-visible:ring-2 focus-visible:ring-stone-900 dark:focus-visible:ring-white" type="button" onClick={updates.install}>Install and restart</button> : null}
+                </div>
+                {updates.guardMessage === null ? null : <p className="mt-2 text-[12px] text-amber-700 dark:text-amber-300" role="alert">{updates.guardMessage}</p>}
+              </>
+            )}
+            <SectionReset onClick={() => update({ ...settings, updates: defaultSnaphubSettings.updates })} />
           </SettingsSection>
           <SettingsSection id="theme-accent" onToggle={toggleSection} open={openSections["theme-accent"]} icon={Paintbrush} eyebrow="Identity" title="Theme accent" description="Used for active tools, focus states, selection handles, and new annotations.">
             <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
@@ -563,8 +630,12 @@ export function SettingsView(): React.JSX.Element {
             <div className="grid gap-x-7 gap-y-4 lg:grid-cols-2">
               <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
               <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
-              <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
               <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[12px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
+              <div className="lg:col-span-2"><FieldLabel>Overlay motion</FieldLabel><div className="mt-1.5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Overlay motion">{([
+                ["dim-rise", "Dim fades in", "The screen dims gently and the hint rises. Leaving fades out quickly."],
+                ["fade-in", "Fade in", "The overlay fades in. Escape closes it instantly."],
+                ["fade-both", "Fade in and out", "The whole overlay fades in and fades out."],
+              ] as const).map(([value, label, description]) => <button aria-checked={settings.overlay.motion === value} className="rounded-lg border border-stone-200 bg-white p-3 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:border-stone-700 aria-checked:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-checked:border-[var(--snaphub-accent)]/55 dark:aria-checked:bg-white/5" key={value} role="radio" type="button" onClick={() => update({ ...settings, overlay: { ...settings.overlay, motion: value } })}><span className="block text-[13px] font-semibold text-stone-800 dark:text-stone-200">{label}</span><span className="mt-1 block text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</span></button>)}</div></div>
             </div>
             <SectionReset onClick={resetDetection} />
           </SettingsSection>
@@ -829,8 +900,8 @@ function ColorButton({ color, label, selected, disabled = false, onClick }: Colo
 
 function SectionReset({ onClick }: { onClick: () => void }): React.JSX.Element { return <div className="mt-4 border-t border-stone-200 pt-3 dark:border-white/8"><button aria-label="Reset this section" className="flex items-center gap-1.5 text-[12px] font-medium text-stone-500 outline-none transition hover:text-stone-900 focus-visible:text-stone-900 dark:text-stone-500 dark:hover:text-stone-200 dark:focus-visible:text-white" type="button" onClick={onClick}><RotateCcw aria-hidden="true" size={11} />Reset this section</button></div>; }
 
-type ToggleFieldProps = { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void };
-function ToggleField({ label, description, checked, onChange }: ToggleFieldProps): React.JSX.Element { return <label className="flex cursor-pointer items-start justify-between gap-3"><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[12px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
+type ToggleFieldProps = { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void };
+function ToggleField({ label, description, checked, disabled = false, onChange }: ToggleFieldProps): React.JSX.Element { return <label className={`flex items-start justify-between gap-3 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}><span><span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</span>{description === "" ? null : <span className="mt-0.5 block text-[12px] leading-4 text-stone-500 dark:text-stone-400">{description}</span>}</span><span className="relative mt-0.5 shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" disabled={disabled} role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" /></span></label>; }
 
 type ShortcutRowProps = { label: string; description: string; value: string; defaultValue: string; recording: boolean; onRecord: () => void; onReset: () => void };
 function ShortcutRow({ label, description, value, defaultValue, recording, onRecord, onReset }: ShortcutRowProps): React.JSX.Element { return <div className="flex items-center gap-2 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-stone-800 dark:text-stone-200">{label}</p><p className="mt-0.5 text-[12px] text-stone-500 dark:text-stone-400">{description}</p></div><button aria-label={`Configure ${label}`} aria-pressed={recording} className="min-w-32 rounded-md border border-stone-300 bg-stone-50 px-2.5 py-1.5 font-mono text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:aria-pressed:bg-white/10" type="button" onClick={onRecord}>{recording ? "Press shortcut…" : value}</button><InlineResetButton label={`Reset ${label} shortcut`} disabled={value === defaultValue && !recording} onClick={onReset} /></div>; }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { GifEncoder, seekAll } from "./videoExport";
+import { decodeCursorTrack } from "../domain/cursorTrack";
+import { defaultVideoScene } from "../domain/videoScene";
+import { GifEncoder, keyframesFor, seekAll } from "./videoExport";
 
 /** A plain object shaped like `ImageData`, since jsdom has no real Canvas. */
 function fakeFrame(width: number, height: number, rgb: readonly [number, number, number]): ImageData {
@@ -116,5 +118,41 @@ describe("seekAll", () => {
     const video = fakeSeekable();
     await seekAll({ video: video as unknown as HTMLVideoElement, camera: null }, 1.5);
     expect(video.currentTime).toBe(1.5);
+  });
+});
+
+describe("keyframesFor", () => {
+  const typing = [1, 1.2, 1.4, 1.6].map((time) => ({
+    time,
+    kind: "text" as const,
+    key: "",
+    ctrl: false,
+    shift: false,
+    alt: false,
+    meta: false,
+  }));
+  const track = decodeCursorTrack({
+    version: 1,
+    times: [0, 2],
+    xs: [400, 400],
+    ys: [300, 300],
+    events: [],
+    shapes: [],
+    keysRecorded: true,
+    keys: typing,
+    displayBounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    scaleFactor: 1,
+  });
+  const media = { width: 1920, height: 1080 };
+
+  it("zooms to typing when follow typing is on", () => {
+    const keyframes = keyframesFor(defaultVideoScene(5), track, media);
+    expect(keyframes.some((frame) => frame.scale > 1)).toBe(true);
+  });
+
+  it("ignores typing when follow typing is off", () => {
+    const scene = defaultVideoScene(5);
+    const keyframes = keyframesFor({ ...scene, zoom: { ...scene.zoom, followTyping: false } }, track, media);
+    expect(keyframes).toEqual([]);
   });
 });

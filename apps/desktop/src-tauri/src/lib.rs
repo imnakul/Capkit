@@ -7,30 +7,39 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
 use domain::{
     AudioDeviceDto, CaptureSessionDto, CompletionAction, CompletionRequest, CompletionResult,
     CompletionStatus, DetectedTargetDto, DisplayDto, MediaFileDto, MediaFolderDto,
-    OnScreenSessionDto, Point, RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto,
-    RecordingStatsDto, Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult,
+    OnScreenSessionDto, PickColorRequest, PickedColorDto, Point, RecognizedTextDto,
+    RecordingArtifactsDto, RecordingRequestDto, RecordingSourceDto, RecordingStatsDto, Rect,
+    SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult, StartupStateDto,
+    TextCopyResult, TextCopyStatus, TextRecognitionRequest,
 };
 use error::SnaphubError;
+use platform::StartupBackend;
+use platform::plugin_startup::PluginStartup;
 use platform::xcap_backend::{XcapPlatformBackend, display_bounds};
 use services::capture::CaptureService;
 use services::recording::RecordingService;
 use services::scrolling::stitch_vertical;
+use services::updates::{
+    self, AvailableUpdate, UpdateRegistry, UpdateStatusDto, download_percent, install_failure,
+    install_guard,
+};
 #[cfg(debug_assertions)]
 use std::time::Instant;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
-    menu::{Menu, MenuItem},
+    menu::{IsMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     AW_BLEND, AnimateWindow, SW_HIDE, SetForegroundWindow, ShowWindow,
@@ -39,6 +48,30 @@ use windows::Win32::UI::WindowsAndMessaging::{
 // AnimateWindow's cross-fade masks the one or two frames before WebView2's swap chain
 // has composited fresh content, which otherwise reads as a black flash on reveal.
 const CAPTURE_REVEAL_MS: u32 = 90;
+const CAPTURE_CONCEAL_MS: u32 = 120;
+
+/// How the capture overlay enters and leaves; chosen in Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum OverlayMotion {
+    FadeIn,
+    DimRise,
+    FadeBoth,
+}
+
+/// Fades the window out through Win32. It hides the window without telling
+/// tao, so callers must still run `hide_capture_window` afterwards.
+#[cfg(target_os = "windows")]
+fn conceal_window_smoothly(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::AW_HIDE;
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        let _ = unsafe { AnimateWindow(hwnd, CAPTURE_CONCEAL_MS, AW_HIDE | AW_BLEND) };
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn conceal_window_smoothly(_window: &tauri::WebviewWindow) {}
 
 #[cfg(target_os = "windows")]
 fn reveal_window_smoothly(window: &tauri::WebviewWindow) -> Result<(), SnaphubError> {
@@ -115,6 +148,12 @@ struct OnScreenActiveState {
 
 struct OnScreenModeRegistry(Mutex<OnScreenModeState>);
 
+/// A saved capture waiting for the dashboard to open it in Showcase.
+///
+/// A slot rather than an event alone: when the dashboard has to be built, its
+/// listeners do not exist yet, so it takes the capture once it has loaded.
+struct PendingShowcase(Mutex<Option<String>>);
+
 #[tauri::command]
 async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError> {
     #[cfg(debug_assertions)]
@@ -155,13 +194,26 @@ async fn begin_capture(app: AppHandle) -> Result<CaptureSessionDto, SnaphubError
 }
 
 #[tauri::command]
-fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
+fn show_capture_surface(
+    app: AppHandle,
+    motion: OverlayMotion,
+    reduced_motion: bool,
+) -> Result<(), SnaphubError> {
+    // Every motion mode keeps the short blend-in: it masks WebView2's first-frame
+    // flash. `dim-rise` hides the blend by starting its scrim at opacity 0.
+    let _ = motion;
     let window = app
         .get_webview_window("capture")
         .ok_or_else(|| SnaphubError::Window("Capture window is unavailable".into()))?;
     #[cfg(debug_assertions)]
     let reveal_started = Instant::now();
-    reveal_window_smoothly(&window)?;
+    if reduced_motion {
+        window
+            .show()
+            .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    } else {
+        reveal_window_smoothly(&window)?;
+    }
     #[cfg(debug_assertions)]
     eprintln!(
         "[capture-timing] reveal={}ms",
@@ -183,12 +235,77 @@ fn show_capture_surface(app: AppHandle) -> Result<(), SnaphubError> {
     Ok(())
 }
 
+/// True when this process started at sign-in: through the unpackaged sign-in
+/// entry, which passes `--background`, or through the MSIX startup task,
+/// which cannot pass arguments. Either way the dashboard stays hidden.
+fn launched_in_background() -> bool {
+    static BACKGROUND: OnceLock<bool> = OnceLock::new();
+    *BACKGROUND.get_or_init(|| {
+        if std::env::args().any(|argument| argument == "--background") {
+            return true;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            platform::windows_startup::launched_by_startup_task()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    })
+}
+
 #[tauri::command]
-fn dashboard_ready(app: AppHandle) -> Result<(), SnaphubError> {
-    if std::env::args().any(|argument| argument == "--background") {
+fn dashboard_ready(
+    app: AppHandle,
+    pending: tauri::State<'_, PendingShowcase>,
+) -> Result<(), SnaphubError> {
+    // A capture sent to Showcase is an explicit request to see the dashboard,
+    // even in a session that started hidden at sign-in.
+    let showcase_requested = pending.0.lock().is_ok_and(|slot| slot.is_some());
+    if launched_in_background() && !showcase_requested {
         return Ok(());
     }
     show_dashboard(&app)
+}
+
+/// Opens a saved capture in the dashboard's Showcase tab.
+///
+/// Only files inside the save folder are accepted, the same rule the library
+/// uses, so a capture window cannot point the dashboard at arbitrary files.
+#[tauri::command]
+async fn open_in_showcase(app: AppHandle, path: String) -> Result<(), SnaphubError> {
+    app.state::<CaptureService>()
+        .validated_saved_capture(Path::new(&path))?;
+    *app.state::<PendingShowcase>()
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Showcase request state is unavailable".into()))? =
+        Some(path);
+    let existing = app.get_webview_window("dashboard");
+    show_dashboard(&app)?;
+    if let Some(window) = existing {
+        let _ = window.emit("capkit://showcase-requested", ());
+    }
+    Ok(())
+}
+
+/// Hands the pending Showcase capture to the dashboard, at most once.
+#[tauri::command]
+fn take_pending_showcase(
+    window: WebviewWindow,
+    pending: tauri::State<'_, PendingShowcase>,
+) -> Result<Option<String>, SnaphubError> {
+    if window.label() != "dashboard" {
+        return Err(SnaphubError::Session(
+            "Only the dashboard can open Showcase captures".into(),
+        ));
+    }
+    Ok(pending
+        .0
+        .lock()
+        .map_err(|_| SnaphubError::Window("Showcase request state is unavailable".into()))?
+        .take())
 }
 
 #[tauri::command]
@@ -357,14 +474,79 @@ async fn retry_capture_save(
     Ok(result)
 }
 
+#[tauri::command]
+fn pick_capture_color(
+    window: WebviewWindow,
+    service: tauri::State<'_, CaptureService>,
+    request: PickColorRequest,
+) -> Result<PickedColorDto, SnaphubError> {
+    ensure_capture_window(&window)?;
+    service.pick_color(&request)
+}
+
+#[tauri::command]
+fn text_recognition_supported(service: tauri::State<'_, CaptureService>) -> bool {
+    service.is_text_recognition_supported()
+}
+
+/// Words with selection-local logical bounds, for redaction suggestions. The
+/// capture stays open.
+#[tauri::command]
+async fn recognize_capture_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    request: TextRecognitionRequest,
+) -> Result<RecognizedTextDto, SnaphubError> {
+    ensure_capture_window(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<CaptureService>().recognize_text(&request)
+    })
+    .await
+    .map_err(|error| SnaphubError::Ocr(format!("Text recognition worker failed: {error}")))?
+}
+
+/// Copies the selection's text and closes the capture. When no text is found
+/// the capture stays open so the user can adjust the selection.
+#[tauri::command]
+async fn copy_capture_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    request: TextRecognitionRequest,
+) -> Result<TextCopyResult, SnaphubError> {
+    ensure_capture_window(&window)?;
+    let session_id = request.session_id.clone();
+    let worker_app = app.clone();
+    let mut result = tauri::async_runtime::spawn_blocking(move || {
+        worker_app.state::<CaptureService>().copy_text(&request)
+    })
+    .await
+    .map_err(|error| SnaphubError::Ocr(format!("Text recognition worker failed: {error}")))??;
+    if matches!(result.status, TextCopyStatus::Empty) {
+        return Ok(result);
+    }
+    let hide_warning = hide_capture_window_with_recovery(&app);
+    let finalize_warning = app
+        .state::<CaptureService>()
+        .finalize_committed(&session_id)
+        .err()
+        .map(|error| error.to_string());
+    result.cleanup_warning = merge_cleanup_warning(hide_warning, finalize_warning);
+    Ok(result)
+}
+
 // Hide first so Escape feels instant, then wait for cancellation off the main thread.
 #[tauri::command]
 async fn cancel_capture(
     window: WebviewWindow,
     app: AppHandle,
     session_id: String,
+    motion: OverlayMotion,
+    reduced_motion: bool,
 ) -> Result<(), SnaphubError> {
     ensure_capture_window(&window)?;
+    if motion == OverlayMotion::FadeBoth && !reduced_motion {
+        conceal_window_smoothly(&window);
+    }
     let hide_result = hide_capture_window(&app);
     let worker_app = app.clone();
     let worker_session_id = session_id.clone();
@@ -519,6 +701,57 @@ fn delete_saved_capture(
     path: String,
 ) -> Result<(), SnaphubError> {
     service.delete_saved_capture(Path::new(&path))
+}
+
+#[tauri::command]
+async fn copy_saved_capture(app: AppHandle, path: String) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let service = app.state::<CaptureService>();
+        let validated = service.validated_saved_capture(Path::new(&path))?;
+        service.copy_image_path(&validated)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(error.to_string()))?
+}
+
+/// Starts a native OS file drag for a saved capture. The OLE drag loop is
+/// modal on the main thread, so this only validates and schedules it.
+#[tauri::command]
+fn start_saved_capture_drag(
+    window: WebviewWindow,
+    service: tauri::State<'_, CaptureService>,
+    path: String,
+) -> Result<(), SnaphubError> {
+    let validated = service.validated_saved_capture(Path::new(&path))?;
+    #[cfg(target_os = "windows")]
+    {
+        let preview = service.drag_preview_path(&validated);
+        let dragged = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let result = drag::start_drag(
+                    &dragged,
+                    drag::DragItem::Files(vec![validated]),
+                    drag::Image::File(preview),
+                    |_result, _position| {},
+                    drag::Options {
+                        skip_animatation_on_cancel_or_failure: false,
+                        mode: drag::DragMode::Copy,
+                    },
+                );
+                if let Err(error) = result {
+                    eprintln!("SH-DRAG-001: {error}");
+                }
+            })
+            .map_err(|error| SnaphubError::Window(error.to_string()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, validated);
+        Err(SnaphubError::Window(
+            "Dragging captures is not implemented on this platform".into(),
+        ))
+    }
 }
 
 /// Grants the webview read access to images the user explicitly picked from disk.
@@ -1681,6 +1914,204 @@ fn open_camera_privacy_settings() -> Result<(), SnaphubError> {
     }
 }
 
+/// The package startup task in the Store build; the plugin's sign-in entry
+/// otherwise. Never both: Store policy rejects a packaged app's Run entry.
+fn startup_backend(app: &AppHandle) -> Box<dyn StartupBackend> {
+    #[cfg(target_os = "windows")]
+    if platform::windows_startup::is_packaged() {
+        return Box::new(platform::windows_startup::PackagedStartupTask);
+    }
+    Box::new(PluginStartup::new(app.clone()))
+}
+
+fn is_packaged_build() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_startup::is_packaged()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// The tray's "Install update" entry, kept so its text follows the update state.
+struct UpdateTrayItem(Mutex<Option<MenuItem<tauri::Wry>>>);
+
+/// Records the status where the tray and every window can see it.
+fn publish_update_status(app: &AppHandle, status: &UpdateStatusDto) {
+    if let Some(item) = app
+        .state::<UpdateTrayItem>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|item| item.clone())
+    {
+        match status {
+            UpdateStatusDto::Available { version, .. } => {
+                let _ = item.set_text(format!("Install update v{version}"));
+                let _ = item.set_enabled(true);
+            }
+            _ => {
+                let _ = item.set_text("Install update");
+                let _ = item.set_enabled(false);
+            }
+        }
+    }
+    let _ = app.emit(updates::STATUS_EVENT, status);
+}
+
+async fn run_update_check(app: &AppHandle, manual: bool) -> UpdateStatusDto {
+    let registry = app.state::<UpdateRegistry>();
+    if let Some(current) = registry.begin_check() {
+        return current;
+    }
+    publish_update_status(app, &UpdateStatusDto::Checking);
+    let current_version = app.package_info().version.to_string();
+    let result = match app.updater() {
+        Ok(updater) => updater.check().await.map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    }
+    .map(|found| {
+        found.map(|update| {
+            (
+                AvailableUpdate {
+                    version: update.version.clone(),
+                    notes: update.body.clone(),
+                },
+                update,
+            )
+        })
+    });
+    if let Err(error) = &result {
+        eprintln!("SH-UPDATE-001: {error}");
+    }
+    let status = registry.finish_check(&current_version, result, manual);
+    publish_update_status(app, &status);
+    status
+}
+
+async fn run_update_install(app: &AppHandle) -> Result<UpdateStatusDto, SnaphubError> {
+    let registry = app.state::<UpdateRegistry>();
+    if is_packaged_build() {
+        return Ok(UpdateStatusDto::Unsupported);
+    }
+    if matches!(registry.status(), UpdateStatusDto::Installing { .. }) {
+        return Ok(registry.status());
+    }
+    let capture_visible = app
+        .get_webview_window("capture")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let recording_active = app
+        .state::<RecordingService>()
+        .stats()
+        .map(|stats| stats.is_some())
+        .unwrap_or(false);
+    install_guard(false, capture_visible, recording_active)?;
+    let update = match registry.begin_install() {
+        Ok(update) => update,
+        Err(status) => return Ok(status),
+    };
+    let version = update.version.clone();
+    publish_update_status(
+        app,
+        &UpdateStatusDto::Installing {
+            version: version.clone(),
+            percent: 0,
+        },
+    );
+    let current_version = app.package_info().version.to_string();
+    let mut downloaded = 0_u64;
+    let mut published = 0_u8;
+    let result = update
+        .download_and_install(
+            |chunk, total| {
+                downloaded = downloaded.saturating_add(chunk as u64);
+                let Some(percent) = download_percent(downloaded, total) else {
+                    return;
+                };
+                let step = percent / 5 * 5;
+                if step > published {
+                    published = step;
+                    let status = UpdateStatusDto::Installing {
+                        version: version.clone(),
+                        percent: step,
+                    };
+                    registry.set_status(status.clone());
+                    publish_update_status(app, &status);
+                }
+            },
+            || {},
+        )
+        .await;
+    match result {
+        Ok(()) => Ok(registry.status()),
+        Err(error) => {
+            eprintln!("SH-UPDATE-001: {error}");
+            let status = install_failure(&current_version);
+            registry.set_status(status.clone());
+            publish_update_status(app, &status);
+            Ok(status)
+        }
+    }
+}
+
+#[tauri::command]
+async fn auto_check_for_update(app: AppHandle) -> UpdateStatusDto {
+    let registry = app.state::<UpdateRegistry>();
+    if is_packaged_build() || !registry.claim_auto_check() {
+        return registry.status();
+    }
+    run_update_check(&app, false).await
+}
+
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> UpdateStatusDto {
+    run_update_check(&app, true).await
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<UpdateStatusDto, SnaphubError> {
+    run_update_install(&app).await
+}
+
+#[tauri::command]
+fn update_status(app: AppHandle) -> UpdateStatusDto {
+    app.state::<UpdateRegistry>().status()
+}
+
+#[tauri::command]
+async fn get_startup_state(app: AppHandle) -> Result<StartupStateDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || startup_backend(&app).state())
+        .await
+        .map_err(|error| SnaphubError::startup(format!("Startup worker failed: {error}")))?
+}
+
+#[tauri::command]
+async fn set_startup_enabled(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<StartupStateDto, SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || startup_backend(&app).set_enabled(enabled))
+        .await
+        .map_err(|error| SnaphubError::startup(format!("Startup worker failed: {error}")))?
+}
+
+#[tauri::command]
+fn open_startup_settings() -> Result<(), SnaphubError> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_shell::open_startup_settings()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(SnaphubError::Startup(
+            "Startup settings are only available on Windows".into(),
+        ))
+    }
+}
+
 #[tauri::command]
 fn close_camera(app: AppHandle) -> Result<(), SnaphubError> {
     if let Some(window) = app.get_webview_window("camera") {
@@ -2167,7 +2598,25 @@ pub fn run() {
     let shortcuts = RegisteredShortcuts::parse(default_shortcuts())
         .expect("CapKit default shortcuts must be valid");
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be the first plugin registered. Release builds only, so a dev run
+    // can live beside an installed CapKit.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        if args.iter().any(|argument| argument == "--background") {
+            return;
+        }
+        let app = app.clone();
+        // Window building from an event handler deadlocks on Windows.
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = show_dashboard(&app) {
+                eprintln!("SH-DASHBOARD-002: {error}");
+            }
+        });
+    }));
+
+    let app = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -2207,16 +2656,29 @@ pub fn run() {
         .manage(PinnedCaptureRegistry(Mutex::new(HashMap::new())))
         .manage(RecordRegionRegistry(Mutex::new(None)))
         .manage(OnScreenModeRegistry(Mutex::new(OnScreenModeState::Idle)))
+        .manage(PendingShowcase(Mutex::new(None)))
+        .manage(UpdateRegistry::new(is_packaged_build()))
+        .manage(UpdateTrayItem(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            auto_check_for_update,
+            check_for_update,
+            install_update,
+            update_status,
             begin_capture,
             show_capture_surface,
             dashboard_ready,
+            open_in_showcase,
+            take_pending_showcase,
             on_screen_session,
             on_screen_snapshot,
             on_screen_ready,
             dismiss_on_screen,
             save_on_screen_capture,
             complete_capture,
+            pick_capture_color,
+            text_recognition_supported,
+            recognize_capture_text,
+            copy_capture_text,
             retry_capture_save,
             cancel_capture,
             dismiss_capture,
@@ -2232,6 +2694,8 @@ pub fn run() {
             open_save_directory,
             open_saved_capture,
             delete_saved_capture,
+            copy_saved_capture,
+            start_saved_capture_drag,
             import_media_files,
             list_folder_images,
             scrolling_capture_supported,
@@ -2272,10 +2736,13 @@ pub fn run() {
             camera_ready,
             close_camera,
             prepare_camera_permission,
-            open_camera_privacy_settings
+            open_camera_privacy_settings,
+            get_startup_state,
+            set_startup_enabled,
+            open_startup_settings
         ])
         .setup(move |app| {
-            if std::env::args().any(|argument| argument == "--background")
+            if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")
             {
                 window.hide()?;
@@ -2326,16 +2793,33 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit CapKit", true, None::<&str>)?;
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &dashboard_item,
-                    &capture_item,
-                    &on_screen_item,
-                    &restore_pins_item,
-                    &quit_item,
-                ],
-            )?;
+            // No update entry in the Store build: the Store owns updates there.
+            let install_item = if is_packaged_build() {
+                None
+            } else {
+                let item = MenuItem::with_id(
+                    app,
+                    "install-update",
+                    "Install update",
+                    false,
+                    None::<&str>,
+                )?;
+                if let Ok(mut slot) = app.state::<UpdateTrayItem>().0.lock() {
+                    *slot = Some(item.clone());
+                }
+                Some(item)
+            };
+            let mut entries: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![
+                &dashboard_item,
+                &capture_item,
+                &on_screen_item,
+                &restore_pins_item,
+            ];
+            if let Some(item) = &install_item {
+                entries.push(item);
+            }
+            entries.push(&quit_item);
+            let menu = Menu::with_items(app, &entries)?;
 
             let mut tray = TrayIconBuilder::new()
                 .tooltip("CapKit - Capture, record, and showcase")
@@ -2358,6 +2842,14 @@ pub fn run() {
                                 let _ = window.set_ignore_cursor_events(false);
                             }
                         }
+                    }
+                    "install-update" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(error) = run_update_install(&app).await {
+                                eprintln!("SH-UPDATE-002: {error}");
+                            }
+                        });
                     }
                     "quit" => app.exit(0),
                     _ => {}

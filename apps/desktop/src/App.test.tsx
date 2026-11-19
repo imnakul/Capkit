@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CaptureSession, CompletionAction } from "./domain/capture";
+import { defaultSnaphubSettings, saveSnaphubSettings, type OverlayMotion } from "./domain/settings";
 import type { CompletionResult } from "./lib/tauri";
 
 const captureMocks = vi.hoisted(() => ({
@@ -9,7 +10,12 @@ const captureMocks = vi.hoisted(() => ({
   cancelManualScrolling: vi.fn(),
   captureScrolling: vi.fn(),
   completeCapture: vi.fn(),
+  copyCaptureText: vi.fn(),
+  recognizeCaptureText: vi.fn(),
+  isTextRecognitionSupported: vi.fn(),
   listeners: [] as (() => void)[],
+  openInShowcase: vi.fn(),
+  pickCaptureColor: vi.fn(),
   requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
   showCaptureSurface: vi.fn(),
@@ -23,6 +29,11 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     cancelManualScrolling: captureMocks.cancelManualScrolling,
     captureScrolling: captureMocks.captureScrolling,
     completeCapture: captureMocks.completeCapture,
+    copyCaptureText: captureMocks.copyCaptureText,
+    recognizeCaptureText: captureMocks.recognizeCaptureText,
+    isTextRecognitionSupported: captureMocks.isTextRecognitionSupported,
+    openInShowcase: captureMocks.openInShowcase,
+    pickCaptureColor: captureMocks.pickCaptureColor,
     listenForCaptureRequest: vi.fn((callback: () => void) => {
       captureMocks.listeners.push(callback);
       return Promise.resolve((): void => {
@@ -167,6 +178,7 @@ describe("App", () => {
     captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
     captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
     captureMocks.showCaptureSurface.mockResolvedValue(undefined);
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
     captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
       Promise.resolve(completedResult(action)),
     );
@@ -323,6 +335,119 @@ describe("App", () => {
 
     await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(1));
   });
+  it("copies the colour under the pointer with I and rgb with Shift+I", async () => {
+    captureMocks.pickCaptureColor.mockImplementation(
+      (_sessionId: string, _point: unknown, format: "hex" | "rgb") =>
+        Promise.resolve({ hex: "#12ABFF", copied: format === "hex" ? "#12ABFF" : "rgb(18, 171, 255)" }),
+    );
+    render(<App />);
+
+    expect(await screen.findAllByText(/Hover to preview targets/)).not.toHaveLength(0);
+    fireEvent.pointerMove(screen.getByRole("main"), { clientX: 40, clientY: 60, pointerId: 1 });
+    fireEvent.keyDown(window, { key: "i" });
+    expect(await screen.findAllByText(/Copied #12ABFF/)).not.toHaveLength(0);
+    fireEvent.keyDown(window, { key: "I", shiftKey: true });
+    expect(await screen.findAllByText(/Copied rgb\(18, 171, 255\)/)).not.toHaveLength(0);
+    expect(captureMocks.pickCaptureColor).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      { x: 40, y: 60 },
+      "hex",
+    );
+    expect(captureMocks.pickCaptureColor).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { x: 40, y: 60 },
+      "rgb",
+    );
+    expect(screen.getByRole("main")).toBeInTheDocument();
+  });
+
+  it("copies selection text, or stays open when none is found", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.copyCaptureText
+      .mockResolvedValueOnce({ status: "empty", text: "", cleanupWarning: null })
+      .mockResolvedValueOnce({ status: "copied", text: "Invoice 42\nDue today", cleanupWarning: null });
+    render(<App />);
+    await selectRegion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy text" }));
+    expect(await screen.findAllByText(/No text found in this selection/)).not.toHaveLength(0);
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(captureMocks.copyCaptureText).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ width: 440, height: 300 }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("main")).not.toBeInTheDocument();
+    });
+    expect(captureMocks.completeCapture).not.toHaveBeenCalled();
+  });
+
+  it("blacks out only the confirmed sensitive text in one step", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.recognizeCaptureText.mockResolvedValue({
+      text: "Mail nakul@example.com or call +91 98765 43210",
+      language: "en-US",
+      lines: [{
+        text: "Mail nakul@example.com or call +91 98765 43210",
+        words: [
+          { text: "Mail", bounds: { x: 4, y: 10, width: 30, height: 14 } },
+          { text: "nakul@example.com", bounds: { x: 40, y: 10, width: 120, height: 14 } },
+          { text: "or", bounds: { x: 166, y: 10, width: 14, height: 14 } },
+          { text: "call", bounds: { x: 186, y: 10, width: 26, height: 14 } },
+          { text: "+91", bounds: { x: 218, y: 10, width: 24, height: 14 } },
+          { text: "98765", bounds: { x: 248, y: 10, width: 40, height: 14 } },
+          { text: "43210", bounds: { x: 294, y: 10, width: 40, height: 14 } },
+        ],
+      }],
+    });
+    render(<App />);
+    await selectRegion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Find sensitive text" }));
+    const phone = await screen.findByRole("checkbox", { name: /Phone number/ });
+    expect(screen.getByRole("checkbox", { name: /Email address/ })).toBeChecked();
+    fireEvent.click(phone);
+    expect(phone).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Black out 1" }));
+    expect(await screen.findAllByText(/Blacked out 1 item/)).not.toHaveLength(0);
+    expect(screen.queryByRole("region", { name: "Sensitive text" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(captureMocks.completeCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.completeCapture).toHaveBeenCalledWith(
+      "copy",
+      expect.any(String),
+      expect.anything(),
+      {
+        version: 1,
+        elements: [expect.objectContaining({
+          kind: "blackout",
+          bounds: { x: 37, y: 7, width: 126, height: 20 },
+        })],
+      },
+    );
+  });
+
+  it("says so when nothing sensitive is found", async () => {
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(true);
+    captureMocks.recognizeCaptureText.mockResolvedValue({ text: "", language: "en-US", lines: [] });
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(await screen.findByRole("button", { name: "Find sensitive text" }));
+    expect(await screen.findByText(/No emails, phone numbers/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(/No emails, phone numbers/)).toBeNull();
+  });
+
+  it("hides Copy text when the OS cannot read text", async () => {
+    render(<App />);
+    await selectRegion();
+    expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
+  });
+
   it("dismisses capture with Escape before a region is selected", async () => {
     render(<App />);
 
@@ -378,6 +503,10 @@ describe("App", () => {
     );
     expect(screen.getByText("440 × 300 px")).toBeInTheDocument();
 
+    // The first Escape closes the open tool row; the next one cancels the capture.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Tool properties" })).toBeNull();
+    expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => {
       expect(screen.queryByRole("main")).not.toBeInTheDocument();
@@ -394,7 +523,34 @@ describe("App", () => {
     expect(combined).toHaveTextContent("A");
     expect(
       Array.from(toolbar.querySelectorAll("button")).map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Copy", "Copy & Save", "Save", "Pin"]);
+    ).toEqual(["Copy", "Copy & Save", "Save", "Pin", "Save & Showcase"]);
+  });
+
+  it("saves, then opens the saved file in Showcase", async () => {
+    captureMocks.openInShowcase.mockResolvedValue(undefined);
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(screen.getByRole("button", { name: "Save & Showcase" }));
+
+    await waitFor(() => expect(captureMocks.openInShowcase).toHaveBeenCalledWith("Demo/Capkit.png"));
+    expect(captureMocks.completeCapture).toHaveBeenCalledTimes(1);
+    expect(captureMocks.completeCapture.mock.calls[0]?.[0]).toBe("save");
+  });
+
+  it("does not open Showcase when the save is still pending", async () => {
+    captureMocks.completeCapture.mockResolvedValueOnce({
+      action: "save",
+      cleanupWarning: null,
+      diagnostic: "SH-EXPORT-001: disk full",
+      outputPath: null,
+      status: "save-pending",
+    });
+    render(<App />);
+    await selectRegion();
+    fireEvent.click(screen.getByRole("button", { name: "Save & Showcase" }));
+
+    expect(await screen.findByRole("button", { name: "Retry save" })).toBeVisible();
+    expect(captureMocks.openInShowcase).not.toHaveBeenCalled();
   });
 
   it("ignores the completion key without a selection, with modifiers, or in an editable field", async () => {
@@ -428,7 +584,7 @@ describe("App", () => {
   it("ignores the completion key during scrolling preview", async () => {
     render(<App />);
     await selectRegion();
-    fireEvent.pointerEnter(screen.getByRole("button", { name: "Counter group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Counter group" }));
     fireEvent.click(screen.getByRole("button", { name: "Scrolling capture" }));
     expect(await screen.findByAltText("Stitched scrolling capture preview")).toBeVisible();
 
@@ -531,5 +687,113 @@ describe("App", () => {
 
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy & Save" })).not.toBeInTheDocument();
+  });
+});
+
+describe("App overlay motion", () => {
+  function useMotion(motion: OverlayMotion, reduced = false): void {
+    saveSnaphubSettings({ ...defaultSnaphubSettings, overlay: { ...defaultSnaphubSettings.overlay, motion } });
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: reduced,
+      media,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    captureMocks.listeners.length = 0;
+    captureMocks.cancelCapture.mockResolvedValue(undefined);
+    captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
+    captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
+    captureMocks.showCaptureSurface.mockResolvedValue(undefined);
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    window.localStorage.clear();
+  });
+
+  it("dim-rise: scrim and hint start hidden, then transition in after two frames", async () => {
+    useMotion("dim-rise");
+    const frames = createAnimationFrameQueue();
+    render(<App />);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", false));
+    const scrim = screen.getByTestId("capture-scrim");
+    const hint = screen.getByTestId("capture-hint");
+    expect(scrim).toHaveStyle({ opacity: "0" });
+    expect(hint.style.transform).toBe("translateY(6px)");
+    frames.flushNext();
+    frames.flushNext();
+    expect(scrim).toHaveStyle({ opacity: "1" });
+    expect(scrim.style.transition).toBe("opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)");
+    expect(hint.style.transform).toBe("translateY(0px)");
+  });
+
+  it("dim-rise: Escape fades out and cancels only after 120 ms, once for a double Escape", async () => {
+    useMotion("dim-rise");
+    render(<App />);
+    await screen.findByTestId("capture-scrim");
+    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    const scrim = screen.getByTestId("capture-scrim");
+    expect(scrim).toHaveStyle({ opacity: "0" });
+    expect(scrim.style.transition).toBe("opacity 120ms cubic-bezier(0.4, 0, 1, 1)");
+    expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(120);
+      await Promise.resolve();
+    });
+    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it("fade-both: Escape cancels immediately with the fade-both motion", async () => {
+    useMotion("fade-both");
+    render(<App />);
+    await screen.findByRole("main");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "fade-both", false);
+  });
+
+  it("fade-in: reveals without scrim animation and cancels immediately", async () => {
+    useMotion("fade-in");
+    render(<App />);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("fade-in", false));
+    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+  });
+
+  it("reduced motion: no scrim animation and Escape cancels immediately in every mode", async () => {
+    useMotion("dim-rise", true);
+    render(<App />);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", true));
+    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "dim-rise", true);
+  });
+
+  it("a new capture during the exit fade cancels the old session once and reveals the new one", async () => {
+    useMotion("dim-rise");
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => {
+      captureMocks.listeners.forEach((listener) => listener());
+    });
+    await waitFor(() => expect(captureMocks.requestCapture).toHaveBeenCalledTimes(2));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
   });
 });

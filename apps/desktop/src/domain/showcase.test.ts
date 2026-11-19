@@ -23,6 +23,10 @@ import {
   mergeMediaItems,
   mergeSavedStyles,
   mixHex,
+  readDefaultStyle,
+  resolveDefaultStyle,
+  showcaseDefaultStyleStorageKey,
+  showcaseStylesStorageKey,
   orientedSize,
   outputSize,
   overlayValue,
@@ -253,5 +257,31 @@ describe("media collections", () => {
     expect(formatFileSize(900)).toBe("900 B");
     expect(formatFileSize(2048)).toBe("2 KB");
     expect(formatFileSize(3 * 1024 * 1024)).toBe("3.0 MB");
+  });
+});
+
+describe("default style", () => {
+  const preset: ShowcasePreset = { version: 3, image: defaultImageSettings, scene: defaultSceneSettings, frame: defaultFrameSettings, text: defaultTextSettings };
+  const launch: SavedStyle = { id: "launch-1", name: "Launch", savedAt: "2026-10-29T10:00:00+05:30", preset };
+
+  function storage(values: Record<string, string>): Pick<Storage, "getItem"> {
+    return { getItem: (key: string): string | null => values[key] ?? null };
+  }
+
+  it("resolves the starred style by id", () => {
+    expect(resolveDefaultStyle([launch], "launch-1")).toBe(launch);
+  });
+
+  it("reads a missing, empty, or deleted id as no default", () => {
+    expect(resolveDefaultStyle([launch], null)).toBeNull();
+    expect(resolveDefaultStyle([launch], "")).toBeNull();
+    expect(resolveDefaultStyle([launch], "gone")).toBeNull();
+  });
+
+  it("reads the default from storage and ignores an unreadable library", () => {
+    const styles = JSON.stringify([launch]);
+    expect(readDefaultStyle(storage({ [showcaseStylesStorageKey]: styles, [showcaseDefaultStyleStorageKey]: "launch-1" }))?.name).toBe("Launch");
+    expect(readDefaultStyle(storage({ [showcaseStylesStorageKey]: "{not json", [showcaseDefaultStyleStorageKey]: "launch-1" }))).toBeNull();
+    expect(readDefaultStyle(storage({ [showcaseDefaultStyleStorageKey]: "launch-1" }))).toBeNull();
   });
 });

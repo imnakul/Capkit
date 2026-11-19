@@ -2,6 +2,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SavedCapture } from "../../domain/capture";
 import {
+  copySavedCapture,
   describeInvokeError,
   deleteSavedCapture,
   getSaveDirectory,
@@ -9,9 +10,12 @@ import {
   listenForSavedCapture,
   openSaveDirectory,
   openSavedCapture,
+  startSavedCaptureDrag,
 } from "../../lib/tauri";
 import {
   Clock as Clock3,
+  Copy,
+  Tick as Check,
   Delete as Trash2,
   FolderOpen,
   HardDrive,
@@ -96,6 +100,27 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
     }
   }
 
+  async function copyCapture(capture: SavedCapture): Promise<boolean> {
+    setMenu(null);
+    setActionError(null);
+    try {
+      await copySavedCapture(capture.path);
+      return true;
+    } catch {
+      setActionError("Couldn't copy this capture.");
+      void refresh();
+      return false;
+    }
+  }
+
+  function dragCapture(capture: SavedCapture): void {
+    setActionError(null);
+    startSavedCaptureDrag(capture.path).catch(() => {
+      setActionError("Couldn't start dragging this capture.");
+      void refresh();
+    });
+  }
+
   async function openFolder(): Promise<void> {
     setActionError(null);
     try {
@@ -123,7 +148,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   function showContextMenu(event: React.MouseEvent, capture: SavedCapture): void {
     event.preventDefault();
     const menuWidth = 196;
-    const menuHeight = 164;
+    const menuHeight = 200;
     setMenu({
       capture,
       left: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
@@ -167,12 +192,13 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
       {library.captures.length > 0 ? (
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onView={(selected) => void viewCapture(selected)} />)}
+          {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
       {menu === null ? null : (
         <div className="fixed z-50 w-[196px] overflow-hidden rounded-lg border border-stone-300 bg-[#f7f7f4] p-1.5 text-stone-700 shadow-[0_18px_48px_rgba(0,0,0,0.28)] dark:border-white/12 dark:bg-[#2b2c29] dark:text-stone-200" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top }}>
           <ContextAction icon={Eye} label="View" onClick={() => void viewCapture(menu.capture)} />
+          <ContextAction icon={Copy} label="Copy" onClick={() => void copyCapture(menu.capture)} />
           <ContextAction icon={Images} label="Showcase" onClick={() => { setMenu(null); onShowcase(menu.capture); }} />
           <div className="my-1 border-t border-stone-300/80 dark:border-white/9" />
           <ContextAction destructive icon={Trash2} label="Delete" onClick={() => void deleteCapture(menu.capture)} />
@@ -185,24 +211,86 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
 type CaptureCardProps = {
   capture: SavedCapture;
   onView: (capture: SavedCapture) => void;
+  onCopy: (capture: SavedCapture) => Promise<boolean>;
+  onDrag: (capture: SavedCapture) => void;
   onContextMenu: (event: React.MouseEvent, capture: SavedCapture) => void;
 };
 
-function CaptureCard({ capture, onView, onContextMenu }: CaptureCardProps): React.JSX.Element {
+const dragThresholdPx = 5;
+const copiedLabelMs = 1500;
+
+function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: CaptureCardProps): React.JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const dragStarted = useRef(false);
+
+  useEffect(() => (): void => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+  }, []);
+
+  async function copy(): Promise<void> {
+    const succeeded = await onCopy(capture);
+    if (!succeeded) return;
+    setCopied(true);
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      void copy();
+    }
+  }
+
+  // No pointer capture here: the OS drag needs the button still down and the
+  // webview must keep seeing the moves.
+  function handlePointerDown(event: React.PointerEvent): void {
+    if (event.button !== 0) return;
+    dragStarted.current = false;
+    pressStart.current = { x: event.clientX, y: event.clientY };
+  }
+
+  function handlePointerMove(event: React.PointerEvent): void {
+    const start = pressStart.current;
+    if (start === null || dragStarted.current || (event.buttons & 1) === 0) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < dragThresholdPx) return;
+    dragStarted.current = true;
+    pressStart.current = null;
+    onDrag(capture);
+  }
+
+  function handleClick(event: React.MouseEvent): void {
+    pressStart.current = null;
+    if (dragStarted.current) {
+      dragStarted.current = false;
+      event.preventDefault();
+      return;
+    }
+    onView(capture);
+  }
+
   return (
-    <button aria-label={`View ${capture.fileName}`} className="group min-w-0 overflow-hidden rounded-lg border border-stone-300/80 bg-white text-left outline-none transition-colors hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29] dark:hover:border-white/16" type="button" onClick={() => onView(capture)} onContextMenu={(event) => onContextMenu(event, capture)}>
-      <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-[linear-gradient(135deg,#ecece8_25%,transparent_25%),linear-gradient(225deg,#ecece8_25%,transparent_25%),linear-gradient(45deg,#ecece8_25%,transparent_25%),linear-gradient(315deg,#ecece8_25%,#f6f6f3_25%)] bg-[length:16px_16px] bg-[position:8px_0,8px_0,0_0,0_0] dark:bg-[#20211f]">
-        <img alt={`Saved capture ${capture.fileName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015]" loading="lazy" src={capture.thumbnailUrl} />
-      </div>
-      <div className="border-t border-stone-200 px-3 py-2.5 dark:border-white/8">
-        <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-200" title={capture.fileName}>{capture.fileName}</p>
-        <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[11px] text-stone-400 dark:text-stone-500">
-          <span>{capture.width} × {capture.height}</span>
-          <span>{formatBytes(capture.sizeBytes)}</span>
+    <div aria-label={capture.fileName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
+      <button aria-label={`View ${capture.fileName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-stone-300/80 bg-white text-left outline-none transition-colors hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29] dark:hover:border-white/16" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
+        <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-[linear-gradient(135deg,#ecece8_25%,transparent_25%),linear-gradient(225deg,#ecece8_25%,transparent_25%),linear-gradient(45deg,#ecece8_25%,transparent_25%),linear-gradient(315deg,#ecece8_25%,#f6f6f3_25%)] bg-[length:16px_16px] bg-[position:8px_0,8px_0,0_0,0_0] dark:bg-[#20211f]">
+          <img alt={`Saved capture ${capture.fileName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015]" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
         </div>
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
-      </div>
-    </button>
+        <div className="border-t border-stone-200 px-3 py-2.5 dark:border-white/8">
+          <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-200" title={capture.fileName}>{capture.fileName}</p>
+          <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[11px] text-stone-400 dark:text-stone-500">
+            <span>{capture.width} × {capture.height}</span>
+            <span>{formatBytes(capture.sizeBytes)}</span>
+          </div>
+          <p className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
+        </div>
+      </button>
+      <button aria-label={`Copy ${capture.fileName}`} className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-semibold text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] group-focus-within:opacity-100 group-hover:opacity-100" type="button" onClick={() => void copy()}>
+        {copied ? <Check aria-hidden="true" size={12} /> : <Copy aria-hidden="true" size={12} />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 

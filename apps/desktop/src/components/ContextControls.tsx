@@ -8,19 +8,17 @@ type ContextControlsProps = {
   style: AnnotationStyle;
   tools: readonly ToolbarToolDefinition[];
   palette: readonly string[];
-  visible: boolean;
   showStyleControls: boolean;
   onStyleChange: (style: AnnotationStyle) => void;
   onToolSelect: (tool: CaptureToolbarToolId) => void;
 };
 
-/** A compact property rail whose variants lead and styling controls follow. */
+/** The toolbar card's second row: variants lead and styling controls follow. */
 export function ContextControls({
   activeTool,
   style,
   tools,
   palette,
-  visible,
   showStyleControls,
   onStyleChange,
   onToolSelect,
@@ -30,10 +28,10 @@ export function ContextControls({
   const indicatorIndex = hoveredIndex ?? activeIndex;
 
   return (
+    <div className="grid animate-[toolbar-row-in_150ms_ease-out]">
     <div
-      aria-hidden={!visible}
       aria-label="Tool properties"
-      className={`flex min-w-max origin-top-left items-center gap-3 rounded-xl border border-white/12 bg-[#1b1d19]/98 px-3 py-2 shadow-[0_16px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-[opacity,transform] duration-150 ease-out ${visible ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"}`}
+      className="flex min-h-0 min-w-max items-center gap-3 px-3 py-2"
       role="group"
     >
       {tools.length > 0 ? (
@@ -114,6 +112,7 @@ export function ContextControls({
           ) : null}
         </>
       ) : null}
+    </div>
     </div>
   );
 }

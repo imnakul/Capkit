@@ -4,6 +4,11 @@ import { AnnotationCanvas } from "./components/AnnotationCanvas";
 import { AnnotationToolbar } from "./components/AnnotationToolbar";
 import { CaptureBackdrop } from "./components/CaptureBackdrop";
 import { CompletionToolbar } from "./components/CompletionToolbar";
+import {
+  RedactionPreview,
+  RedactionReviewPanel,
+  type RedactionReview,
+} from "./components/RedactionReviewPanel";
 import { SelectionFrame, type ResizeHandle } from "./components/SelectionFrame";
 import {
   ScrollingCapturePanel,
@@ -19,27 +24,43 @@ import {
 } from "./domain/annotations";
 import type {
   CaptureSession,
+  ColorFormat,
   CompletionAction,
   DetectedTarget,
   Point,
   Rect,
 } from "./domain/capture";
-import { useSnaphubSettings } from "./domain/settings";
-import { chooseToolbarPlacement, clampRect, isUsableSelection, normalizeRect } from "./lib/geometry";
+import { useSnaphubSettings, type CaptureToolbarToolId } from "./domain/settings";
+import {
+  chooseToolbarPlacement,
+  clampRect,
+  isUsableSelection,
+  normalizeRect,
+  toolbarPosition,
+  type ToolbarSize,
+} from "./lib/geometry";
 import { captureCursor } from "./lib/cursor";
+import { prefersReducedMotion } from "./lib/motion";
+import { eyedropperFormat } from "./lib/eyedropper";
+import { suggestRedactions } from "./lib/redactionPatterns";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
   cancelManualScrolling,
   captureScrolling,
   completeCapture,
+  openInShowcase,
   completeScrollingCapture,
+  copyCaptureText,
   detectTargets,
   dismissCapture,
   discardScrollingOutput,
   describeInvokeError,
+  isTextRecognitionSupported,
   listTargets,
   listenForCaptureRequest,
+  pickCaptureColor,
+  recognizeCaptureText,
   requestCapture,
   retryCaptureSave,
   showCaptureSurface,
@@ -81,6 +102,14 @@ export function App(): React.JSX.Element {
   const [style, setStyle] = useState<AnnotationStyle>(defaultAnnotationStyle);
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [busy, setBusy] = useState(false);
+  const [lastToolByGroup, setLastToolByGroup] = useState<Partial<Record<number, CaptureToolbarToolId>>>({});
+  const [openGroupIndex, setOpenGroupIndex] = useState<number | null>(null);
+  const [toolbarSize, setToolbarSize] = useState<ToolbarSize>({ width: 430, height: 52 });
+  const toolbarObserver = useRef<ResizeObserver | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const exitTimer = useRef<number | null>(null);
+  const revealFrames = useRef<number[]>([]);
   const [completionState, setCompletionState] = useState<SelectedCompletionState>({
     phase: "idle",
     message: "",
@@ -88,8 +117,14 @@ export function App(): React.JSX.Element {
   const [hoverTarget, setHoverTarget] = useState<DetectedTarget | null>(null);
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
-  const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle");
+  const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle / I copies a colour");
   const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
+  // The swatch shows only while its message is still the current one.
+  const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
+  const [canReadText, setCanReadText] = useState(false);
+  const [redactionReview, setRedactionReview] = useState<RedactionReview | null>(null);
+  const redactionSequence = useRef(0);
+  const lastPointer = useRef<Point | null>(null);
   const uiLookupSequence = useRef(0);
   const uiLookupInFlight = useRef(false);
   const pendingUiLookup = useRef<Point | null>(null);
@@ -143,7 +178,38 @@ export function App(): React.JSX.Element {
       });
   }, [session, settings.detection.uiRegions]);
 
+  const measureToolbar = useCallback((element: HTMLDivElement | null): void => {
+    toolbarObserver.current?.disconnect();
+    toolbarObserver.current = null;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    const update = (): void => {
+      const { offsetWidth: width, offsetHeight: height } = element;
+      if (width === 0 || height === 0) return;
+      setToolbarSize((current) => current.width === width && current.height === height ? current : { width, height });
+    };
+    update();
+    toolbarObserver.current = new ResizeObserver(update);
+    toolbarObserver.current.observe(element);
+  }, []);
+
+  const rememberGroupTool = useCallback((groupIndex: number, toolId: CaptureToolbarToolId): void => {
+    setLastToolByGroup((current) => current[groupIndex] === toolId ? current : { ...current, [groupIndex]: toolId });
+  }, []);
+
+  function clearPendingMotion(): void {
+    if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
+    exitTimer.current = null;
+    for (const frame of revealFrames.current) window.cancelAnimationFrame(frame);
+    revealFrames.current = [];
+  }
+
+  useEffect(() => clearPendingMotion, []);
+
   function clearCaptureUi(): void {
+    clearPendingMotion();
+    setOpenGroupIndex(null);
+    setExiting(false);
+    setRevealed(false);
     activationState.current = "idle";
     activeSessionId.current = null;
     const pendingBackdrop = backdropReadyResolver.current;
@@ -162,12 +228,24 @@ export function App(): React.JSX.Element {
   }
 
   const startSession = useCallback(async (): Promise<void> => {
+    if (exitTimer.current !== null) {
+      // A new request during the exit fade: finish the old session once, then start fresh.
+      const oldSessionId = activeSessionId.current;
+      clearPendingMotion();
+      setExiting(false);
+      activationState.current = "idle";
+      sessionGeneration.current += 1;
+      if (oldSessionId !== null) await cancelCapture(oldSessionId, "fade-in", true).catch(() => undefined);
+    }
     if (activationState.current !== "idle") return;
     const timingStartedAt = import.meta.env.DEV ? performance.now() : null;
     let timingAfterRequest: number | null = null;
     let timingAfterReady: number | null = null;
     activationState.current = "preparing";
     sessionGeneration.current += 1;
+    clearPendingMotion();
+    setExiting(false);
+    setRevealed(false);
     completionInFlight.current = false;
     activeSessionId.current = null;
     let preparedSession: CaptureSession | null = null;
@@ -196,7 +274,7 @@ export function App(): React.JSX.Element {
         });
         dispatchScene({ type: "reset" });
       });
-      setMessage("Hover to preview targets / drag to draw a rectangle");
+      setMessage("Hover to preview targets / drag to draw a rectangle / I copies a colour");
       let readyTimeout: number | undefined;
       await Promise.race([
         backdropReady,
@@ -212,7 +290,19 @@ export function App(): React.JSX.Element {
       if (!isPreparingCaptureSession(activationState, activeSessionId, next.id)) {
         return;
       }
-      await showCaptureSurface();
+      const motion = settingsRef.current.overlay.motion;
+      const reduced = prefersReducedMotion();
+      await showCaptureSurface(motion, reduced);
+      if (motion === "dim-rise" && !reduced) {
+        // Two frames so the hidden styles paint before the transition target applies.
+        const first = window.requestAnimationFrame(() => {
+          const second = window.requestAnimationFrame(() => setRevealed(true));
+          revealFrames.current.push(second);
+        });
+        revealFrames.current.push(first);
+      } else {
+        setRevealed(true);
+      }
       if (
         timingStartedAt !== null &&
         timingAfterRequest !== null &&
@@ -276,8 +366,8 @@ export function App(): React.JSX.Element {
     () =>
       selection === null
         ? null
-        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null)),
-    [selection, session?.display],
+        : chooseToolbarPlacement(selection, viewportBounds(session?.display ?? null), toolbarSize.height),
+    [selection, session?.display, toolbarSize.height],
   );
 
   function pointer(event: React.PointerEvent): Point {
@@ -562,9 +652,10 @@ export function App(): React.JSX.Element {
 
   const handleCancel = useCallback(async (): Promise<void> => {
     sessionGeneration.current += 1;
+    const exitMotion = settingsRef.current.overlay.motion;
     try {
       if (session !== null) {
-        await cancelCapture(session.id).catch(async () => dismissCapture());
+        await cancelCapture(session.id, exitMotion, prefersReducedMotion()).catch(async () => dismissCapture());
         await cancelManualScrolling(session.id).catch(() => undefined);
       } else {
         await dismissCapture();
@@ -577,8 +668,21 @@ export function App(): React.JSX.Element {
     }
   }, [session]);
 
+  const requestExit = useCallback((): void => {
+    if (exitTimer.current !== null) return;
+    if (settingsRef.current.overlay.motion !== "dim-rise" || prefersReducedMotion() || session === null) {
+      void handleCancel();
+      return;
+    }
+    setExiting(true);
+    exitTimer.current = window.setTimeout(() => {
+      exitTimer.current = null;
+      void handleCancel();
+    }, 120);
+  }, [handleCancel, session]);
+
   const handleComplete = useCallback(
-    async (action: CompletionAction): Promise<void> => {
+    async (action: CompletionAction, followUp: "none" | "showcase" = "none"): Promise<void> => {
       if (
         session === null
         || selection === null
@@ -627,6 +731,13 @@ export function App(): React.JSX.Element {
             : `${successMessage} · ${result.cleanupWarning}`,
         );
         clearCaptureUi();
+        // The capture window is already hidden, so a failure here has no UI to
+        // land in; the image itself is saved either way.
+        if (followUp === "showcase" && result.outputPath !== null) {
+          void openInShowcase(result.outputPath).catch((error: unknown) => {
+            console.error("SH-SHOWCASE-OPEN-001", error);
+          });
+        }
       } catch (error: unknown) {
         if (
           activeSessionId.current === sessionId
@@ -649,6 +760,131 @@ export function App(): React.JSX.Element {
     },
     [busy, completionState.phase, history.present, scrollingCapture, selection, session],
   );
+
+  const handleCopyText = useCallback(async (): Promise<void> => {
+    if (
+      session === null
+      || selection === null
+      || busy
+      || scrollingCapture !== null
+      || completionState.phase !== "idle"
+      || completionInFlight.current
+    ) return;
+    const sessionId = session.id;
+    const generation = sessionGeneration.current;
+    completionInFlight.current = true;
+    setCompletionState({ phase: "working", message: "Reading text…" });
+    setMessage("Reading text…");
+    try {
+      const result = await copyCaptureText(sessionId, selection);
+      if (
+        activeSessionId.current !== sessionId
+        || sessionGeneration.current !== generation
+      ) return;
+      if (result.status === "empty") {
+        const emptyMessage = "No text found in this selection. Adjust it and try again.";
+        setCompletionState({ phase: "idle", message: emptyMessage });
+        setMessage(emptyMessage);
+        return;
+      }
+      const lineCount = result.text.split("\n").length;
+      const copiedMessage = `Copied ${lineCount === 1 ? "1 line" : `${String(lineCount)} lines`} of text`;
+      setMessage(
+        result.cleanupWarning === null || result.cleanupWarning === undefined
+          ? copiedMessage
+          : `${copiedMessage} · ${result.cleanupWarning}`,
+      );
+      clearCaptureUi();
+    } catch (error: unknown) {
+      if (
+        activeSessionId.current === sessionId
+        && sessionGeneration.current === generation
+      ) {
+        const errorMessage = `Could not read text. ${describeInvokeError(error, "The text recognition service did not return a diagnostic")}`;
+        setCompletionState({ phase: "idle", message: errorMessage });
+        setMessage(errorMessage);
+      }
+    } finally {
+      if (sessionGeneration.current === generation) {
+        completionInFlight.current = false;
+      }
+    }
+  }, [busy, completionState.phase, scrollingCapture, selection, session]);
+
+  const findSensitiveText = useCallback(async (): Promise<void> => {
+    if (
+      session === null
+      || selection === null
+      || busy
+      || scrollingCapture !== null
+      || completionState.phase !== "idle"
+      || completionInFlight.current
+    ) return;
+    const sequence = redactionSequence.current + 1;
+    redactionSequence.current = sequence;
+    const reviewedSelection = selection;
+    setCompletionState({ phase: "idle", message: "" });
+    setRedactionReview({ phase: "reading" });
+    try {
+      const recognized = await recognizeCaptureText(session.id, reviewedSelection);
+      if (redactionSequence.current !== sequence) return;
+      const suggestions = suggestRedactions(recognized, reviewedSelection);
+      setRedactionReview({
+        phase: "ready",
+        suggestions,
+        selectedIds: new Set(suggestions.map((suggestion) => suggestion.id)),
+      });
+    } catch (error: unknown) {
+      if (redactionSequence.current !== sequence) return;
+      setRedactionReview({
+        phase: "error",
+        message: `Could not read text. ${describeInvokeError(error, "The text recognition service did not return a diagnostic")}`,
+      });
+    }
+  }, [busy, completionState.phase, scrollingCapture, selection, session]);
+
+  const closeRedactionReview = useCallback((): void => {
+    redactionSequence.current += 1;
+    setRedactionReview(null);
+  }, []);
+
+  const toggleRedactionSuggestion = useCallback((suggestionId: string): void => {
+    setRedactionReview((current) => {
+      if (current?.phase !== "ready") return current;
+      const selectedIds = new Set(current.selectedIds);
+      if (selectedIds.has(suggestionId)) selectedIds.delete(suggestionId);
+      else selectedIds.add(suggestionId);
+      return { ...current, selectedIds };
+    });
+  }, []);
+
+  const applyRedactions = useCallback((): void => {
+    if (redactionReview?.phase !== "ready") return;
+    // Blackout, not pixelate: large-block pixelation of text can be partly reversed.
+    const blackouts: Annotation[] = redactionReview.suggestions
+      .filter((suggestion) => redactionReview.selectedIds.has(suggestion.id))
+      .map((suggestion) => ({
+        id: crypto.randomUUID(),
+        kind: "blackout",
+        bounds: suggestion.bounds,
+        color: "#090a08",
+        intensity: 1,
+        opacity: 1,
+      }));
+    if (blackouts.length === 0) return;
+    // One replace, so a single undo removes the whole batch.
+    dispatchScene({
+      type: "replace",
+      scene: { version: 1, elements: [...history.present.elements, ...blackouts] },
+    });
+    closeRedactionReview();
+    setMessage(`Blacked out ${blackouts.length === 1 ? "1 item" : `${String(blackouts.length)} items`} · Ctrl+Z to undo`);
+  }, [closeRedactionReview, history.present.elements, redactionReview]);
+
+  useEffect(() => {
+    // Suggestions are positioned for one selection; any change makes them stale.
+    closeRedactionReview();
+  }, [closeRedactionReview, selection, session?.id]);
 
   const handleRetrySave = useCallback(async (): Promise<void> => {
     if (
@@ -701,6 +937,45 @@ export function App(): React.JSX.Element {
   }, [completionState.phase, session]);
 
   useEffect(() => {
+    let isCurrent = true;
+    isTextRecognitionSupported()
+      .then((supported) => {
+        if (isCurrent) setCanReadText(supported);
+      })
+      .catch(() => {
+        // An unsupported or unreachable engine just hides Copy text.
+        if (isCurrent) setCanReadText(false);
+      });
+    return (): void => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Window-level so the eyedropper knows the pointer even over the annotation canvas or toolbars.
+    function trackPointer(event: PointerEvent): void {
+      lastPointer.current = { x: event.clientX, y: event.clientY };
+    }
+    window.addEventListener("pointermove", trackPointer, { capture: true, passive: true });
+    return (): void => {
+      window.removeEventListener("pointermove", trackPointer, { capture: true });
+    };
+  }, []);
+
+  const pickColor = useCallback(async (format: ColorFormat): Promise<void> => {
+    const point = lastPointer.current;
+    if (session === null || point === null) return;
+    try {
+      const picked = await pickCaptureColor(session.id, point, format);
+      const pickedMessage = `Copied ${picked.copied}`;
+      setPickedSwatch({ hex: picked.hex, message: pickedMessage });
+      setMessage(pickedMessage);
+    } catch (error) {
+      setMessage(`Could not copy colour · ${describeInvokeError(error, "The colour could not be read")}`);
+    }
+  }, [session]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       // Escape is the capture surface's unconditional exit hatch. Handle it in
       // the capture phase before a focused control or WebView handler can consume
@@ -712,7 +987,11 @@ export function App(): React.JSX.Element {
           void closeScrollingCapture();
           return;
         }
-        void handleCancel();
+        if (openGroupIndex !== null) {
+          setOpenGroupIndex(null);
+          return;
+        }
+        requestExit();
         return;
       }
 
@@ -729,7 +1008,18 @@ export function App(): React.JSX.Element {
         && !busy
         && completionState.phase === "idle";
       const key = event.key.toUpperCase();
-      if (
+      const { captureModeCopy, captureModeSave, captureModeCopyAndSave } = settingsRef.current.shortcuts;
+      const colorFormat = busy || scrollingCapture !== null || event.repeat
+        ? null
+        : eyedropperFormat(
+          event,
+          [captureModeCopy, captureModeSave, captureModeCopyAndSave],
+          selectedCompletionReady,
+        );
+      if (colorFormat !== null) {
+        event.preventDefault();
+        void pickColor(colorFormat);
+      } else if (
         selectedCompletionReady
         && hasNoModifiers
         && key === settingsRef.current.shortcuts.captureModeCopy
@@ -772,9 +1062,11 @@ export function App(): React.JSX.Element {
   }, [
     busy,
     completionState.phase,
-    handleCancel,
+    requestExit,
+    openGroupIndex,
     handleComplete,
     isDraftingSelection,
+    pickColor,
     scrollingCapture,
     selection,
   ]);
@@ -784,13 +1076,13 @@ export function App(): React.JSX.Element {
   }
 
   const viewport = viewportBounds(session.display);
-  const toolBarX = selection === null ? 16 : Math.max(16, Math.min(selection.x, viewport.width - 430));
-  const toolBarY =
-    selection === null || toolbarPlacement === null
-      ? viewport.height - 68
-        : toolbarPlacement.tools === "bottom"
-          ? Math.min(viewport.height - 64, selection.y + selection.height + 10)
-          : Math.max(10, selection.y - 62);
+  const swatchHex = pickedSwatch !== null && pickedSwatch.message === message ? pickedSwatch.hex : null;
+  const toolbarSide = toolbarPlacement?.tools ?? "bottom";
+  const toolbarSpot = selection === null
+    ? { x: 16, y: viewport.height - toolbarSize.height - 16 }
+    : toolbarPosition(selection, viewport, toolbarSide, toolbarSize);
+  const toolBarX = toolbarSpot.x;
+  const toolBarY = toolbarSpot.y;
   const actionsOnLeft =
     selection !== null && selection.x + selection.width + 62 > viewport.width;
   const actionRailX =
@@ -804,6 +1096,19 @@ export function App(): React.JSX.Element {
       ? 10
       : Math.max(10, Math.min(selection.y, viewport.height - 190));
   const activeCaptureCursor = captureCursor(settings.cursor, settings.accentColor);
+  const dimRise = settings.overlay.motion === "dim-rise" && !prefersReducedMotion();
+  const shown = revealed && !exiting;
+  const fadeStyle: React.CSSProperties = dimRise
+    ? {
+      opacity: shown ? 1 : 0,
+      transition: exiting
+        ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
+        : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)",
+    }
+    : {};
+  const exitOnlyStyle: React.CSSProperties = dimRise
+    ? { opacity: exiting ? 0 : 1, transition: "opacity 120ms cubic-bezier(0.4, 0, 1, 1)" }
+    : {};
 
   return (
     <main
@@ -835,10 +1140,23 @@ export function App(): React.JSX.Element {
         />
       ) : null}
 
-      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" /> : null}
+      {selection === null ? <div className="pointer-events-none absolute inset-0 bg-[var(--capture-overlay)]" data-testid="capture-scrim" style={fadeStyle} /> : null}
 
       {selection === null ? (
-        <div className="pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl">
+        <div
+          className="pointer-events-none absolute left-1/2 top-7 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#161815]/90 px-4 py-2 text-xs font-medium tracking-wide text-stone-200 shadow-xl backdrop-blur-xl"
+          data-testid="capture-hint"
+          style={dimRise
+            ? {
+              opacity: fadeStyle.opacity,
+              transform: shown || exiting ? "translateY(0px)" : "translateY(6px)",
+              transition: exiting
+                ? "opacity 120ms cubic-bezier(0.4, 0, 1, 1)"
+                : "opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), transform 160ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }
+            : undefined}
+        >
+          {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
           {message}
         </div>
       ) : isDraftingSelection ? (
@@ -858,6 +1176,7 @@ export function App(): React.JSX.Element {
         </div>
       ) : (
         <SelectionFrame
+          motionStyle={exitOnlyStyle}
           rect={selection}
           onMoveStart={handleMoveStart}
           onResizeStart={handleResizeStart}
@@ -873,6 +1192,7 @@ export function App(): React.JSX.Element {
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
           />
+          {redactionReview === null ? null : <RedactionPreview review={redactionReview} />}
           {completionState.phase === "idle" ? null : (
             <div
               aria-hidden="true"
@@ -888,10 +1208,16 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
-              style={{ left: toolBarX, top: toolBarY }}
+              ref={measureToolbar}
+              style={{ left: toolBarX, top: toolBarY, ...exitOnlyStyle }}
             >
             <AnnotationToolbar
               activeTool={activeTool}
+              lastToolByGroup={lastToolByGroup}
+              openGroupIndex={openGroupIndex}
+              placement={toolbarSide}
+              onGroupToolUsed={rememberGroupTool}
+              onOpenGroupChange={setOpenGroupIndex}
               style={style}
               canRedo={history.future.length > 0}
               canUndo={history.past.length > 0}
@@ -909,7 +1235,7 @@ export function App(): React.JSX.Element {
             <div
               className="absolute z-30 [&_button]:!cursor-[inherit]"
               data-capture-interactive="true"
-              style={{ left: actionRailX, top: actionRailY }}
+              style={{ left: actionRailX, top: actionRailY, ...exitOnlyStyle }}
             >
               <CompletionToolbar
                 copyAndSaveShortcut={settings.shortcuts.captureModeCopyAndSave}
@@ -921,7 +1247,23 @@ export function App(): React.JSX.Element {
                 statusSide={actionRailX < viewport.width / 2 ? "right" : "left"}
                 onComplete={(action) => void handleComplete(action)}
                 onRetrySave={() => void handleRetrySave()}
+                onShowcase={() => void handleComplete("save", "showcase")}
+                {...(canReadText
+                  ? {
+                    onCopyText: () => void handleCopyText(),
+                    onFindSensitive: () => void findSensitiveText(),
+                  }
+                  : {})}
               />
+              {redactionReview === null ? null : (
+                <RedactionReviewPanel
+                  review={redactionReview}
+                  side={actionRailX < viewport.width / 2 ? "right" : "left"}
+                  onApply={applyRedactions}
+                  onClose={closeRedactionReview}
+                  onToggle={toggleRedactionSuggestion}
+                />
+              )}
             </div>
           ) : null}
         </>
@@ -939,10 +1281,23 @@ export function App(): React.JSX.Element {
         />
       )}
 
-      <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md">
+      <div
+        className="pointer-events-none absolute bottom-4 right-4 z-20 flex items-center gap-2 rounded-lg border border-white/8 bg-black/35 px-3 py-2 font-mono text-[10px] tracking-wide text-white/55 backdrop-blur-md"
+      >
+        {swatchHex === null ? null : <ColorSwatch hex={swatchHex} />}
         Capkit / {message}
       </div>
     </main>
+  );
+}
+
+function ColorSwatch({ hex }: { hex: string }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="size-3 shrink-0 rounded-[4px] ring-1 ring-white/40"
+      style={{ backgroundColor: hex }}
+    />
   );
 }
 

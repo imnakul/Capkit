@@ -471,8 +471,13 @@ impl WindowsRecordingSession {
         // The cursor track is recorded unconditionally: it cannot be
         // reconstructed later, and the smooth-cursor and zoom-on-click features
         // are worthless without it. The sampler works in the recorded area's
-        // coordinates, so crops line up with the video.
-        let pointer = Some(PointerSampler::start(area, scale));
+        // coordinates, so crops line up with the video. Keys are read only when
+        // the user turned the keystroke overlay on.
+        let pointer = Some(PointerSampler::start(
+            area,
+            scale,
+            request.capture_keystrokes,
+        ));
 
         let mut audio_failures = Vec::new();
         let system_audio = if request.system_audio {
@@ -650,6 +655,7 @@ mod tests {
             microphone: false,
             microphone_device_id: None,
             system_audio_device_id: None,
+            capture_keystrokes: false,
         };
 
         let (session, _) = backend.start(&request, &directory).expect("start");
@@ -713,6 +719,7 @@ mod tests {
             microphone: false,
             microphone_device_id: None,
             system_audio_device_id: None,
+            capture_keystrokes: false,
         };
 
         let (session, _) = backend.start(&request, &directory).expect("start");

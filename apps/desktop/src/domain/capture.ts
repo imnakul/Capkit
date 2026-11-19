@@ -64,6 +64,42 @@ export const completionActionSchema = z.enum([
 ]);
 export type CompletionAction = z.infer<typeof completionActionSchema>;
 
+export const colorFormatSchema = z.enum(["hex", "rgb"]);
+export type ColorFormat = z.infer<typeof colorFormatSchema>;
+
+export const pickedColorSchema = z.object({
+  hex: z.string().regex(/^#[0-9A-F]{6}$/),
+  copied: z.string().min(1),
+});
+export type PickedColor = z.infer<typeof pickedColorSchema>;
+
+/** Word bounds are selection-local logical pixels, ready to become annotations. */
+export const recognizedWordSchema = z.object({
+  text: z.string(),
+  bounds: rectSchema,
+});
+export type RecognizedWord = z.infer<typeof recognizedWordSchema>;
+
+export const recognizedLineSchema = z.object({
+  text: z.string(),
+  words: z.array(recognizedWordSchema),
+});
+export type RecognizedLine = z.infer<typeof recognizedLineSchema>;
+
+export const recognizedTextSchema = z.object({
+  text: z.string(),
+  lines: z.array(recognizedLineSchema),
+  language: z.string(),
+});
+export type RecognizedText = z.infer<typeof recognizedTextSchema>;
+
+export const textCopyResultSchema = z.object({
+  status: z.enum(["copied", "empty"]),
+  text: z.string(),
+  cleanupWarning: z.string().nullable().optional(),
+});
+export type TextCopyResult = z.infer<typeof textCopyResultSchema>;
+
 export const scrollingCaptureResultSchema = z.object({
   outputPath: z.string(),
   frameCount: z.number().int().positive(),
@@ -88,3 +124,16 @@ export const savedCaptureSchema = z.object({
 export type SavedCapture = z.infer<typeof savedCaptureSchema> & {
   thumbnailUrl: string;
 };
+
+/**
+ * The library entry for a path reported by the native side.
+ *
+ * Windows paths are case-insensitive and either separator is valid, so a
+ * completion result and a directory listing can spell the same file
+ * differently.
+ */
+export function findSavedCapture(captures: readonly SavedCapture[], path: string): SavedCapture | null {
+  const normalize = (value: string): string => value.replaceAll("/", "\\").toLowerCase();
+  const target = normalize(path);
+  return captures.find((capture) => normalize(capture.path) === target) ?? null;
+}

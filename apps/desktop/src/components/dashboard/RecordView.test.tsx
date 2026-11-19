@@ -26,6 +26,8 @@ const track: CursorTrack = {
   ys: [10, 300],
   events: [{ time: 1, kind: "down", button: "left", x: 400, y: 300 }],
   shapes: [{ time: 0, shape: "default" }],
+  keysRecorded: false,
+  keys: [],
   displayBounds: { x: 0, y: 0, width: 1920, height: 1080 },
   scaleFactor: 1,
 };

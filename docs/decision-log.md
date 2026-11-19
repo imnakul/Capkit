@@ -1,5 +1,26 @@
 # Decision Log
 
+## 2026-10-29 - OCR, colour picking, and redaction suggestions leave Think Later
+
+- **Confirmed:** OCR uses the built-in Windows engine (`Windows.Media.Ocr`) through the existing `windows` crate: offline, no model download, 0 MB added, languages from the user's installed language packs. Copy text and Find sensitive text are hidden where it is unavailable.
+- **Confirmed:** Redaction suggestions are pattern matches over OCR lines (token prefixes and JWTs, Luhn-valid card numbers, emails, phone numbers, high-entropy strings), shown for review with every finding checked, and applied as blackout annotations in one undo step. Nothing is redacted without confirmation.
+- **Confirmed:** The eyedropper reads the frozen snapshot at physical pixels, so the copied value is the real screen colour, not the scaled preview.
+- **Rejected:** Pixelating suggestions, which the spec first proposed: blocks sized from OCR boxes can leave short strings guessable; blackout is unambiguous. Also rejected: bundling Tesseract or an ONNX model, which would add tens of megabytes to the installer.
+- **Rationale:** the user asked for these only if Windows could do them in-box; it can, so the Phase 1 size budget is untouched.
+
+## 2026-10-29 - Keystroke capture is opt-in and never stores what was typed
+
+- **Confirmed:** the recorder's Keystrokes option is off by default. When on, keys are polled with the existing 250 Hz cursor sampler (every fourth tick, no hook). Shortcuts and named keys keep their names; anything that types a character is stored only as a "text" event, with no key and no modifiers. The data stays in the recording's own folder.
+- **Confirmed:** zoom follows typing focuses on the last click before a typing burst, because the caret position is not recorded.
+- **Rejected:** a low-level keyboard hook (heavier, flagged by security tools, and records more than needed); caret tracking through UI Automation (slow and inconsistent across apps).
+- **Provisional:** key names follow the US layout; other layouts may label punctuation differently.
+
+## 2026-10-29 - Save & Showcase leaves the capture path only on request
+
+- **Confirmed:** Save & Showcase is an explicit completion action. The direct workflow (shortcut, select, edit, complete, disappear) is unchanged, and the dashboard is never opened otherwise.
+- **Confirmed:** the capture path passes through a one-shot native slot that the dashboard takes once, so a dashboard built for the request still receives it. Only files inside the save folder are accepted.
+- **Rationale:** the Phase 1 boundary forbids a dashboard in the capture path, not a user choosing to go there.
+
 ## 2026-09-28 - Recordings play from the asset protocol via a narrow media-src
 
 - **Confirmed:** the CSP gains `media-src 'self' asset: http://asset.localhost blob:` and nothing else, so `<video>` loads recordings from `convertFileSrc` URLs on Windows while images keep working through `img-src`. A config test pins the directive.
@@ -30,7 +51,8 @@
 - **Confirmed:** `apps/desktop/src-tauri/tauri.conf.json` `version` is the single source of truth; `package.json`, `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` must always match it, enforced by `pnpm version:check` in CI.
 - **Confirmed:** Semantic versioning: a patch is a fix only, a minor adds features, and a major is reserved for a 1.0 launch. The first automated release is `0.2.0`.
 - **Confirmed:** A push to `master` whose version has no matching `v<version>` tag builds the Windows NSIS installer with the repo's own `pnpm bundle:windows` script and publishes it with `gh release create` (preinstalled on runners), with generated notes plus a `CHANGELOG-PUBLIC.md` link. A push without a version change only runs the quick skip. No third-party release actions.
-- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), the in-app auto-updater (`tauri-plugin-updater`), pre-release channels, and Store (MSIX) versioning.
+- **Confirmed:** The in-app updater (`tauri-plugin-updater`, pinned to 2.10.1 because newer releases need a Tauri that bumps the `webview2-com` pin). CapKit checks the GitHub release `latest.json` once per launch (a setting turns it off), shows a notice, and installs only on a click, never during a capture or recording and never in the Store build. Release builds sign the installer with the updater key; the private key lives only in GitHub secrets.
+- **Think Later:** Code signing (unsigned installers show SmartScreen "Unknown publisher"; needs a paid certificate), pre-release channels, and Store (MSIX) versioning.
 - **Rationale:** Raising the version once should be enough to ship an identifiable installer; every installed copy reports its version and commit in the sidebar.
 
 ## 2026-09-26 - Screen Draw defaults to Select
@@ -194,7 +216,11 @@
 - **Confirmed:** The Store build is a manually assembled x64 Desktop Bridge MSIX with `packagedClassicApp`, `mediumIL`, and `runFullTrust`, preserving Win32 access required by capture, tray, global shortcuts, clipboard, scrolling input, and pin windows.
 - **Confirmed:** Store artifacts are generated as `.msix` and `.msixupload`; the Store submission uses `.msixupload` and Microsoft supplies the certified production signature.
 - **Provisional:** ARM64 packaging follows after the x64 packaged-runtime acceptance matrix passes.
-- **Unresolved:** The existing Tauri autostart plugin must be physically validated across a Store update because MSIX installation paths are versioned. Use a manifest-declared startup task if registry-based startup does not survive updates.
+- **Superseded (2026-10-29):** The Store build no longer uses the Tauri autostart plugin.
+  - **Confirmed:** Open at startup uses a manifest-declared `windows.startupTask`, because Store policy rejects a packaged app's own Run entry and MSIX install paths are versioned.
+  - **Confirmed:** Builds without package identity keep the plugin's sign-in entry.
+  - **Confirmed:** The manifest also declares the `microphone` and `webcam` device capabilities for recording.
+  - **Confirmed:** Packages ship `LICENSE.txt` and generated third-party notices.
 - **Confirmed:** Windows release binaries use PE GUI subsystem `2`; debug binaries keep console output. Store packaging validates this header so an installed release cannot regress to opening a terminal window.
 
 ## 2026-07-23 - Product renamed to CapKit

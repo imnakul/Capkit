@@ -18,6 +18,8 @@ Implementation progress is tracked separately in [Current implementation status]
 - Writing group with highlighter, smoothed freehand pencil, and in-place Caveat text; spotlight, counter, blur, secure pixelation, and blackout
 - Contextual color, stroke, opacity, fill, radius, arrow, font, alignment, and redaction controls
 - Undo and redo
+- Eyedropper, OCR copy text, and reviewed redaction suggestions from the completion rail (promoted from Think Later on 2026-10-29; OCR is the built-in Windows engine)
+- Save & Showcase from the completion rail, applying the default Showcase style
 - Copy, Copy & Save, Save, Save As, Pin, Cancel, and optional watermark completion actions
 - Pinned-image resize, rotation, opacity, lock, click-through, copy, save, duplicate, and close
 - Scrolling capture with automatic and manual modes, overlap stitching, sticky-region handling, preview, retry, and limitation messaging
@@ -73,12 +75,12 @@ The Phase 1 dashboard's on-demand view of the configured save folder is a conven
 - Webcam as a separate track, croppable to circle, square, or rounded shapes, freely placeable in Studio and included in exports
 - Native frame rate following the display's refresh rate, capped by the H.264 level 5.2 macroblock rate
 - Recordings saved under `Videos\CapKit`, configurable in Settings
-- MP4 and GIF export
+- MP4 and GIF export, with Under 25 MB and Under 10 MB MP4 size targets
+- Opt-in keystroke and click labels, and zoom that follows typing
 
 ## Think Later
 
 - QR-code detection
-- On-screen color detection and picker
 - Live presentation tools
 - AI editing and semantic search
 - Team comments and real-time collaboration

@@ -3,7 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import type { AnnotationScene } from "../domain/annotations";
-import type { SnaphubSettings } from "../domain/settings";
+import type { OverlayMotion, SnaphubSettings } from "../domain/settings";
+import { updateStatusSchema, type UpdateStatus } from "../domain/updates";
 import {
   mediaFileSchema,
   mediaFolderSchema,
@@ -16,18 +17,25 @@ import {
   completionActionSchema,
   detectedTargetSchema,
   displaySchema,
+  pickedColorSchema,
   pointSchema,
+  recognizedTextSchema,
   rectSchema,
   scrollingCaptureResultSchema,
   savedCaptureSchema,
+  textCopyResultSchema,
   type CaptureSession,
+  type ColorFormat,
   type CompletionAction,
+  type PickedColor,
   type DetectedTarget,
   type Display,
   type Point,
+  type RecognizedText,
   type Rect,
   type ScrollingCaptureResult,
   type SavedCapture,
+  type TextCopyResult,
 } from "../domain/capture";
 
 const backendSessionSchema = captureSessionSchema.omit({ snapshotUrl: true }).extend({
@@ -110,9 +118,12 @@ export async function requestCapture(): Promise<CaptureSession> {
   };
 }
 
-export async function showCaptureSurface(): Promise<void> {
+export async function showCaptureSurface(
+  motion: OverlayMotion = "fade-in",
+  reducedMotion = false,
+): Promise<void> {
   if (!isTauri()) return;
-  await invoke("show_capture_surface");
+  await invoke("show_capture_surface", { motion, reducedMotion });
 }
 
 export async function requestOnScreenSession(): Promise<OnScreenSession> {
@@ -171,15 +182,62 @@ export async function completeCapture(
   return completionResultSchema.parse(raw);
 }
 
+/** Copies the snapshot colour at a display-local logical point; the backend reads the physical pixel. */
+export async function pickCaptureColor(
+  sessionId: string,
+  point: Point,
+  format: ColorFormat,
+): Promise<PickedColor> {
+  if (!isTauri()) throw new Error("Colour picking requires the desktop app");
+  const raw: unknown = await invoke("pick_capture_color", {
+    request: { sessionId, point, format },
+  });
+  return pickedColorSchema.parse(raw);
+}
+
+export async function isTextRecognitionSupported(): Promise<boolean> {
+  if (!isTauri()) return false;
+  const raw: unknown = await invoke("text_recognition_supported");
+  return z.boolean().parse(raw);
+}
+
+/** Reads text in the raw selection (annotations excluded). The capture stays open. */
+export async function recognizeCaptureText(
+  sessionId: string,
+  selection: Rect,
+): Promise<RecognizedText> {
+  if (!isTauri()) throw new Error("Text recognition requires the desktop app");
+  const raw: unknown = await invoke("recognize_capture_text", {
+    request: { sessionId, selection },
+  });
+  return recognizedTextSchema.parse(raw);
+}
+
+/** Copies the selection's text and closes the capture; `empty` leaves it open. */
+export async function copyCaptureText(
+  sessionId: string,
+  selection: Rect,
+): Promise<TextCopyResult> {
+  if (!isTauri()) throw new Error("Text recognition requires the desktop app");
+  const raw: unknown = await invoke("copy_capture_text", {
+    request: { sessionId, selection },
+  });
+  return textCopyResultSchema.parse(raw);
+}
+
 export async function retryCaptureSave(sessionId: string): Promise<CompletionResult> {
   if (!isTauri()) return createDemoCompletionResult("copy-and-save");
   const raw: unknown = await invoke("retry_capture_save", { sessionId });
   return completionResultSchema.parse(raw);
 }
 
-export async function cancelCapture(sessionId: string): Promise<void> {
+export async function cancelCapture(
+  sessionId: string,
+  motion: OverlayMotion = "fade-in",
+  reducedMotion = false,
+): Promise<void> {
   if (!isTauri()) return;
-  await invoke("cancel_capture", { sessionId });
+  await invoke("cancel_capture", { sessionId, motion, reducedMotion });
 }
 
 type ScrollingMode = "automatic" | "manual-start" | "manual-add";
@@ -323,9 +381,41 @@ export async function openSavedCapture(path: string): Promise<void> {
   await invoke("open_saved_capture", { path });
 }
 
+/** Shows the dashboard with a saved capture open in Showcase. The path must be inside the save folder. */
+export async function openInShowcase(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_in_showcase", { path });
+}
+
+/** The capture sent to Showcase since the dashboard last asked, if any. Each request is returned once. */
+export async function takePendingShowcase(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const raw: unknown = await invoke("take_pending_showcase");
+  return z.string().min(1).nullable().parse(raw);
+}
+
+/** Fires when a capture is sent to Showcase while the dashboard is already open. */
+export async function listenForShowcaseRequest(callback: () => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen("capkit://showcase-requested", callback);
+}
+
 export async function deleteSavedCapture(path: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("delete_saved_capture", { path });
+}
+
+const savedCapturePathSchema = z.string().min(1);
+
+export async function copySavedCapture(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("copy_saved_capture", { path: savedCapturePathSchema.parse(path) });
+}
+
+/** Starts a native OS file drag; must be called synchronously from a pointer move. */
+export async function startSavedCaptureDrag(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("start_saved_capture_drag", { path: savedCapturePathSchema.parse(path) });
 }
 
 /**
@@ -461,6 +551,37 @@ function createDemoSession(): CaptureSession {
     snapshotUrl: "",
     colorSpace: "srgb",
     createdAt: new Date().toISOString(),
+  });
+}
+
+async function invokeUpdate(command: string): Promise<UpdateStatus> {
+  if (!isTauri()) return { state: "idle" };
+  const raw: unknown = await invoke(command);
+  return updateStatusSchema.parse(raw);
+}
+
+/** Runs the one launch check per process; later calls return the current status. */
+export function autoCheckForUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("auto_check_for_update");
+}
+
+export function checkForUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("check_for_update");
+}
+
+export function installUpdate(): Promise<UpdateStatus> {
+  return invokeUpdate("install_update");
+}
+
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return invokeUpdate("update_status");
+}
+
+export async function listenForUpdateStatus(handler: (status: UpdateStatus) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>("capkit://update-status", (event) => {
+    const parsed = updateStatusSchema.safeParse(event.payload);
+    if (parsed.success) handler(parsed.data);
   });
 }
 
