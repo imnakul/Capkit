@@ -2,6 +2,19 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Added
+
+- Smart select (W): hover to see an outline around the button, card or image under your pointer, then click to box it. Alt+click draws an ellipse instead; drag to draw a box yourself.
+- Line styles: solid, dashed, dotted or sketchy (hand-drawn) for shapes, lines and arrows, in Capture and Screen Draw. Set your default in Settings.
+- Rounded corners for rectangles, with a Corners slider and a default in Settings.
+- Press any shape with a drawing tool to select and move it, without switching to the cursor. Hold Alt to draw on top of it instead. Escape deselects before it closes the capture.
+
+### Improved
+
+- Text appears on the first click, shows a faint "Type something" hint, and clicking away leaves no empty box. Shift+Enter adds a new line, and it matches in the saved image.
+
 ## 0.5.1 — 2026-11-20
 
 ### Fixed

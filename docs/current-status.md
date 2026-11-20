@@ -74,6 +74,7 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** Configurable `C`/`A`/`S` capture-mode shortcuts complete Copy/Copy & Save/Save from the selected region; global shortcuts and scrolling-capture actions remain separate. Invalid or duplicate persisted local keys are repaired deterministically, while new writes reject collisions.
 - **Implemented:** Completion buttons show configured capture-mode keys as compact badges, use one native click activation for mouse, touch, Enter, and Space, and expose a combined action with a distinct icon composition and valid `aria-keyshortcuts`.
 - **Implemented, physical validation pending:** Copy & Save renders once in Rust, copies before atomically saving identical pixels, emits one saved event after rename, serializes duplicate completion and Escape against the native session, and retains only the rendered raster for save-only retry after a post-copy file failure.
+- **Implemented, manual validation pending:** Smart select (W) snaps a box (Alt: ellipse) to the element under the pointer using the frozen-snapshot detector, plus UI Automation when Detection > controls is on. Line styles, rounded corners and edit-without-switching-tools work in Capture and Screen Draw. Enter-to-add is not built.
 - **Implemented:** Rust-side export composition that combines the immutable capture with the annotation scene.
 
 ### Pinning and preferences

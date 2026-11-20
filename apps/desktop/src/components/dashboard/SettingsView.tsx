@@ -705,6 +705,13 @@ export function SettingsView(): React.JSX.Element {
                     </label>
                   </div>
                 </div>
+                <SettingRow label="Line style" hint="How new shapes and lines are drawn. Change it per shape from the toolbar.">
+                  <Segmented label="Default line style" value={settings.annotation.strokeStyle} options={lineStyleOptions} onChange={(strokeStyle) => update({ ...settings, annotation: { ...settings.annotation, strokeStyle } })} />
+                </SettingRow>
+                <SettingRow label="Rounded corners" hint="Corner radius for new rectangles">
+                  <input aria-label="Default corner radius" className="w-28 accent-accent" max="48" min="0" type="range" value={settings.annotation.cornerRadius} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, cornerRadius: Number(event.currentTarget.value) } })} />
+                  <span className="w-9 text-right font-mono text-[12px] tabular-nums text-content/60">{settings.annotation.cornerRadius}px</span>
+                </SettingRow>
                 <SectionReset visible={changed.colors} onClick={() => update({ ...settings, palette: defaultSnaphubSettings.palette, customColors: [], annotation: defaultSnaphubSettings.annotation })} />
               </SettingsCard>
               <SettingsCard
@@ -866,6 +873,13 @@ export function SettingsView(): React.JSX.Element {
     </div>
   );
 }
+
+const lineStyleOptions = [
+  { value: "solid", label: "Solid" },
+  { value: "dashed", label: "Dashed" },
+  { value: "dotted", label: "Dotted" },
+  { value: "sketchy", label: "Sketchy" },
+] as const;
 
 const cursorSizes = [
   { value: "small", label: "Small" },
