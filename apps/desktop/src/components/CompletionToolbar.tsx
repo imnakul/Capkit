@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { RailItem } from "./captureActions";
 import { Refresh } from "./icons";
 import { ToolButton } from "./ToolButton";
@@ -26,7 +26,9 @@ export function CompletionToolbar({
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const disabled = state !== "idle";
 
-  useEffect(() => {
+  // Layout effect, not a passive one: focus must land in the commit that shows Retry save, or
+  // keyboard users (and a test reading focus on that commit) briefly find it on <body>.
+  useLayoutEffect(() => {
     if (state === "save-pending") retryButtonRef.current?.focus();
   }, [state]);
 
