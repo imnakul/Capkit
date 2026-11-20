@@ -194,7 +194,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
       {library.captures.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
           {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
@@ -304,7 +304,7 @@ function ContextAction({ icon: Icon, label, onClick, disabled = false, destructi
 }
 
 function LoadingGrid(): React.JSX.Element {
-  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
+  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
 }
 
 function EmptyLibrary(): React.JSX.Element {

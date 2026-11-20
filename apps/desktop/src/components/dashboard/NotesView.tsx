@@ -219,7 +219,7 @@ export function NotesView(): React.JSX.Element {
       {actionError === null ? null : <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{actionError}</div>}
 
       {loading && state.notes.length === 0 ? (
-        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3" role="status">
+        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3" role="status">
           {Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}
         </div>
       ) : null}
@@ -236,7 +236,7 @@ export function NotesView(): React.JSX.Element {
       ) : null}
 
       {state.notes.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
           {state.notes.map((note) => (
             <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} onOpen={showNote} />
           ))}
