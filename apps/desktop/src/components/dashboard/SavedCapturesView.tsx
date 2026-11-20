@@ -194,7 +194,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
       {library.captures.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3">
           {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
@@ -281,7 +281,7 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
   return (
     <div aria-label={displayName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
       <button aria-label={`View ${displayName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-content/10 bg-content/4 text-left outline-none transition-colors duration-150 hover:border-content/20 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
-        <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
+        <div className="grid aspect-[16/10] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
           <img alt={`Saved capture ${displayName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
         </div>
         <div className="border-t border-content/8 px-3 py-2.5">
@@ -304,7 +304,7 @@ function ContextAction({ icon: Icon, label, onClick, disabled = false, destructi
 }
 
 function LoadingGrid(): React.JSX.Element {
-  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
+  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
 }
 
 function EmptyLibrary(): React.JSX.Element {

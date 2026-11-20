@@ -98,7 +98,7 @@ describe("RecordView", () => {
     render(<RecordView />);
 
     const list = screen.getByRole("list", { name: "Recordings" });
-    expect(list.className).toContain("grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))]");
+    expect(list.className).toContain("grid-cols-[repeat(auto-fill,minmax(18rem,22rem))]");
   });
 
   it("edits a recording in place and returns to the library", async () => {

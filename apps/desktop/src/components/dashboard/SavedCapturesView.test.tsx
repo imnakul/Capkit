@@ -73,7 +73,7 @@ describe("SavedCapturesView", () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
 
     const skeleton = await screen.findByRole("status", { name: "Loading saved captures" });
-    expect(skeleton.className).toContain("grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]");
+    expect(skeleton.className).toContain("grid-cols-[repeat(auto-fill,minmax(18rem,22rem))]");
     resolveList([
       {
         path: "C:/Pictures/Snaphub/capture.png",
@@ -91,7 +91,7 @@ describe("SavedCapturesView", () => {
     const section = document.querySelector("section[aria-labelledby='saved-captures-title']");
     expect(section?.className).not.toContain("max-w-[1120px]");
     const grid = document.querySelector("section div.mt-5.grid");
-    expect(grid?.className).toContain("grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]");
+    expect(grid?.className).toContain("grid-cols-[repeat(auto-fill,minmax(18rem,22rem))]");
   });
 
   it("copies from the card button without opening the image, then shows Copied for 1.5 s", async () => {
