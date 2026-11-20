@@ -1303,7 +1303,7 @@ function PointerLayer({
 function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.Element | null {
   if (object.kind === "blur") return null;
   if (object.kind === "text") {
-    return <text data-onscreen-object={object.id} fill={object.color} fontFamily="'Plus Jakarta Sans Variable', sans-serif" fontSize={object.size} fontWeight="650" x={object.position.x} y={object.position.y}>{object.text}</text>;
+    return <text data-onscreen-object={object.id} fill={object.color} fontFamily="'Geist Variable', sans-serif" fontSize={object.size} fontWeight="650" x={object.position.x} y={object.position.y}>{object.text}</text>;
   }
   if (object.kind === "pencil") {
     return <path d={pointsToSvgPath(object.points)} data-onscreen-object={object.id} fill="none" stroke={object.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={object.size} />;
