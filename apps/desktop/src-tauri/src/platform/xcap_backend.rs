@@ -154,6 +154,13 @@ impl TargetDetectionBackend for XcapPlatformBackend {
             if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
                 continue;
             }
+            #[cfg(target_os = "windows")]
+            if window
+                .id()
+                .is_ok_and(super::windows_ui::is_pass_through_overlay)
+            {
+                continue;
+            }
             let x = f64::from(window.x().map_err(SnaphubError::capture)?);
             let y = f64::from(window.y().map_err(SnaphubError::capture)?);
             let width = f64::from(window.width().map_err(SnaphubError::capture)?);
@@ -265,6 +272,12 @@ fn underlying_window_with_title_at(point: Point) -> Result<Option<(u32, String)>
         }
         let title = window.title().unwrap_or_default();
         if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
+            continue;
+        }
+        if window
+            .id()
+            .is_ok_and(super::windows_ui::is_pass_through_overlay)
+        {
             continue;
         }
         let bounds = Rect {

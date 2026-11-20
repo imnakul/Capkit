@@ -119,6 +119,32 @@ fn window_class_name(window_id: u32) -> String {
     String::from_utf16_lossy(&buffer[..length as usize])
 }
 
+/// Whether `window_id` is an invisible overlay the cursor passes through, such as the
+/// full-screen overlays a tiling window manager (FancyWM, for example) keeps above the
+/// windows it tiles. Such a window is never what the user is pointing at, so target
+/// detection must look at the window beneath it.
+pub fn is_pass_through_overlay(window_id: u32) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW};
+
+    let hwnd = HWND(window_id as usize as *mut c_void);
+    // The extended style is a 32-bit flag set stored in a pointer-sized slot; truncating is exact.
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    is_pass_through_ex_style(ex_style)
+}
+
+/// See [`is_pass_through_overlay`]. A window is pass-through when mouse input goes to the
+/// window below it (`WS_EX_TRANSPARENT`), or when it is a layered tool window that can never
+/// be activated: a drawing surface, not something a user works in.
+fn is_pass_through_ex_style(ex_style: u32) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    };
+
+    let has = |flag: u32| ex_style & flag == flag;
+    has(WS_EX_TRANSPARENT.0)
+        || (has(WS_EX_LAYERED.0) && has(WS_EX_NOACTIVATE.0) && has(WS_EX_TOOLWINDOW.0))
+}
+
 fn is_browser_window(window_id: u32) -> bool {
     let class_name = window_class_name(window_id);
     BROWSER_WINDOW_CLASSES
@@ -565,6 +591,37 @@ fn rects_nearly_equal(left: &Rect, right: &Rect) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_manager_overlays_are_pass_through() {
+        // Extended styles read from real windows on Windows 11.
+        assert!(
+            is_pass_through_ex_style(0x0808_0080),
+            "FancyWM interactive overlay"
+        );
+        assert!(
+            is_pass_through_ex_style(0x0808_00A0),
+            "FancyWM non-interactive overlay"
+        );
+        assert!(
+            is_pass_through_ex_style(0x0000_0020),
+            "any click-through window"
+        );
+    }
+
+    #[test]
+    fn app_windows_are_not_pass_through() {
+        assert!(!is_pass_through_ex_style(0x0020_0100), "Aside and Brave");
+        assert!(!is_pass_through_ex_style(0x0004_0110), "a Tauri app window");
+        assert!(
+            !is_pass_through_ex_style(0x0020_0108),
+            "a topmost picture-in-picture window"
+        );
+        assert!(
+            !is_pass_through_ex_style(0x0008_0080),
+            "a layered tool window that activates"
+        );
+    }
 
     fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
         Rect {
