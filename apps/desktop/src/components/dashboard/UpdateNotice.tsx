@@ -28,7 +28,7 @@ export function UpdateNotice({ controller }: { controller: UpdateController }): 
           {failed ? "Try again" : "Install"}
         </Button>
       </div>
-      {guardMessage === null ? null : <p className="mt-1.5 text-amber-500">{guardMessage}</p>}
+      {guardMessage === null ? null : <p className="mt-1.5 text-warning">{guardMessage}</p>}
     </div>
   );
 }

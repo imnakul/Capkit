@@ -157,7 +157,7 @@ export function BrowserExtensionSettings(): React.JSX.Element {
         <div aria-live="polite" className="mt-3 space-y-1 text-[12px] text-content/60">
           {describeState(status).map((line) => (
             <p className="flex items-center gap-2" key={line}>
-              <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${status.connected.length > 0 && enabled ? "bg-emerald-500" : status.state === "error" ? "bg-danger" : "bg-content/30"}`} />
+              <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${status.connected.length > 0 && enabled ? "bg-success" : status.state === "error" ? "bg-danger" : "bg-content/30"}`} />
               {line}
             </p>
           ))}

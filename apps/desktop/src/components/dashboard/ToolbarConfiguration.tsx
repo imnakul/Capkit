@@ -242,7 +242,7 @@ export function ToolbarConfiguration({
                 >
                   <div>
                     <p className="text-[11px] font-medium tabular-nums text-content/45">Group {String(rowIndex + 1).padStart(2, "0")}</p>
-                    <p className="mt-1 truncate text-[11px] text-content/60">{firstTool === null ? "Drop a default" : `Default · ${firstTool.label}`}</p>
+                    <p className="mt-1 truncate text-[11px] text-content/60">{firstTool === null ? "Drop a default" : `Default: ${firstTool.label}`}</p>
                   </div>
                   <div className="flex min-h-9 flex-wrap items-center gap-1.5">
                     {group.length === 0 ? <span className="text-[12px] text-content/45">Drop tools here</span> : null}

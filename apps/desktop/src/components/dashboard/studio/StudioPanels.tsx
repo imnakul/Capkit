@@ -44,12 +44,12 @@ export function StagePanel({ scene, onPatch, onApplyLook }: { scene: VideoScene;
               onClick={() => onApplyLook(look)}
             >
               <span
-                className="grid aspect-[1.3] place-items-center rounded-md border border-stone-200 shadow-sm transition group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10"
+                className="grid aspect-[1.3] place-items-center rounded-md border border-content/10 shadow-sm transition-colors duration-120 motion-reduce:transition-none group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-accent/50"
                 style={{ background: look.swatch }}
               >
-                <span className="block h-1/2 w-3/5 rounded-[2px] bg-white/90 shadow-[0_2px_6px_rgb(0_0_0/45%)]" />
+                <span className="block h-1/2 w-3/5 rounded-[2px] bg-content/4 shadow-[0_2px_6px_rgb(0_0_0/45%)]" />
               </span>
-              <span className="mt-1 block truncate text-[12px] font-medium text-stone-600 dark:text-stone-300">{look.label}</span>
+              <span className="mt-1 block truncate text-[12px] font-medium text-content/80">{look.label}</span>
             </button>
           ))}
         </div>
@@ -74,10 +74,10 @@ export function StagePanel({ scene, onPatch, onApplyLook }: { scene: VideoScene;
                 onClick={() => onPatch({ scene: { ...scene.scene, background: { kind: "preset", id: preset.id } } })}
               >
                 <span
-                  className="block aspect-[1.3] rounded-md border border-stone-200 shadow-sm transition group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-[var(--snaphub-accent)] group-aria-pressed:border-stone-900 group-aria-pressed:ring-1 group-aria-pressed:ring-stone-900 dark:border-white/10 dark:group-aria-pressed:border-white"
+                  className="block aspect-[1.3] rounded-md border border-content/10 shadow-sm transition-colors duration-120 motion-reduce:transition-none group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-accent/50 group-aria-pressed:border-accent group-aria-pressed:ring-1 group-aria-pressed:ring-accent"
                   style={{ background: preset.swatch }}
                 />
-                <span className="mt-1 block truncate text-[12px] font-medium text-stone-500 dark:text-stone-400">{preset.label}</span>
+                <span className="mt-1 block truncate text-[12px] font-medium text-content/60">{preset.label}</span>
               </button>
             ))}
           </div>
@@ -182,7 +182,7 @@ export function MotionPanel({
   return (
     <div className="space-y-2.5">
       {hasCursorTrack ? null : (
-        <p className="rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+        <p className="rounded-md border border-dashed border-content/10 px-2.5 py-2 text-[12px] leading-5 text-content/60">
           This recording has no cursor track, so smoothing and zoom on click are unavailable. Recordings made from now on always include one.
         </p>
       )}
@@ -235,7 +235,7 @@ export function MotionPanel({
 
         <CollapsibleSection icon={Keyboard} title="Keystrokes">
           {keysRecorded ? null : (
-            <p className="mb-2.5 rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+            <p className="mb-2.5 rounded-md border border-dashed border-content/10 px-2.5 py-2 text-[12px] leading-5 text-content/60">
               Keys were not recorded for this clip. Turn on Keystrokes in the recorder to show shortcuts next time.
             </p>
           )}
@@ -264,7 +264,7 @@ export function MotionPanel({
 
       <CollapsibleSection icon={Video} title="Camera">
         {hasCameraTrack ? null : (
-          <p className="mb-2.5 rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+          <p className="mb-2.5 rounded-md border border-dashed border-content/10 px-2.5 py-2 text-[12px] leading-5 text-content/60">
             This recording has no camera
           </p>
         )}
@@ -307,7 +307,7 @@ export function AudioPanel({
   return (
     <div className="space-y-2.5">
       {!hasSystem && !hasMicrophone ? (
-        <p className="rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+        <p className="rounded-md border border-dashed border-content/10 px-2.5 py-2 text-[12px] leading-5 text-content/60">
           This recording has no audio tracks. Turn on system audio or the microphone in the recorder before recording.
         </p>
       ) : null}
@@ -327,7 +327,7 @@ export function AudioPanel({
       ) : null}
 
       <CollapsibleSection icon={Frame} title="About the tracks">
-        <p className="text-[12px] leading-5 text-stone-500 dark:text-stone-400">
+        <p className="text-[12px] leading-5 text-content/60">
           System audio and the microphone are recorded separately so they can be balanced here. They are mixed together when you export.
         </p>
       </CollapsibleSection>

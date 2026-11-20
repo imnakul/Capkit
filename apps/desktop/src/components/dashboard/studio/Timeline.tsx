@@ -75,7 +75,7 @@ export function Timeline({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-[12px] text-stone-500 dark:text-stone-400">
+      <div className="flex items-center justify-between text-[12px] text-content/60">
         <span className="font-mono">{formatDuration(time)}</span>
         <span>
           Trim {formatDuration(trim.start)} – {formatDuration(trim.end)}
@@ -85,7 +85,7 @@ export function Timeline({
 
       <div
         aria-label="Timeline"
-        className="relative h-14 cursor-pointer select-none rounded-md border border-stone-300 bg-stone-200/60 dark:border-white/10 dark:bg-black/25"
+        className="relative h-14 cursor-pointer select-none rounded-md border border-content/10 bg-content/8"
         ref={trackRef}
         role="group"
         onPointerCancel={end}
@@ -100,7 +100,7 @@ export function Timeline({
         {clickTimes.map((value, index) => (
           <span
             aria-hidden="true"
-            className="absolute top-1 h-2 w-0.5 rounded-full bg-[var(--snaphub-accent)]"
+            className="absolute top-1 h-2 w-0.5 rounded-full bg-accent"
             key={`${String(value)}-${String(index)}`}
             style={{ left: `${String(percent(value))}%` }}
           />
@@ -118,7 +118,7 @@ export function Timeline({
 
         <button
           aria-label="Trim start"
-          className="absolute inset-y-0 w-3 cursor-ew-resize rounded-l-md border-2 border-white bg-stone-900/80 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)]"
+          className="absolute inset-y-0 w-3 cursor-ew-resize rounded-l-md border-2 border-accent bg-background-base/80 outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           style={{ left: `calc(${String(percent(trim.start))}% - 6px)` }}
           type="button"
           onPointerCancel={end}
@@ -128,7 +128,7 @@ export function Timeline({
         />
         <button
           aria-label="Trim end"
-          className="absolute inset-y-0 w-3 cursor-ew-resize rounded-r-md border-2 border-white bg-stone-900/80 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)]"
+          className="absolute inset-y-0 w-3 cursor-ew-resize rounded-r-md border-2 border-accent bg-background-base/80 outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           style={{ left: `calc(${String(percent(trim.end))}% - 6px)` }}
           type="button"
           onPointerCancel={end}
@@ -138,7 +138,7 @@ export function Timeline({
         />
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
+          className="pointer-events-none absolute inset-y-0 w-0.5 bg-content/4 shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
           style={{ left: `${String(percent(time))}%` }}
         />
       </div>

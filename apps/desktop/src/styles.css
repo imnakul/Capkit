@@ -36,6 +36,7 @@
   --color-accent-ink: #12130f;
   --color-danger: #dc2626;
   --color-warning: #b45309;
+  --color-success: #15803d;
 
   /* A surface arriving: page, dialog, popover. */
   --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
@@ -47,6 +48,7 @@
 
 html.dark {
   --color-warning: #fbbf24;
+  --color-success: #4ade80;
 }
 
 /* Dashboard page: Mica shows through, carrying a breath of the accent. */

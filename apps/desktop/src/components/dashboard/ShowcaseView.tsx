@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Copy, Delete, Download, Tick, Upload } from "../icons";
+import { Button } from "../ui/Button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SavedCapture } from "../../domain/capture";
 import {
@@ -95,10 +96,10 @@ const defaultComposition: Composition = {
 };
 
 const toolbarButtonClass =
-  "inline-flex items-center gap-1.5 rounded-md border border-stone-400/70 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-stone-900 shadow-sm outline-none transition hover:border-stone-600 hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/25 dark:bg-white/12 dark:text-stone-50 dark:hover:border-white/45 dark:hover:bg-white/20";
+  "inline-flex items-center gap-1.5 rounded-md border border-content/15 bg-content/4 px-2.5 py-1.5 text-[12px] font-semibold text-content shadow-sm outline-none transition-colors duration-120 motion-reduce:transition-none hover:border-content/25 hover:bg-content/4 focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50";
 
 const selectClass =
-  "h-7 rounded-md border border-stone-400/70 bg-white px-1.5 text-[12px] font-semibold text-stone-800 outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/25 dark:bg-white/12 dark:text-stone-50";
+  "h-7 rounded-md border border-content/15 bg-content/4 px-1.5 text-[12px] font-semibold text-content outline-none transition-colors duration-120 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
 /**
  * The Showcase studio.
@@ -432,7 +433,7 @@ export function ShowcaseView({
         persistLibrary(libraryImages, next);
         return next;
       });
-      setStatus(folder.images.length === 0 ? `${folder.name} has no supported images` : `${folder.name} · ${String(folder.images.length)} images`);
+      setStatus(folder.images.length === 0 ? `${folder.name} has no supported images` : `${folder.name}, ${String(folder.images.length)} images`);
     } catch (error: unknown) {
       setStatus(describeInvokeError(error, "That folder could not be read"));
     } finally {
@@ -699,14 +700,14 @@ export function ShowcaseView({
           </ShowcaseFrame>
         </div>
         {text.showNote ? (
-          <div className="absolute -right-5 -top-5 z-30 rotate-[-4deg] rounded-sm border border-stone-900/10 bg-[#d9ff43] px-2.5 py-1.5 text-[11px] font-semibold text-stone-900 shadow-lg">
+          <div className="absolute -right-5 -top-5 z-30 rotate-[-4deg] rounded-sm border border-stone-900/10 bg-[#d9ff43] px-2.5 py-1.5 text-[11px] font-semibold text-content shadow-lg">
             {text.note}
           </div>
         ) : null}
       </div>
       {text.showTitle ? (
         <div className="max-w-[420px] text-center">
-          <p className="text-[16px] font-semibold tracking-[-0.02em] text-white drop-shadow-sm">{text.title}</p>
+          <p className="text-[16px] font-semibold text-white drop-shadow-sm">{text.title}</p>
           <p className="mt-1 text-[11px] text-white/70">Captured, edited, and ready to share.</p>
         </div>
       ) : null}
@@ -742,18 +743,18 @@ export function ShowcaseView({
 
         <main
           aria-label="Showcase preview"
-          className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-stone-300/80 bg-[#dfe0da] dark:border-white/10 dark:bg-[#191b19]"
+          className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-content/10 bg-content/6"
           onDragOver={(event) => event.preventDefault()}
           onDrop={handleDrop}
         >
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-black/8 px-2.5 py-2 dark:border-white/8">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-content/10 px-2.5 py-2">
             <button aria-label="Import media from this computer" className={toolbarButtonClass} disabled={importing} type="button" onClick={() => void runImport("media")}>
               <Upload aria-hidden="true" size={13} />
               Import media
             </button>
 
             <label className="flex items-center gap-1.5">
-              <span className="hidden text-[12px] font-semibold text-stone-600 2xl:inline dark:text-stone-300">Ratio</span>
+              <span className="hidden text-[12px] font-semibold text-content/80 2xl:inline">Ratio</span>
               <select
                 aria-label="Stage aspect ratio"
                 className={`${selectClass} max-w-[132px] truncate`}
@@ -781,11 +782,11 @@ export function ShowcaseView({
               </div>
             ) : null}
 
-            <p aria-live="polite" className="min-w-0 flex-1 truncate text-[12px] text-stone-500 dark:text-stone-400">
+            <p aria-live="polite" className="min-w-0 flex-1 truncate text-[12px] text-content/60">
               {status ?? activeMedia?.fileName ?? "Drop, paste, or import an image"}
             </p>
 
-            <span className="hidden font-mono text-[12px] text-stone-500 xl:inline dark:text-stone-400" title="Exported pixel size">
+            <span className="hidden font-mono text-[12px] text-content/60 xl:inline" title="Exported pixel size">
               {`${String(output.width)} × ${String(output.height)}`}
             </span>
             <select aria-label="Export scale" className={selectClass} value={String(exportScale)} onChange={(event) => setExportScale(Number(event.currentTarget.value) as ExportScale)}>
@@ -806,27 +807,26 @@ export function ShowcaseView({
               {copied ? <Tick aria-hidden="true" size={13} /> : <Copy aria-hidden="true" size={13} />}
               {copied ? "Copied" : "Copy"}
             </button>
-            <button
+            <Button
               aria-label="Export the showcase as an image"
-              className="inline-flex items-center gap-1.5 rounded-md bg-stone-900 px-3 py-1.5 text-[12px] font-semibold text-white outline-none transition hover:bg-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+              variant="primary"
               disabled={exporting}
-              type="button"
               onClick={() => void runExport("download")}
             >
               <Download aria-hidden="true" size={13} />
               {exporting ? "Rendering…" : "Export"}
-            </button>
+            </Button>
           </div>
 
           {media.length > 0 ? (
-            <div aria-label="Imported media" className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-black/8 px-2.5 py-2 dark:border-white/8" role="group">
+            <div aria-label="Imported media" className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-content/10 px-2.5 py-2" role="group">
               {media.map((item) => (
                 <div className="group relative shrink-0" key={item.path}>
                   <button
                     aria-label={`Show ${item.fileName} in the preview`}
                     aria-pressed={item.path === activePath}
-                    className="block size-12 overflow-hidden rounded-md border border-stone-300 bg-white outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:ring-1 aria-pressed:ring-stone-900 dark:border-white/10 dark:bg-white/5 dark:aria-pressed:border-white dark:aria-pressed:ring-white"
-                    title={`${item.fileName} · ${formatFileSize(item.sizeBytes)}`}
+                    className="block size-12 overflow-hidden rounded-md border border-content/10 bg-content/4 outline-none transition-colors duration-120 motion-reduce:transition-none hover:border-content/15 focus-visible:ring-2 focus-visible:ring-accent/50 aria-pressed:border-content/25 aria-pressed:ring-1 aria-pressed:ring-accent"
+                    title={`${item.fileName}, ${formatFileSize(item.sizeBytes)}`}
                     type="button"
                     onClick={() => setActivePath(item.path)}
                   >
@@ -834,7 +834,7 @@ export function ShowcaseView({
                   </button>
                   <button
                     aria-label={`Remove ${item.fileName} from the studio`}
-                    className="absolute -right-1 -top-1 hidden size-4 place-items-center rounded-full bg-stone-900 text-white outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] group-focus-within:grid group-hover:grid dark:bg-white dark:text-stone-900"
+                    className="absolute -right-1 -top-1 hidden size-4 place-items-center rounded-full border border-content/15 bg-background-base text-content shadow-sm outline-none transition-colors duration-120 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-accent/50 group-focus-within:grid group-hover:grid"
                     type="button"
                     onClick={() => removeMedia(item.path)}
                   >
@@ -854,7 +854,7 @@ export function ShowcaseView({
               {scene.backgroundEnabled ? (
                 <div
                   ref={stageNodeRef}
-                  className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-black/8 shadow-inner dark:border-white/8"
+                  className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-content/10 shadow-inner"
                   style={{ width: `${String(stageBox.width)}px`, height: `${String(stageBox.height)}px` }}
                 >
                   <div

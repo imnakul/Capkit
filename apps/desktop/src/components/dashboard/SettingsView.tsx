@@ -613,7 +613,7 @@ export function SettingsView(): React.JSX.Element {
                       </p>
                       {updates.status.state === "available" ? <Button variant="primary" onClick={updates.install}>Install and restart</Button> : null}
                     </div>
-                    {updates.guardMessage === null ? null : <p className="mt-2 text-[12px] text-amber-500" role="alert">{updates.guardMessage}</p>}
+                    {updates.guardMessage === null ? null : <p className="mt-2 text-[12px] text-warning" role="alert">{updates.guardMessage}</p>}
                   </>
                 )}
                 <SectionReset visible={changed.updates} onClick={() => update({ ...settings, updates: defaultSnaphubSettings.updates })} />
@@ -905,7 +905,7 @@ function BrowserLinkSummary(): React.JSX.Element {
       : "Waiting for the extension";
   return (
     <>
-      <span className={`size-1.5 rounded-full ${connected !== undefined ? "bg-emerald-500" : "bg-content/30"}`} />
+      <span className={`size-1.5 rounded-full ${connected !== undefined ? "bg-success" : "bg-content/30"}`} />
       {text}
     </>
   );

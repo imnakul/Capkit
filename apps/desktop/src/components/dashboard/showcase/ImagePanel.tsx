@@ -66,10 +66,10 @@ export function ImagePanel({
   return (
     <aside
       aria-label="Image panel"
-      className="flex min-h-0 flex-col rounded-lg border border-stone-300/80 bg-white/55 dark:border-white/10 dark:bg-white/[0.025]"
+      className="flex min-h-0 flex-col rounded-lg border border-content/10 bg-content/4"
     >
-      <div className="shrink-0 border-b border-stone-200 px-3 py-2.5 dark:border-white/8">
-        <PanelHeading eyebrow="Image panel" resetLabel="Reset the image panel" title="Shape the image" onReset={() => onPatch(defaultImageSettings)} />
+      <div className="shrink-0 border-b border-content/10 px-3 py-2.5">
+        <PanelHeading resetLabel="Reset the image panel" title="Shape the image" onReset={() => onPatch(defaultImageSettings)} />
       </div>
 
       <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-2.5">
@@ -85,7 +85,7 @@ export function ImagePanel({
             <Slider label="Horizontal" max={200} min={-200} suffix="px" value={image.offsetX} onChange={(value) => onPatch({ offsetX: value }, "offsetX")} />
             <Slider label="Vertical" max={200} min={-200} suffix="px" value={image.offsetY} onChange={(value) => onPatch({ offsetY: value }, "offsetY")} />
           </div>
-          <p className="text-[12px] leading-4 text-stone-400 dark:text-stone-500">Drag directly on the preview to pan.</p>
+          <p className="text-[12px] leading-4 text-content/45">Drag directly on the preview to pan.</p>
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -102,7 +102,7 @@ export function ImagePanel({
             <IconButton label="Rotate 90° right" onClick={() => onPatch({ quarterTurns: rotateQuarterTurns(image.quarterTurns, 1) })}>
               <RotateClockwise aria-hidden="true" size={14} />
             </IconButton>
-            <span className="ml-auto font-mono text-[12px] text-stone-400">{`${String(image.quarterTurns * 90)}°`}</span>
+            <span className="ml-auto font-mono text-[12px] text-content/45">{`${String(image.quarterTurns * 90)}°`}</span>
           </div>
           <div className="flex items-center gap-2">
             <ToggleButton active={image.flipHorizontal} label="Flip horizontally" onClick={() => onPatch({ flipHorizontal: !image.flipHorizontal })}>
@@ -135,9 +135,9 @@ export function ImagePanel({
               </Chip>
             ))}
           </div>
-          <p className="font-mono text-[12px] text-stone-400">{`${String(croppedSize.width)} × ${String(croppedSize.height)} px`}</p>
+          <p className="font-mono text-[12px] text-content/45">{`${String(croppedSize.width)} × ${String(croppedSize.height)} px`}</p>
           <details className="group">
-            <summary className="cursor-pointer list-none text-[12px] font-semibold text-stone-500 outline-none transition hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-400 dark:hover:text-white">
+            <summary className="cursor-pointer list-none text-[12px] font-semibold text-content/60 outline-none transition-colors duration-120 motion-reduce:transition-none hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50">
               Numeric insets
             </summary>
             <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-4">
@@ -172,7 +172,7 @@ export function ImagePanel({
           <EffectSliders effects={image.effects} scope="image" onChange={(patch, mergeKey) => onPatch({ effects: { ...image.effects, ...patch } }, mergeKey)} />
         </CollapsibleSection>
 
-        <p className="flex items-center gap-1.5 px-1 text-[12px] text-stone-400 dark:text-stone-500">
+        <p className="flex items-center gap-1.5 px-1 text-[12px] text-content/45">
           <Sparkles aria-hidden="true" size={12} />
           Every edit is non-destructive — Ctrl+Z steps back.
         </p>

@@ -111,14 +111,14 @@ export function CropOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
       <div className="absolute inset-0 border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/45%),inset_0_0_0_1px_rgb(0_0_0/45%)]" />
-      <div className="absolute inset-x-0 top-1/3 border-t border-white/45 mix-blend-difference" />
-      <div className="absolute inset-x-0 top-2/3 border-t border-white/45 mix-blend-difference" />
-      <div className="absolute inset-y-0 left-1/3 border-l border-white/45 mix-blend-difference" />
-      <div className="absolute inset-y-0 left-2/3 border-l border-white/45 mix-blend-difference" />
+      <div className="absolute inset-x-0 top-1/3 border-t border-content/15 mix-blend-difference" />
+      <div className="absolute inset-x-0 top-2/3 border-t border-content/15 mix-blend-difference" />
+      <div className="absolute inset-y-0 left-1/3 border-l border-content/15 mix-blend-difference" />
+      <div className="absolute inset-y-0 left-2/3 border-l border-content/15 mix-blend-difference" />
       {cropHandles.map((handle) => (
         <button
           aria-label={`Drag the ${handle.label} to crop`}
-          className={`pointer-events-auto absolute touch-none rounded-[2px] border border-stone-900/60 bg-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] ${handle.className}`}
+          className={`pointer-events-auto absolute touch-none rounded-[2px] border border-content/60 bg-background-base shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${handle.className}`}
           key={handle.id}
           type="button"
           onPointerCancel={end}
@@ -152,7 +152,7 @@ export function ShowcaseFrame({
   }
   if (frame.frameId === "glass") {
     return (
-      <div className="border border-white/55 bg-white/20 p-2 shadow-2xl backdrop-blur-xl" style={{ borderRadius: `${String(radius + 8)}px`, boxShadow: shadow }}>
+      <div className="border border-content/15 bg-content/4 p-2 shadow-2xl backdrop-blur-xl" style={{ borderRadius: `${String(radius + 8)}px`, boxShadow: shadow }}>
         {children}
       </div>
     );
@@ -168,7 +168,7 @@ export function ShowcaseFrame({
   if (frame.frameId === "tablet") {
     return (
       <div className="relative rounded-[22px] border-[8px] border-[#171918] bg-[#171918] p-1.5" style={{ boxShadow: shadow }}>
-        <div className="absolute left-1/2 top-1 z-20 size-1.5 -translate-x-1/2 rounded-full bg-white/25" />
+        <div className="absolute left-1/2 top-1 z-20 size-1.5 -translate-x-1/2 rounded-full bg-content/4" />
         <div className="overflow-hidden" style={{ borderRadius: `${String(Math.max(10, radius - 2))}px` }}>{children}</div>
       </div>
     );
@@ -200,7 +200,7 @@ export function ShowcaseFrame({
         <span className="size-1.5 rounded-full bg-red-400/80" />
         <span className="size-1.5 rounded-full bg-amber-300/80" />
         <span className="size-1.5 rounded-full bg-emerald-300/80" />
-        <span className="ml-2 h-2 flex-1 rounded-sm bg-white/8" />
+        <span className="ml-2 h-2 flex-1 rounded-sm bg-content/4" />
       </div>
       <div className="overflow-hidden" style={{ borderRadius: `${String(Math.max(3, radius - 4))}px` }}>{children}</div>
     </div>
@@ -210,25 +210,25 @@ export function ShowcaseFrame({
 export function DemoScreenshot(): React.JSX.Element {
   return (
     <div className="flex size-full flex-col bg-[#f8f9f7] text-left">
-      <div className="flex items-center gap-2 border-b border-stone-200 px-[3%] py-[2.5%]">
+      <div className="flex items-center gap-2 border-b border-content/10 px-[3%] py-[2.5%]">
         <span className="size-2 rounded-full bg-[#d9ff43]" />
-        <span className="text-[11px] font-semibold text-stone-700">CapKit workspace</span>
-        <span className="ml-auto h-2 w-[18%] rounded-full bg-stone-200" />
+        <span className="text-[11px] font-semibold text-content">CapKit workspace</span>
+        <span className="ml-auto h-2 w-[18%] rounded-full bg-content/8" />
       </div>
       <div className="grid flex-1 grid-cols-[22%_1fr] gap-[3%] p-[3%]">
-        <div className="space-y-2 border-r border-stone-200 pr-[6%]">
+        <div className="space-y-2 border-r border-content/10 pr-[6%]">
           <div className="h-2 w-3/5 rounded bg-stone-800/80" />
-          <div className="h-2 w-4/5 rounded bg-stone-200" />
-          <div className="h-2 w-3/4 rounded bg-stone-200" />
-          <div className="h-2 w-1/2 rounded bg-stone-200" />
+          <div className="h-2 w-4/5 rounded bg-content/8" />
+          <div className="h-2 w-3/4 rounded bg-content/8" />
+          <div className="h-2 w-1/2 rounded bg-content/8" />
         </div>
         <div className="flex flex-col gap-[3%]">
           <div className="h-[24%] rounded-md bg-[#d9ff43]/70" />
           <div className="grid flex-1 grid-cols-2 gap-[3%]">
-            <div className="rounded-md bg-stone-100" />
-            <div className="rounded-md bg-stone-200/80" />
+            <div className="rounded-md bg-content/4" />
+            <div className="rounded-md bg-content/8" />
           </div>
-          <div className="h-2 w-2/5 rounded bg-stone-300" />
+          <div className="h-2 w-2/5 rounded bg-content/8" />
         </div>
       </div>
     </div>

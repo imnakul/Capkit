@@ -34,6 +34,7 @@ import { clickPulseAt, paintFrame } from "../../lib/videoCompositor";
 import { keystrokeChipsAt, type KeystrokeSettings } from "../../domain/keystrokes";
 import { canEncodeVideo, downloadExport, exportVideo, keyframesFor, keystrokeEntriesFor, smoothedCursor } from "../../lib/videoExport";
 import { SelectPointer, Download, Film, Palette, Pause, Play, Speaker } from "../icons";
+import { Button } from "../ui/Button";
 import { AudioPanel, MotionPanel, StagePanel } from "./studio/StudioPanels";
 import { Timeline } from "./studio/Timeline";
 
@@ -353,11 +354,11 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     return (
       <section aria-labelledby="studio-title" className="grid min-h-full place-items-center px-8 py-7 text-center">
         <div className="max-w-sm">
-          <Film aria-hidden="true" className="mx-auto text-stone-300 dark:text-stone-600" size={30} />
-          <h1 className="mt-3 text-[17px] font-semibold text-stone-800 dark:text-stone-100" id="studio-title">
+          <Film aria-hidden="true" className="mx-auto text-content/45" size={30} />
+          <h1 className="mt-3 text-[17px] font-semibold text-content" id="studio-title">
             Nothing to edit yet
           </h1>
-          <p className="mt-1.5 text-[13px] leading-5 text-stone-500 dark:text-stone-400">
+          <p className="mt-1.5 text-[13px] leading-5 text-content/60">
             Make a recording from the Record section and it will appear here, ready to trim, style, and export.
           </p>
         </div>
@@ -396,11 +397,11 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] gap-3">
-        <main aria-label="Studio preview" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-stone-300/80 bg-[#dfe0da] dark:border-white/10 dark:bg-[#191b19]">
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-black/8 px-2.5 py-2 dark:border-white/8">
+        <main aria-label="Studio preview" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-content/10 bg-content/6">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-content/10 px-2.5 py-2">
             <button
               aria-label={playing ? "Pause the preview" : "Play the preview"}
-              className="inline-flex items-center gap-1.5 rounded-md border border-stone-400/70 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-stone-900 outline-none transition hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/25 dark:bg-white/12 dark:text-stone-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-content/15 bg-content/4 px-2.5 py-1.5 text-[12px] font-semibold text-content outline-none transition-colors duration-120 motion-reduce:transition-none hover:bg-content/4 focus-visible:ring-2 focus-visible:ring-accent/50"
               type="button"
               onClick={togglePlay}
             >
@@ -410,27 +411,27 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
 
             <select
               aria-label="Recording to edit"
-              className="h-7 max-w-[220px] rounded-md border border-stone-400/70 bg-white px-1.5 text-[12px] font-semibold text-stone-800 outline-none dark:border-white/25 dark:bg-white/12 dark:text-stone-50"
+              className="h-7 max-w-[220px] rounded-md border border-content/15 bg-content/4 px-1.5 text-[12px] font-semibold text-content outline-none"
               value={selected.id}
               onChange={(event) => setSelected(library.find((item) => item.id === event.currentTarget.value) ?? null)}
             >
               {library.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {`${formatDuration(item.durationSeconds)} · ${String(item.width)}×${String(item.height)}`}
+                  {`${formatDuration(item.durationSeconds)}, ${String(item.width)}×${String(item.height)}`}
                 </option>
               ))}
             </select>
 
-            <p aria-live="polite" className="min-w-0 flex-1 truncate text-[12px] text-stone-500 dark:text-stone-400">
+            <p aria-live="polite" className="min-w-0 flex-1 truncate text-[12px] text-content/60">
               {exporting ? `Rendering ${String(Math.round(progress * 100))}%` : (status ?? `${formatDuration(trimmedDuration(scene.trim))} after trim`)}
             </p>
 
             {encodeReady === false ? (
-              <span className="text-[12px] text-amber-700 dark:text-amber-200">Video export unavailable in this build</span>
+              <span className="text-[12px] text-warning">Video export unavailable in this build</span>
             ) : null}
             <button
               aria-label="Export as GIF"
-              className="inline-flex items-center gap-1.5 rounded-md border border-stone-400/70 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-stone-900 outline-none transition hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:border-white/25 dark:bg-white/12 dark:text-stone-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-content/15 bg-content/4 px-2.5 py-1.5 text-[12px] font-semibold text-content outline-none transition-colors duration-120 motion-reduce:transition-none hover:bg-content/4 focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
               disabled={exporting}
               type="button"
               onClick={() => void runExport("gif")}
@@ -439,7 +440,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
             </button>
             <select
               aria-label="MP4 export size"
-              className="h-7 rounded-md border border-stone-400/70 bg-white px-1.5 text-[12px] font-semibold text-stone-800 outline-none focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:border-white/25 dark:bg-white/12 dark:text-stone-50"
+              className="h-7 rounded-md border border-content/15 bg-content/4 px-1.5 text-[12px] font-semibold text-content outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
               disabled={exporting || encodeReady === false}
               value={sizeTarget}
               onChange={(event) => setSizeTarget(parseSizeTarget(event.currentTarget.value))}
@@ -450,16 +451,15 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
                 </option>
               ))}
             </select>
-            <button
+            <Button
               aria-label="Export as MP4"
-              className="inline-flex items-center gap-1.5 rounded-md bg-stone-900 px-3 py-1.5 text-[12px] font-semibold text-white outline-none transition hover:bg-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900"
+              variant="primary"
               disabled={exporting || encodeReady === false}
-              type="button"
               onClick={() => void runExport("mp4")}
             >
               <Download aria-hidden="true" size={13} />
               {exporting ? "Rendering…" : "Export"}
-            </button>
+            </Button>
           </div>
 
           <div className="grid min-h-0 flex-1 place-items-center overflow-hidden p-3" ref={areaRef}>
@@ -481,7 +481,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
             />
           </div>
 
-          <div className="shrink-0 border-t border-black/8 px-2.5 py-2 dark:border-white/8">
+          <div className="shrink-0 border-t border-content/10 px-2.5 py-2">
             <Timeline
               clickTimes={clickTimes}
               duration={duration}
@@ -494,15 +494,15 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
           </div>
         </main>
 
-        <aside aria-label="Studio panel" className="flex min-h-0 flex-col rounded-lg border border-stone-300/80 bg-white/55 dark:border-white/10 dark:bg-white/[0.025]">
-          <div className="grid shrink-0 grid-cols-3 border-b border-stone-200 px-1 pt-1 dark:border-white/8" role="tablist">
+        <aside aria-label="Studio panel" className="flex min-h-0 flex-col rounded-lg border border-content/10 bg-content/4">
+          <div className="grid shrink-0 grid-cols-3 border-b border-content/10 px-1 pt-1" role="tablist">
             {panelTabs.map((entry) => {
               const Icon = entry.icon;
               return (
                 <button
                   aria-label={`Show ${entry.label} controls`}
                   aria-selected={tab === entry.id}
-                  className="relative flex flex-col items-center gap-1 rounded-t-md px-1 py-2 text-[12px] font-semibold text-stone-400 outline-none transition hover:text-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:text-stone-900 dark:hover:text-stone-200 dark:aria-selected:text-white"
+                  className="relative flex flex-col items-center gap-1 rounded-t-md px-1 py-2 text-[12px] font-semibold text-content/45 outline-none transition-colors duration-120 motion-reduce:transition-none hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-selected:text-content"
                   key={entry.id}
                   role="tab"
                   type="button"
@@ -510,7 +510,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
                 >
                   <Icon aria-hidden="true" size={15} />
                   {entry.label}
-                  {tab === entry.id ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--snaphub-accent)]" /> : null}
+                  {tab === entry.id ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent" /> : null}
                 </button>
               );
             })}

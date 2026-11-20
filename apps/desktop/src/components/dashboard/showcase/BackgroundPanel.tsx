@@ -39,7 +39,7 @@ const frameOptions: readonly { id: FrameId; label: string; icon: typeof Computer
 ];
 
 const actionClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white/70 px-2 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/12 dark:bg-white/5 dark:text-stone-200 dark:hover:border-white/25 dark:hover:text-white";
+  "inline-flex items-center justify-center gap-1.5 rounded-md border border-content/10 bg-content/4 px-2 py-1.5 text-[12px] font-semibold text-content outline-none transition-colors duration-120 motion-reduce:transition-none hover:border-content/15 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40";
 
 export type BackgroundPanelProps = {
   activeTab: DecorTab;
@@ -88,8 +88,8 @@ export type BackgroundPanelProps = {
 export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element {
   const { activeTab, canRedo, canUndo, styles, styleName, stylesOpen } = props;
   return (
-    <aside aria-label="Background panel" className="flex min-h-0 flex-col rounded-lg border border-stone-300/80 bg-white/55 dark:border-white/10 dark:bg-white/[0.025]">
-      <div className="shrink-0 border-b border-stone-200 px-2 py-2 dark:border-white/8">
+    <aside aria-label="Background panel" className="flex min-h-0 flex-col rounded-lg border border-content/10 bg-content/4">
+      <div className="shrink-0 border-b border-content/10 px-2 py-2">
         <div className="flex items-center gap-1.5">
           <button aria-label="Undo the last change" className={`${actionClass} size-8 px-0`} disabled={!canUndo} type="button" onClick={props.onUndo}>
             <Undo aria-hidden="true" size={14} />
@@ -106,7 +106,7 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
           >
             <Save aria-hidden="true" size={14} />
             Styles
-            {styles.length === 0 ? null : <span className="font-mono text-[11px] text-stone-400">{styles.length}</span>}
+            {styles.length === 0 ? null : <span className="font-mono text-[11px] text-content/45">{styles.length}</span>}
           </button>
           <button aria-label="Reset showcase" className={`${actionClass} size-8 px-0`} type="button" onClick={props.onResetAll}>
             <RotateCounterClockwise aria-hidden="true" size={14} />
@@ -114,7 +114,7 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
         </div>
 
         {stylesOpen ? (
-          <div className="mt-2 space-y-2 rounded-md border border-stone-200 bg-white/60 p-2 dark:border-white/8 dark:bg-white/5">
+          <div className="mt-2 space-y-2 rounded-md border border-content/10 bg-content/4 p-2">
             <div className="flex items-end gap-1.5">
               <div className="min-w-0 flex-1">
                 <TextField label="Style name" placeholder="Launch shots" value={styleName} onChange={props.onStyleNameChange} />
@@ -125,7 +125,7 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
               </button>
             </div>
             {styles.length === 0 ? (
-              <p className="text-[12px] leading-4 text-stone-400 dark:text-stone-500">
+              <p className="text-[12px] leading-4 text-content/45">
                 Save a composition once and reuse it on every future capture in one click.
               </p>
             ) : (
@@ -144,10 +144,10 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
                     <button
                       aria-label={`Apply ${style.name} to captures sent to Showcase`}
                       aria-pressed={style.id === props.defaultStyleId}
-                      className={`grid size-7 shrink-0 place-items-center rounded outline-none transition hover:bg-stone-200/70 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:scale-95 motion-reduce:transform-none dark:hover:bg-white/10 ${
+                      className={`grid size-7 shrink-0 place-items-center rounded outline-none transition-colors duration-120 motion-reduce:transition-none hover:bg-content/8 focus-visible:ring-2 focus-visible:ring-accent/50 active:scale-95 motion-reduce:transform-none ${
                         style.id === props.defaultStyleId
-                          ? "text-amber-600 dark:text-amber-300"
-                          : "text-stone-400 hover:text-stone-800 dark:hover:text-white"
+                          ? "text-warning"
+                          : "text-content/45 hover:text-content"
                       }`}
                       title={style.id === props.defaultStyleId ? "Default for new captures" : "Make default for new captures"}
                       type="button"
@@ -157,7 +157,7 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
                     </button>
                     <button
                       aria-label={`Delete the ${style.name} style`}
-                      className="grid size-7 shrink-0 place-items-center rounded text-stone-400 outline-none transition hover:bg-stone-200/70 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:hover:bg-white/10 dark:hover:text-white"
+                      className="grid size-7 shrink-0 place-items-center rounded text-content/45 outline-none transition-colors duration-120 motion-reduce:transition-none hover:bg-content/8 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50"
                       type="button"
                       onClick={() => props.onDeleteStyle(style.id)}
                     >
@@ -171,14 +171,14 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
         ) : null}
       </div>
 
-      <div className="grid shrink-0 grid-cols-3 border-b border-stone-200 px-1 pt-1 dark:border-white/8" role="tablist">
+      <div className="grid shrink-0 grid-cols-3 border-b border-content/10 px-1 pt-1" role="tablist">
         {decorTabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               aria-label={`Show ${tab.label} controls`}
               aria-selected={activeTab === tab.id}
-              className="relative flex flex-col items-center gap-1 rounded-t-md px-1 py-2 text-[12px] font-semibold text-stone-400 outline-none transition hover:text-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-selected:text-stone-900 dark:hover:text-stone-200 dark:aria-selected:text-white"
+              className="relative flex flex-col items-center gap-1 rounded-t-md px-1 py-2 text-[12px] font-semibold text-content/45 outline-none transition-colors duration-120 motion-reduce:transition-none hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-selected:text-content"
               key={tab.id}
               role="tab"
               type="button"
@@ -186,7 +186,7 @@ export function BackgroundPanel(props: BackgroundPanelProps): React.JSX.Element 
             >
               <Icon aria-hidden="true" size={15} />
               <span>{tab.label}</span>
-              {activeTab === tab.id ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--snaphub-accent)]" /> : null}
+              {activeTab === tab.id ? <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent" /> : null}
             </button>
           );
         })}
@@ -214,7 +214,7 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
 
   return (
     <div className="space-y-3">
-      <PanelHeading eyebrow="Background panel" resetLabel="Reset the background panel" title="Set the stage" onReset={props.onResetScene} />
+      <PanelHeading resetLabel="Reset the background panel" title="Set the stage" onReset={props.onResetScene} />
 
       <div className="space-y-2">
         <ControlLabel hint="Backdrop + frame + effects" label="Looks" />
@@ -232,12 +232,12 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
                   shot on the backdrop — not just the fill, which is what the
                   Backdrop swatches below show. */}
               <span
-                className="grid aspect-[1.3] place-items-center rounded-md border border-stone-200 shadow-sm transition group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10"
+                className="grid aspect-[1.3] place-items-center rounded-md border border-content/10 shadow-sm transition-colors duration-120 motion-reduce:transition-none group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-accent/50"
                 style={{ background: look.swatch }}
               >
-                <span className="block h-1/2 w-3/5 rounded-[2px] bg-white/90 shadow-[0_2px_6px_rgb(0_0_0/45%)]" />
+                <span className="block h-1/2 w-3/5 rounded-[2px] bg-content/4 shadow-[0_2px_6px_rgb(0_0_0/45%)]" />
               </span>
-              <span className="mt-1 block truncate text-[12px] font-medium text-stone-600 dark:text-stone-300">{look.label}</span>
+              <span className="mt-1 block truncate text-[12px] font-medium text-content/80">{look.label}</span>
             </button>
           ))}
         </div>
@@ -245,7 +245,7 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
 
       <Toggle checked={scene.backgroundEnabled} label="Background" onChange={(value) => props.onPatchScene({ backgroundEnabled: value })} />
       {scene.backgroundEnabled ? null : (
-        <p className="rounded-md border border-dashed border-stone-300 px-2.5 py-2 text-[12px] leading-5 text-stone-500 dark:border-white/12 dark:text-stone-400">
+        <p className="rounded-md border border-dashed border-content/10 px-2.5 py-2 text-[12px] leading-5 text-content/60">
           The stage is removed entirely — the export is just the image.
         </p>
       )}
@@ -274,10 +274,10 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
                 onClick={() => props.onPatchScene({ background: { kind: "preset", id: preset.id } })}
               >
                 <span
-                  className="block aspect-[1.3] rounded-md border border-stone-200 shadow-sm transition group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-[var(--snaphub-accent)] group-aria-pressed:border-stone-900 group-aria-pressed:ring-1 group-aria-pressed:ring-stone-900 dark:border-white/10 dark:group-aria-pressed:border-white"
+                  className="block aspect-[1.3] rounded-md border border-content/10 shadow-sm transition-colors duration-120 motion-reduce:transition-none group-hover:scale-[1.04] group-focus-visible:ring-2 group-focus-visible:ring-accent/50 group-aria-pressed:border-accent group-aria-pressed:ring-1 group-aria-pressed:ring-accent"
                   style={{ background: preset.swatch }}
                 />
-                <span className="mt-1 block truncate text-[12px] font-medium text-stone-500 dark:text-stone-400">{preset.label}</span>
+                <span className="mt-1 block truncate text-[12px] font-medium text-content/60">{preset.label}</span>
               </button>
             ))}
           </div>
@@ -346,7 +346,7 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
           </div>
 
           {libraryImages.length === 0 && folders.length === 0 ? (
-            <p className="rounded-md border border-dashed border-stone-300 px-2.5 py-3 text-center text-[12px] leading-5 text-stone-400 dark:border-white/12 dark:text-stone-500">
+            <p className="rounded-md border border-dashed border-content/10 px-2.5 py-3 text-center text-[12px] leading-5 text-content/45">
               Attach a wallpaper folder once and every image inside becomes a background.
             </p>
           ) : (
@@ -366,7 +366,7 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
               action={
                 <button
                   aria-label={`Remove the ${folder.name} folder`}
-                  className="mr-1 grid size-7 place-items-center rounded text-stone-400 outline-none transition hover:bg-stone-200/70 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:hover:bg-white/10 dark:hover:text-white"
+                  className="mr-1 grid size-7 place-items-center rounded text-content/45 outline-none transition-colors duration-120 motion-reduce:transition-none hover:bg-content/8 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50"
                   type="button"
                   onClick={() => props.onRemoveFolder(folder.path)}
                 >
@@ -379,7 +379,7 @@ function BackgroundControls(props: BackgroundPanelProps): React.JSX.Element {
               title={folder.name}
             >
               {folder.images.length === 0 ? (
-                <p className="text-[12px] leading-5 text-stone-400">No supported images in this folder.</p>
+                <p className="text-[12px] leading-5 text-content/45">No supported images in this folder.</p>
               ) : (
                 <BackgroundGrid activePath={activeImagePath} images={folder.images} onSelect={props.onPatchScene} />
               )}
@@ -406,7 +406,7 @@ function BackgroundGrid({
         <button
           aria-label={`Use ${item.fileName} as the background`}
           aria-pressed={activePath === item.path}
-          className="aspect-[1.3] overflow-hidden rounded border border-stone-200 outline-none transition hover:scale-[1.04] focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:ring-1 aria-pressed:ring-stone-900 dark:border-white/10 dark:aria-pressed:border-white"
+          className="aspect-[1.3] overflow-hidden rounded border border-content/10 outline-none transition-colors duration-120 motion-reduce:transition-none hover:scale-[1.04] focus-visible:ring-2 focus-visible:ring-accent/50 aria-pressed:border-content/25 aria-pressed:ring-1 aria-pressed:ring-accent"
           key={item.path}
           title={item.fileName}
           type="button"
@@ -423,7 +423,7 @@ function FrameControls(props: BackgroundPanelProps): React.JSX.Element {
   const { frame, scene, image } = props;
   return (
     <div className="space-y-3">
-      <PanelHeading eyebrow="Frame & presentation" resetLabel="Reset the frame panel" title="Choose a vessel" onReset={props.onResetFrame} />
+      <PanelHeading resetLabel="Reset the frame panel" title="Choose a vessel" onReset={props.onResetFrame} />
       <Toggle checked={frame.frameEnabled} label="Show frame" onChange={(value) => props.onPatchFrame({ frameEnabled: value })} />
       <div className={frame.frameEnabled ? "grid grid-cols-2 gap-2" : "pointer-events-none grid grid-cols-2 gap-2 opacity-40"}>
         {frameOptions.map((option) => {
@@ -432,7 +432,7 @@ function FrameControls(props: BackgroundPanelProps): React.JSX.Element {
             <button
               aria-label={`Use ${option.label} frame`}
               aria-pressed={frame.frameId === option.id}
-              className="flex items-center gap-2 rounded-md border border-stone-200 bg-white/65 px-2.5 py-2 text-left text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-pressed:border-stone-900 aria-pressed:bg-stone-900 aria-pressed:text-white dark:border-white/8 dark:bg-white/5 dark:text-stone-300 dark:hover:border-white/20 dark:aria-pressed:border-white dark:aria-pressed:bg-white dark:aria-pressed:text-stone-900"
+              className="flex items-center gap-2 rounded-md border border-content/10 bg-content/4 px-2.5 py-2 text-left text-[12px] font-semibold text-content/80 outline-none transition-colors duration-120 motion-reduce:transition-none hover:border-content/15 focus-visible:ring-2 focus-visible:ring-accent/50 aria-pressed:border-content/25 aria-pressed:bg-content/10 aria-pressed:text-content"
               key={option.id}
               type="button"
               onClick={() => props.onPatchFrame({ frameId: option.id })}
@@ -471,17 +471,17 @@ function TextControls(props: BackgroundPanelProps): React.JSX.Element {
   const { text } = props;
   return (
     <div className="space-y-3">
-      <PanelHeading eyebrow="Text" resetLabel="Reset the text panel" title="Add the last signal" onReset={props.onResetText} />
+      <PanelHeading resetLabel="Reset the text panel" title="Add the last signal" onReset={props.onResetText} />
       <Toggle checked={text.showTitle} label="Add title" onChange={(value) => props.onPatchText({ showTitle: value })} />
       {text.showTitle ? <TextField label="Title" value={text.title} onChange={(value) => props.onPatchText({ title: value }, "title")} /> : null}
       <Toggle checked={text.showNote} label="Add note" onChange={(value) => props.onPatchText({ showNote: value })} />
       {text.showNote ? <TextField label="Note" value={text.note} onChange={(value) => props.onPatchText({ note: value }, "note")} /> : null}
-      <div className="rounded-md border border-stone-200 bg-white/60 px-3 py-2.5 dark:border-white/8 dark:bg-white/5">
-        <div className="flex items-center gap-2 text-[13px] font-semibold text-stone-700 dark:text-stone-200">
+      <div className="rounded-md border border-content/10 bg-content/4 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-content">
           <Tick aria-hidden="true" size={14} />
           Typography &amp; annotations
         </div>
-        <p className="mt-1 text-[12px] leading-5 text-stone-500 dark:text-stone-400">
+        <p className="mt-1 text-[12px] leading-5 text-content/60">
           Callouts, arrows, and redaction layers will share the same non-destructive scene model as capture editing.
         </p>
       </div>
