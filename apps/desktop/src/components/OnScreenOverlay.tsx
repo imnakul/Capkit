@@ -52,8 +52,9 @@ import {
   type OnScreenShapeObject,
   type ResizeHandle,
 } from "../domain/onScreen";
-import { needsStrokeGeometry, newSketchSeed, shapeStrokeGeometry, type SketchLevel, type StrokeGeometryInput, type StrokeStyle } from "../domain/strokeGeometry";
+import { FILL_PATTERN_OPACITY, fillPatternWeight, isPatternFill, needsStrokeGeometry, newSketchSeed, shapeStrokeGeometry, type FillStyle, type SketchLevel, type StrokeGeometryInput, type StrokeStyle } from "../domain/strokeGeometry";
 import { SketchLevelControl } from "./SketchLevelControl";
+import { FillStyleControl } from "./FillStyleControl";
 import { LineStyleControl } from "./LineStyleControl";
 import { onScreenCursor } from "../lib/cursor";
 import {
@@ -226,6 +227,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   /** Line style for new shapes; per Screen Draw session, it does not write Settings. */
   const [strokeStyle, setStrokeStyle] = useState<StrokeStyle>("solid");
   const [sketchLevel, setSketchLevel] = useState<SketchLevel>("loose");
+  const [fillStyle, setFillStyle] = useState<FillStyle>("none");
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const [pointerHeld, setPointerHeld] = useState(false);
@@ -837,6 +839,7 @@ export function OnScreenOverlay(): React.JSX.Element {
         settings.onScreen.strokeSize,
         strokeStyle,
         sketchLevel,
+        fillStyle,
         settings.annotation.cornerRadius,
       );
       draftRef.current = nextDraft;
@@ -1113,6 +1116,8 @@ export function OnScreenOverlay(): React.JSX.Element {
         saveDisabled={saveInFlight.current || isCapturing}
         strokeStyle={strokeStyle}
         sketchLevel={sketchLevel}
+        fillStyle={fillStyle}
+        onFillStyleChange={setFillStyle}
         onSketchLevelChange={setSketchLevel}
         toolShortcuts={settings.onScreen.toolShortcuts}
         onClear={clearAll}
@@ -1177,6 +1182,7 @@ function createDraft(
   size: number,
   strokeStyle: StrokeStyle,
   sketchLevel: SketchLevel,
+  fillStyle: FillStyle,
   cornerRadius: number,
 ): OnScreenObject {
   if (tool === "pencil") {
@@ -1204,6 +1210,13 @@ function createDraft(
             : {}),
         }),
     ...(tool === "rectangle" ? { cornerRadius } : {}),
+    ...((tool === "rectangle" || tool === "ellipse") && isPatternFill(fillStyle)
+      ? {
+          fillStyle,
+          ...(strokeStyle === "sketchy" ? {} : { seed: newSketchSeed() }),
+          ...(sketchLevel === "loose" ? {} : { sketchLevel }),
+        }
+      : {}),
   };
 }
 
@@ -1369,8 +1382,15 @@ function StyledSvgObject({
   size: number;
 }): React.JSX.Element {
   const geometry = shapeStrokeGeometry(input);
+  const patternWeight = fillPatternWeight(size);
   return (
     <g data-onscreen-object={id}>
+      {geometry.fillStrokes !== undefined && geometry.fillStrokes.length > 0 ? (
+        <path d={geometry.fillStrokes.map((stroke) => pointsToSvgPath(stroke)).join(" ")} fill="none" opacity={FILL_PATTERN_OPACITY} stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={patternWeight} />
+      ) : null}
+      {(geometry.fillDots ?? []).map((dot) => (
+        <circle cx={dot.x} cy={dot.y} fill={color} key={`fill:${String(dot.x)}:${String(dot.y)}`} opacity={FILL_PATTERN_OPACITY} r={patternWeight / 2} />
+      ))}
       {geometry.strokes.length > 0 ? (
         <path d={geometry.strokes.map((stroke) => pointsToSvgPath(stroke)).join(" ")} fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={size} />
       ) : null}
@@ -1393,7 +1413,7 @@ function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.El
   if (object.kind === "rectangle") {
     // Old scenes (no radius, solid) keep the native rect with its original 3 px corner.
     const input = onScreenGeometryInput(object);
-    const styled = (object.strokeStyle ?? "solid") !== "solid" || (object.cornerRadius ?? 0) > 0;
+    const styled = (object.strokeStyle ?? "solid") !== "solid" || (object.cornerRadius ?? 0) > 0 || isPatternFill(object.fillStyle);
     if (input !== null && styled) return <StyledSvgObject color={object.color} id={object.id} input={input} size={object.size} />;
     return <rect data-onscreen-object={object.id} fill="transparent" height={rect.height} rx={object.cornerRadius ?? LEGACY_ON_SCREEN_CORNER_RADIUS} stroke={object.color} strokeWidth={object.size} width={rect.width} x={rect.x} y={rect.y} />;
   }
@@ -1567,7 +1587,9 @@ const OnScreenDock = memo(function OnScreenDock({
   saveDisabled,
   strokeStyle,
   sketchLevel,
+  fillStyle,
   toolShortcuts,
+  onFillStyleChange,
   onSketchLevelChange,
   onStrokeStyleChange,
   onToolChange,
@@ -1583,7 +1605,9 @@ const OnScreenDock = memo(function OnScreenDock({
   saveDisabled: boolean;
   strokeStyle: StrokeStyle;
   sketchLevel: SketchLevel;
+  fillStyle: FillStyle;
   toolShortcuts: Record<OnScreenDrawingToolId, string>;
+  onFillStyleChange: (fill: FillStyle) => void;
   onSketchLevelChange: (level: SketchLevel) => void;
   onStrokeStyleChange: (style: StrokeStyle) => void;
   onToolChange: (tool: OnScreenToolId) => void;
@@ -1614,6 +1638,13 @@ const OnScreenDock = memo(function OnScreenDock({
       </div>
       {activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "arrow" ? (
         <LineStyleControl value={strokeStyle} onChange={onStrokeStyleChange} />
+      ) : null}
+      {activeTool === "rectangle" || activeTool === "ellipse" ? (
+        <FillStyleControl
+          options={["none", "hachure", "cross-hatch", "zigzag", "dots"]}
+          value={fillStyle}
+          onChange={onFillStyleChange}
+        />
       ) : null}
       {(activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "arrow") && strokeStyle === "sketchy" ? (
         <SketchLevelControl value={sketchLevel} onChange={onSketchLevelChange} />

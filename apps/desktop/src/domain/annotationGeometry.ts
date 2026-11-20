@@ -1,6 +1,7 @@
 import { measureTextBlock } from "./textMetrics";
 import type { Annotation } from "./annotations";
 import type { Point, Rect } from "./capture";
+import { effectiveFillStyle } from "./strokeGeometry";
 import { resizeRectFromHandle, type ResizeHandle } from "../lib/geometry";
 
 /** Smallest frame a resized annotation may shrink to, in logical pixels. */
@@ -164,7 +165,7 @@ function hitsEditableArea(annotation: Annotation, point: Point, tolerance: numbe
     case "rectangle":
     case "ellipse": {
       const reach = Math.max(tolerance, annotation.strokeWidth / 2 + BODY_HIT_MARGIN);
-      const filled = annotation.fill !== "transparent";
+      const filled = effectiveFillStyle(annotation.fillStyle, annotation.fill) !== "none";
       if (filled) return insideRect(point, annotation.bounds, BODY_HIT_MARGIN);
       const { bounds } = annotation;
       if (annotation.kind === "rectangle") {

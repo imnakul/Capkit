@@ -1286,6 +1286,35 @@ fn render_stroke_geometry(
     {
         fill_polygon(canvas, polygon, scale, parse_color(fill, opacity));
     }
+    // Pattern fills sit under the outline: current colour at 35% opacity, half the outline weight.
+    if !geometry.fill_strokes.is_empty() || !geometry.fill_dots.is_empty() {
+        let pattern_pixel = parse_color(color, opacity * 0.35);
+        let pattern_width = (stroke_width / 2.0).max(1.0);
+        for stroke in &geometry.fill_strokes {
+            for pair in stroke.windows(2) {
+                draw_thick_line(
+                    canvas,
+                    pair[0],
+                    pair[1],
+                    pattern_width,
+                    scale,
+                    pattern_pixel,
+                );
+            }
+        }
+        let pattern_radius = non_negative_i32(f64::from(pattern_width) * scale / 2.0).max(1);
+        for dot in &geometry.fill_dots {
+            draw_filled_circle_mut(
+                canvas,
+                (
+                    non_negative_i32(dot.x * scale),
+                    non_negative_i32(dot.y * scale),
+                ),
+                pattern_radius,
+                pattern_pixel,
+            );
+        }
+    }
     let pixel = parse_color(color, opacity);
     for stroke in &geometry.strokes {
         for pair in stroke.windows(2) {
@@ -2996,6 +3025,21 @@ mod tests {
         render_annotation(&mut canvas, &annotation_from_json(raw), 1.0);
         assert_eq!(canvas.get_pixel(40, 30).0[..3], [0, 255, 0]);
         assert_eq!(canvas.get_pixel(11, 11).0[..3], [255, 255, 255]);
+    }
+
+    #[test]
+    fn hachure_fill_tints_pixels_under_the_outline_and_leaves_gaps() {
+        let raw = r##"{"id":"h","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":60,"height":40},"color":"#0000ff","fill":"transparent","strokeWidth":4,"fillStyle":"hachure","strokeGeometry":{"strokes":[[{"x":10,"y":10},{"x":70,"y":10},{"x":70,"y":50},{"x":10,"y":50},{"x":10,"y":10}]],"dots":[],"fillStrokes":[[{"x":20,"y":20},{"x":40,"y":20}]],"fillDots":[{"x":60,"y":40}]}}"##;
+        let mut canvas = RgbaImage::from_pixel(100, 80, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation_from_json(raw), 1.0);
+        let tinted = canvas.get_pixel(30, 20).0;
+        assert!(
+            tinted[0] < 255 && tinted[2] == 255,
+            "pattern is a light tint of the colour: {tinted:?}"
+        );
+        assert!(canvas.get_pixel(60, 40).0[0] < 255);
+        assert_eq!(canvas.get_pixel(30, 35).0[..3], [255, 255, 255]);
+        assert_eq!(canvas.get_pixel(40, 10).0[..3], [0, 0, 255]);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId } from "../domain/settings";
+import { FillStyleControl } from "./FillStyleControl";
 import { LineStyleControl } from "./LineStyleControl";
 import { SketchLevelControl } from "./SketchLevelControl";
 import type { ToolbarToolDefinition } from "./toolbarCatalog";
@@ -113,6 +114,13 @@ export function ContextControls({
             <SketchLevelControl
               value={style.sketchLevel}
               onChange={(sketchLevel) => onStyleChange({ ...style, sketchLevel })}
+            />
+          ) : null}
+
+          {activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "smart" ? (
+            <FillStyleControl
+              value={style.fillStyle}
+              onChange={(fillStyle) => onStyleChange({ ...style, fillStyle })}
             />
           ) : null}
 

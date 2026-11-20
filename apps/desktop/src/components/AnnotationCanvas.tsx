@@ -20,6 +20,9 @@ import {
 import { smartAnnotationBounds } from "../domain/smartSelect";
 import { Cancel } from "./icons";
 import {
+  FILL_PATTERN_OPACITY,
+  effectiveFillStyle,
+  fillPatternWeight,
   needsStrokeGeometry,
   newSketchSeed,
   shapeStrokeGeometry,
@@ -694,10 +697,50 @@ function renderStyledAnnotation(
   const geometry = shapeStrokeGeometry(input);
   const color = "color" in annotation ? annotation.color : "#000000";
   const fill = annotation.kind === "rectangle" || annotation.kind === "ellipse" ? annotation.fill : "transparent";
+  const fillStyle =
+    annotation.kind === "rectangle" || annotation.kind === "ellipse"
+      ? effectiveFillStyle(annotation.fillStyle, annotation.fill)
+      : "none";
   const strokeWidth = input.strokeWidth;
+  const patternWeight = fillPatternWeight(strokeWidth);
   return (
     <Group key={annotation.id} opacity={annotation.opacity}>
-      {geometry.fill !== undefined && fill !== "transparent" ? (
+      {geometry.fillStrokes !== undefined && geometry.fillStrokes.length > 0 ? (
+        <Shape
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+          opacity={FILL_PATTERN_OPACITY}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const stroke of geometry.fillStrokes ?? []) {
+              stroke.forEach((point, index) => {
+                if (index === 0) context.moveTo(point.x, point.y);
+                else context.lineTo(point.x, point.y);
+              });
+            }
+            context.strokeShape(shape);
+          }}
+          stroke={color}
+          strokeWidth={patternWeight}
+        />
+      ) : null}
+      {geometry.fillDots !== undefined && geometry.fillDots.length > 0 ? (
+        <Shape
+          fill={color}
+          listening={false}
+          opacity={FILL_PATTERN_OPACITY}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const dot of geometry.fillDots ?? []) {
+              context.moveTo(dot.x + patternWeight / 2, dot.y);
+              context.arc(dot.x, dot.y, patternWeight / 2, 0, Math.PI * 2);
+            }
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+      {geometry.fill !== undefined && fill !== "transparent" && fillStyle !== "none" ? (
         <Shape
           fill={fill}
           listening={false}
@@ -1002,12 +1045,12 @@ function isTextAnnotation(
 }
 
 /** The line-style fields a new shape or line carries; solid shapes stay field-free like older scenes. */
-function styledFields(style: AnnotationStyle): {
+function styledFields(style: AnnotationStyle, needsSeed = false): {
   strokeStyle?: AnnotationStyle["strokeStyle"];
   sketchLevel?: AnnotationStyle["sketchLevel"];
   seed?: number;
 } {
-  if (style.strokeStyle === "solid") return {};
+  if (style.strokeStyle === "solid") return needsSeed ? { seed: newSketchSeed() } : {};
   return {
     strokeStyle: style.strokeStyle,
     ...(style.strokeStyle === "sketchy"
@@ -1058,10 +1101,11 @@ function createAnnotation(
         kind: tool,
         bounds,
         color: style.color,
-        fill: style.fill,
+        fill: style.fillStyle === "solid" ? style.color : style.fill,
         strokeWidth: style.strokeWidth,
         opacity,
-        ...styledFields(style),
+        ...(style.fillStyle === "none" ? {} : { fillStyle: style.fillStyle }),
+        ...styledFields(style, style.fillStyle !== "none" && style.fillStyle !== "solid"),
         ...(tool === "rectangle" && style.cornerRadius > 0 ? { cornerRadius: style.cornerRadius } : {}),
       };
     case "spotlight":

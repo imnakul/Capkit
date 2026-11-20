@@ -24,6 +24,29 @@ export const SKETCH_LEVEL_OPTIONS: Record<
   wild: { roughness: 2.4, bowing: 2, disableMultiStroke: false },
 };
 
+/** How a rectangle or ellipse is filled. Absent means: solid if its fill colour is set, else none. */
+export type FillStyle = "none" | "solid" | "hachure" | "cross-hatch" | "zigzag" | "dots";
+
+export const FILL_STYLES: readonly FillStyle[] = ["none", "solid", "hachure", "cross-hatch", "zigzag", "dots"];
+
+/** True for the hand-drawn pattern fills that the geometry path draws as strokes or dots. */
+export function isPatternFill(style: FillStyle | undefined): boolean {
+  return style === "hachure" || style === "cross-hatch" || style === "zigzag" || style === "dots";
+}
+
+/** Pattern strokes and dots are drawn at this weight, under the outline. */
+export function fillPatternWeight(strokeWidth: number): number {
+  return Math.max(1, strokeWidth / 2);
+}
+
+/** Pattern gap between hatch lines and dots. */
+export function fillPatternGap(strokeWidth: number): number {
+  return Math.max(6, strokeWidth * 2.5);
+}
+
+/** Pattern fills are drawn in the annotation colour at this opacity. */
+export const FILL_PATTERN_OPACITY = 0.35;
+
 /**
  * Everything a renderer needs to draw a styled shape without knowing about the
  * style: polylines to stroke, dots to stamp (diameter = stroke width) and an
@@ -34,6 +57,10 @@ export type StrokeGeometry = {
   strokes: Point[][];
   dots: Point[];
   fill?: Point[];
+  /** Hatch, cross-hatch or zigzag polylines, drawn under the outline at fillPatternWeight. */
+  fillStrokes?: Point[][];
+  /** Dot-pattern centres (diameter = fillPatternWeight), drawn under the outline. */
+  fillDots?: Point[];
 };
 
 export type ShapeGeometryInput = {
@@ -43,6 +70,7 @@ export type ShapeGeometryInput = {
   strokeWidth: number;
   strokeStyle?: StrokeStyle | undefined;
   sketchLevel?: SketchLevel | undefined;
+  fillStyle?: FillStyle | undefined;
   seed?: number | undefined;
 };
 
@@ -63,6 +91,12 @@ export const MAX_GEOMETRY_POINTS = 20_000;
 const BEZIER_STEPS = 8;
 const CORNER_STEPS = 8;
 const generator = rough.generator();
+
+/** The fill a shape effectively has; shapes saved before fill styles map from their fill colour. */
+export function effectiveFillStyle(fillStyle: FillStyle | undefined, fill: string): FillStyle {
+  if (fillStyle !== undefined) return fillStyle;
+  return fill !== "transparent" ? "solid" : "none";
+}
 
 /** Largest corner radius a rectangle of this size can show. */
 export function clampCornerRadius(radius: number | undefined, width: number, height: number): number {
@@ -101,10 +135,17 @@ export function shapeStrokeGeometry(input: StrokeGeometryInput): StrokeGeometry 
 /** True when the annotation needs the geometry path instead of the plain Konva/Rust primitive. */
 export function needsStrokeGeometry(input: StrokeGeometryInput): boolean {
   if (input.strokeStyle !== undefined && input.strokeStyle !== "solid") return true;
+  if ("fillStyle" in input && isPatternFill(input.fillStyle)) return true;
   return input.kind === "rectangle" && (input.cornerRadius ?? 0) > 0;
 }
 
 function buildGeometry(input: StrokeGeometryInput): StrokeGeometry {
+  const base = buildOutlineGeometry(input);
+  if (!("bounds" in input) || !isPatternFill(input.fillStyle)) return base;
+  return { ...base, ...patternFill(input, outlineOf(input).outline) };
+}
+
+function buildOutlineGeometry(input: StrokeGeometryInput): StrokeGeometry {
   const { outline, closed, head } = outlineOf(input);
   const style = input.strokeStyle ?? "solid";
   const fill = closed ? outline : undefined;
@@ -126,6 +167,72 @@ function buildGeometry(input: StrokeGeometryInput): StrokeGeometry {
     case "sketchy":
       return withFill(sketchGeometry(input, outline, closed), fill);
   }
+}
+
+/** Hatch lines or dots inside a rectangle or ellipse, wobbled like the outline (same seed and level). */
+function patternFill(
+  input: ShapeGeometryInput,
+  outline: Point[],
+): { fillStrokes: Point[][]; fillDots: Point[] } {
+  const gap = fillPatternGap(input.strokeWidth);
+  if (input.fillStyle === "dots") return { fillStrokes: [], fillDots: dotsInside(outline, input.bounds, gap) };
+  const options = {
+    ...SKETCH_LEVEL_OPTIONS[input.sketchLevel ?? DEFAULT_SKETCH_LEVEL],
+    seed: input.seed ?? 1,
+    stroke: "none",
+    fill: "#000000",
+    fillStyle: input.fillStyle ?? "hachure",
+    fillWeight: fillPatternWeight(input.strokeWidth),
+    hachureAngle: -41,
+    hachureGap: gap,
+  };
+  // Generated in the shape's own frame and then translated, so moving a shape moves its hatching exactly.
+  const { width, height } = input.bounds;
+  let drawable: Drawable;
+  if (input.kind === "ellipse") {
+    drawable = generator.ellipse(width / 2, height / 2, Math.abs(width), Math.abs(height), options);
+  } else {
+    const radius = clampCornerRadius(input.cornerRadius, width, height);
+    drawable =
+      radius > 0
+        ? generator.path(roundedRectPath(0, 0, width, height, radius), options)
+        : generator.rectangle(0, 0, width, height, options);
+  }
+  const fillStrokes = drawableToPolylines(drawable, "fillSketch").map((stroke) =>
+    stroke.map((point) => ({ x: point.x + input.bounds.x, y: point.y + input.bounds.y })),
+  );
+  return { fillStrokes, fillDots: [] };
+}
+
+/** Staggered grid of dot centres that fall inside the outline polygon. */
+function dotsInside(outline: readonly Point[], bounds: Rect, gap: number): Point[] {
+  const dots: Point[] = [];
+  const left = Math.min(bounds.x, bounds.x + bounds.width);
+  const top = Math.min(bounds.y, bounds.y + bounds.height);
+  const right = left + Math.abs(bounds.width);
+  const bottom = top + Math.abs(bounds.height);
+  let row = 0;
+  for (let y = top + gap / 2; y < bottom; y += gap * 0.87) {
+    const offset = row % 2 === 0 ? 0 : gap / 2;
+    for (let x = left + gap / 2 + offset; x < right; x += gap) {
+      if (pointInPolygon({ x, y }, outline)) dots.push({ x, y });
+    }
+    row += 1;
+  }
+  return dots;
+}
+
+function pointInPolygon(point: Point, polygon: readonly Point[]): boolean {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const a = polygon[index];
+    const b = polygon[previous];
+    if (a === undefined || b === undefined) continue;
+    if (a.y > point.y !== b.y > point.y && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 function withFill(geometry: StrokeGeometry, fill: Point[] | undefined): StrokeGeometry {
@@ -288,14 +395,14 @@ function sketchGeometry(input: StrokeGeometryInput, outline: Point[], closed: bo
       options,
     );
   }
-  const strokes = drawableToPolylines(drawable);
+  const strokes = drawableToPolylines(drawable, "path");
   if (!closed) {
     for (const wing of arrowHead(outline, input.strokeWidth)) {
       const wingDrawable = generator.linearPath(
         wing.map((point): [number, number] => [point.x, point.y]),
         { ...options, seed: (options.seed % 2_147_483_000) + 1 },
       );
-      strokes.push(...drawableToPolylines(wingDrawable));
+      strokes.push(...drawableToPolylines(wingDrawable, "path"));
     }
   }
   return { strokes, dots: [] };
@@ -318,10 +425,10 @@ function roundedRectPath(x: number, y: number, w: number, h: number, r: number):
 }
 
 /** Flattens Rough.js drawing ops (moves, lines, cubic curves) into polylines. */
-function drawableToPolylines(drawable: Drawable): Point[][] {
+function drawableToPolylines(drawable: Drawable, setType: "path" | "fillSketch"): Point[][] {
   const polylines: Point[][] = [];
   for (const set of drawable.sets) {
-    if (set.type !== "path") continue;
+    if (set.type !== setType) continue;
     let current: Point[] = [];
     for (const operation of set.ops) {
       const data = operation.data;
@@ -352,6 +459,8 @@ function pointCount(geometry: StrokeGeometry): number {
   return (
     geometry.strokes.reduce((total, stroke) => total + stroke.length, 0) +
     geometry.dots.length +
+    (geometry.fillStrokes?.reduce((total, stroke) => total + stroke.length, 0) ?? 0) +
+    (geometry.fillDots?.length ?? 0) +
     (geometry.fill?.length ?? 0)
   );
 }

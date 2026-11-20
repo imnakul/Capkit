@@ -73,6 +73,12 @@ pub struct StrokeGeometry {
     /// Closed polygon to fill with the annotation's fill colour.
     #[serde(default)]
     pub fill: Option<Vec<Point>>,
+    /// Hand-drawn pattern fill (hatching, zigzag) polylines, drawn under the outline at half weight.
+    #[serde(default)]
+    pub fill_strokes: Vec<Vec<Point>>,
+    /// Dot-pattern fill centres, drawn under the outline.
+    #[serde(default)]
+    pub fill_dots: Vec<Point>,
 }
 
 /// Upper bound on geometry points in one scene, so a hostile or buggy request cannot exhaust memory.
@@ -82,17 +88,26 @@ impl StrokeGeometry {
     pub fn point_count(&self) -> usize {
         self.strokes.iter().map(Vec::len).sum::<usize>()
             + self.dots.len()
+            + self.fill_strokes.iter().map(Vec::len).sum::<usize>()
+            + self.fill_dots.len()
             + self.fill.as_ref().map_or(0, Vec::len)
     }
 
     /// Rejects non-finite coordinates and degenerate strokes.
     pub fn validate(&self) -> Result<(), String> {
         let finite = |point: &Point| point.x.is_finite() && point.y.is_finite();
-        if self.strokes.iter().any(|stroke| stroke.len() < 2) {
+        if self
+            .strokes
+            .iter()
+            .chain(self.fill_strokes.iter())
+            .any(|stroke| stroke.len() < 2)
+        {
             return Err("A stroke needs at least two points".into());
         }
         let all_finite = self.strokes.iter().flatten().all(finite)
             && self.dots.iter().all(finite)
+            && self.fill_strokes.iter().flatten().all(finite)
+            && self.fill_dots.iter().all(finite)
             && self.fill.iter().flatten().all(finite);
         if !all_finite {
             return Err("Stroke geometry contains a non-finite coordinate".into());

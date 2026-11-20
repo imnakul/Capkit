@@ -76,6 +76,13 @@ describe("findEditableAnnotationAt", () => {
     expect(findEditableAnnotationAt([frame], { x: 60, y: 160 })).toBeUndefined();
   });
 
+  it("treats a pattern fill like a filled shape, and fillStyle none like an unfilled one", () => {
+    const hatched: Annotation = { ...frame, id: "hatched", fillStyle: "hachure" };
+    expect(findEditableAnnotationAt([hatched], { x: 200, y: 160 })?.id).toBe("hatched");
+    const cleared: Annotation = { ...filled, id: "cleared", fillStyle: "none" };
+    expect(findEditableAnnotationAt([cleared], { x: 200, y: 160 })).toBeUndefined();
+  });
+
   it("matches a filled shape anywhere inside, plus 4 px", () => {
     expect(findEditableAnnotationAt([filled], { x: 200, y: 160 })?.id).toBe("filled");
     expect(findEditableAnnotationAt([filled], { x: 96, y: 160 })?.id).toBe("filled");

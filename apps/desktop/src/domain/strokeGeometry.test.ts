@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_GEOMETRY_POINTS,
+  FILL_STYLES,
   SKETCH_LEVEL_OPTIONS,
+  effectiveFillStyle,
   clampCornerRadius,
   dashGap,
   dashLength,
@@ -193,5 +195,62 @@ describe("sketch levels", () => {
     const solid = rect({ strokeStyle: "dashed", sketchLevel: "wild" });
     const plain = rect({ strokeStyle: "dashed" });
     expect(flat(solid)).toBe(flat(plain));
+  });
+});
+
+describe("fill styles", () => {
+  const PATTERNS = ["hachure", "cross-hatch", "zigzag", "dots"] as const;
+  const filled = (fillStyle: (typeof FILL_STYLES)[number], extra: Partial<ShapeGeometryInput> = {}): StrokeGeometryInput =>
+    rect({ fillStyle, seed: 5, ...extra });
+  const patternPoints = (input: StrokeGeometryInput): { x: number; y: number }[] => {
+    const geometry = shapeStrokeGeometry(input);
+    return [...(geometry.fillStrokes ?? []).flat(), ...(geometry.fillDots ?? [])];
+  };
+
+  it.each(PATTERNS)("%s produces pattern geometry inside the bounds", (style) => {
+    const points = patternPoints(filled(style));
+    expect(points.length).toBeGreaterThan(0);
+    for (const point of points) {
+      expect(point.x).toBeGreaterThan(10 - 12);
+      expect(point.x).toBeLessThan(210 + 12);
+      expect(point.y).toBeGreaterThan(10 - 12);
+      expect(point.y).toBeLessThan(110 + 12);
+    }
+  });
+
+  it("none and solid add no pattern geometry", () => {
+    expect(patternPoints(filled("none"))).toHaveLength(0);
+    expect(patternPoints(filled("solid"))).toHaveLength(0);
+  });
+
+  it("dots stay inside a rounded corner and an ellipse", () => {
+    const rounded = shapeStrokeGeometry(filled("dots", { cornerRadius: 40 })).fillDots ?? [];
+    expect(rounded.length).toBeGreaterThan(0);
+    expect(rounded.some((dot) => dot.x < 14 && dot.y < 14)).toBe(false);
+    const ellipse = shapeStrokeGeometry({ kind: "ellipse", bounds: { x: 0, y: 0, width: 100, height: 100 }, strokeWidth: 4, fillStyle: "dots" }).fillDots ?? [];
+    for (const dot of ellipse) expect(Math.hypot(dot.x - 50, dot.y - 50)).toBeLessThanOrEqual(50);
+  });
+
+  it("works with a solid line style and keeps the pattern when the shape moves", () => {
+    const first = shapeStrokeGeometry(filled("hachure")).fillStrokes ?? [];
+    const moved = shapeStrokeGeometry(filled("hachure", { bounds: { x: 110, y: 60, width: 200, height: 100 } })).fillStrokes ?? [];
+    expect(moved).toHaveLength(first.length);
+    const a = first[0]?.[0];
+    const b = moved[0]?.[0];
+    expect(b?.x).toBeCloseTo((a?.x ?? 0) + 100, 5);
+    expect(b?.y).toBeCloseTo((a?.y ?? 0) + 50, 5);
+  });
+
+  it("needs the geometry path only for pattern fills", () => {
+    expect(needsStrokeGeometry(filled("hachure"))).toBe(true);
+    expect(needsStrokeGeometry(filled("solid"))).toBe(false);
+    expect(needsStrokeGeometry(filled("none"))).toBe(false);
+  });
+
+  it("maps shapes saved before fill styles from their fill colour", () => {
+    expect(effectiveFillStyle(undefined, "transparent")).toBe("none");
+    expect(effectiveFillStyle(undefined, "#ff0000")).toBe("solid");
+    expect(effectiveFillStyle("hachure", "transparent")).toBe("hachure");
+    expect(effectiveFillStyle("none", "#ff0000")).toBe("none");
   });
 });

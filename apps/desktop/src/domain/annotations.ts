@@ -1,6 +1,6 @@
 import { translateAnnotation } from "./annotationGeometry";
 import type { Point, Rect } from "./capture";
-import type { SketchLevel, StrokeStyle } from "./strokeGeometry";
+import type { FillStyle, SketchLevel, StrokeStyle } from "./strokeGeometry";
 
 export type ToolId =
   | "select"
@@ -25,6 +25,8 @@ export type AnnotationStyle = {
   strokeStyle: StrokeStyle;
   /** Hand-drawn intensity when strokeStyle is sketchy. */
   sketchLevel: SketchLevel;
+  /** How new rectangles and ellipses are filled. Session-only unless set in Settings. */
+  fillStyle: FillStyle;
   /** Corner radius for new rectangles, in logical pixels. */
   cornerRadius: number;
   color: string;
@@ -63,6 +65,8 @@ export type ShapeAnnotation = AnnotationBase & {
   strokeStyle?: StrokeStyle;
   /** Used only when strokeStyle is sketchy; absent means loose. */
   sketchLevel?: SketchLevel;
+  /** Absent in older scenes: solid when fill is set, otherwise none. Patterns use the annotation colour at 35%. */
+  fillStyle?: FillStyle;
   /** Rough.js seed so a sketchy shape keeps its wobble when moved. */
   seed?: number;
   /** Rectangles only. Clamped at render time to half the shorter side. */
@@ -108,6 +112,7 @@ export type AnnotationScene = {
 export const defaultAnnotationStyle: AnnotationStyle = {
   strokeStyle: "solid",
   sketchLevel: "loose",
+  fillStyle: "none",
   cornerRadius: 0,
   color: "#d9ff43",
   fill: "transparent",
