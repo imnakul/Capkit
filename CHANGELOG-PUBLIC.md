@@ -24,11 +24,6 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 - Refresh on the Screenshots page now visibly spins, and the file count is no longer stuck at 200 (up to 1000 are shown).
 - Your save folder is now `PicturesCapKit`. If you used the old Snaphub or ShotHub folder, CapKit renames it for you and keeps your files.
 
-### Fixed
-
-- Capture hotkeys work again while the dashboard is running in development.
-- Maximize and minimize buttons are readable in light mode.
-
 ## 0.4.0 — 2026-11-20
 
 ### Added
