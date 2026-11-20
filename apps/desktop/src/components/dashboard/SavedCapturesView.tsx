@@ -24,10 +24,19 @@ import {
 } from "../icons";
 import { LAYER } from "../layers";
 import { captureDisplayName } from "../../lib/captureName";
+import { useFavoriteCaptures } from "../../lib/favoriteCaptures";
 import { Button } from "../ui/Button";
 import { CopyButton } from "../ui/CopyButton";
+import { FavoriteButton } from "../ui/FavoriteButton";
 import { Keycap } from "../ui/Keycap";
 import { PageHeader } from "../ui/PageHeader";
+import { Segmented } from "../ui/Segmented";
+
+type LibraryFilter = "all" | "favorites";
+const filterOptions = [
+  { value: "all", label: "All" },
+  { value: "favorites", label: "Favourites" },
+] as const satisfies readonly { value: LibraryFilter; label: string }[];
 
 type LibraryState =
   | { status: "loading"; captures: readonly SavedCapture[] }
@@ -45,7 +54,10 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   const [library, setLibrary] = useState<LibraryState>({ status: "loading", captures: [] });
   const [menu, setMenu] = useState<CaptureMenu | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const { favorites, toggleFavorite } = useFavoriteCaptures();
   const menuRef = useRef<HTMLDivElement>(null);
+  const visibleCaptures = filter === "favorites" ? library.captures.filter((capture) => favorites.has(capture.path)) : library.captures;
 
   const refresh = useCallback(async (holdSpinner = false): Promise<void> => {
     setLibrary((current) => ({ status: "loading", captures: current.captures }));
@@ -170,7 +182,8 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
         title="Screenshots"
         trailing={
           <span className="flex items-center gap-3">
-            <span className="tabular-nums">{library.captures.length} {library.captures.length === 1 ? "file" : "files"}</span>
+            <Segmented label="Show screenshots" options={filterOptions} value={filter} onChange={setFilter} />
+            <span className="tabular-nums">{visibleCaptures.length} {visibleCaptures.length === 1 ? "file" : "files"}</span>
             <Button aria-label="Refresh saved captures" disabled={library.status === "loading"} variant="ghost" onClick={() => void refresh(true)}>
               <RefreshCw aria-hidden="true" className={library.status === "loading" ? "animate-spin motion-reduce:animate-none" : ""} size={13} />
             </Button>
@@ -192,9 +205,12 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
 
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
-      {library.captures.length > 0 ? (
+      {library.captures.length > 0 && visibleCaptures.length === 0 ? (
+        <p className="mt-10 text-center text-[13px] text-content/60">No favourites yet. Hover a screenshot and press the star.</p>
+      ) : null}
+      {visibleCaptures.length > 0 ? (
         <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
-          {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
+          {visibleCaptures.map((capture) => <CaptureCard capture={capture} favorite={favorites.has(capture.path)} key={capture.path} onToggleFavorite={toggleFavorite} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
       {menu === null ? null : (
@@ -212,6 +228,8 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
 
 type CaptureCardProps = {
   capture: SavedCapture;
+  favorite: boolean;
+  onToggleFavorite: (path: string) => void;
   onView: (capture: SavedCapture) => void;
   onCopy: (capture: SavedCapture) => Promise<boolean>;
   onDrag: (capture: SavedCapture) => void;
@@ -221,7 +239,7 @@ type CaptureCardProps = {
 const dragThresholdPx = 5;
 const copiedLabelMs = 1500;
 
-function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: CaptureCardProps): React.JSX.Element {
+function CaptureCard({ capture, favorite, onToggleFavorite, onView, onCopy, onDrag, onContextMenu }: CaptureCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -291,6 +309,7 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
           </div>
         </div>
       </button>
+      <FavoriteButton favorite={favorite} label={`${favorite ? "Remove" : "Mark"} ${displayName} ${favorite ? "from" : "as"} favourites`} onToggle={() => onToggleFavorite(capture.path)} />
       <CopyButton copied={copied} label={`Copy ${displayName}`} onCopy={() => void copy()} />
     </div>
   );

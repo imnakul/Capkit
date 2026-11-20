@@ -63,6 +63,26 @@ describe("SavedCapturesView", () => {
     expect(onShowcase).toHaveBeenCalledOnce();
   });
 
+  it("marks favourites, remembers them and filters to them", async () => {
+    window.localStorage.clear();
+    const { unmount } = render(<SavedCapturesView onShowcase={vi.fn()} />);
+    await screen.findByRole("button", { name: "View capture" });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Favourites" }));
+    expect(screen.getByText(/No favourites yet/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "All" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark capture as favourites" }));
+    expect(screen.getByRole("button", { name: "Remove capture from favourites" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Favourites" }));
+    expect(screen.getByRole("button", { name: "View capture" })).toBeInTheDocument();
+
+    unmount();
+    render(<SavedCapturesView onShowcase={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Remove capture from favourites" })).toBeInTheDocument();
+    window.localStorage.clear();
+  });
+
   it("spans the full main column with matching grid and skeleton columns", async () => {
     type Captures = Awaited<ReturnType<typeof mocks.listCaptures>>;
     let resolveList!: (captures: Captures) => void;
