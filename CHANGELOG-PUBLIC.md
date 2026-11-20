@@ -17,7 +17,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 - Press 1–9 and 0 to pick a tool in the capture toolbar, and V for Select. Each button shows its number in the corner, like C, S and A.
 - Copy, Save and Copy & Save (C, S, A) now deliver your note when the capture has pins, so the separate note buttons are gone.
-- Click a note pin with the Select tool to edit its comment.
+- Click a note pin with the Select tool to edit its comment, and drag the pin to move its comment with it.
 - The capture toolbar is a single card, with the colour and size row only for tools that use them.
 - Only one CapKit runs at a time; opening it again brings the existing window forward.
 - Shapes, arrows, pen strokes and highlights can be resized: select one and drag any of its eight handles, or focus a handle and use the arrow keys.

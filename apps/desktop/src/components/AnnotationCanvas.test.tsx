@@ -176,6 +176,31 @@ describe("AnnotationCanvas effect previews", () => {
     expect(pressed).toBe(false);
   });
 
+  it("reports a pin's live position while it is dragged, then null on release", () => {
+    const pin = { id: "pin-1", kind: "counter" as const, position: { x: 40, y: 40 }, value: 1, color: "#d9ff43", radius: 12, opacity: 1 };
+    const onPinDrag = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [pin] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onPinDrag={onPinDrag}
+        onUpdate={() => undefined}
+      />,
+    );
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 40, clientY: 40, pointerId: 4 });
+    fireEvent.pointerMove(canvas, { buttons: 1, clientX: 70, clientY: 55, pointerId: 4 });
+    expect(onPinDrag).toHaveBeenLastCalledWith("pin-1", { x: 70, y: 55 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 70, clientY: 55, pointerId: 4 });
+    expect(onPinDrag).toHaveBeenLastCalledWith("pin-1", null);
+  });
+
   it("selects, moves, and deletes an existing annotation", () => {
     const rectangle = {
       id: "rectangle-1",

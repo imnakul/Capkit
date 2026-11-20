@@ -64,6 +64,8 @@ type AnnotationCanvasProps = {
   onNotePlace?: (pin: CounterAnnotation, area: CaptureRect | null) => void;
   /** Select picked a counter pin; the app reopens its note when it has one. */
   onPinSelect?: (annotationId: string) => void;
+  /** A pin's live position while Select drags it, then null on release, so its comment can follow. */
+  onPinDrag?: (annotationId: string, position: Point | null) => void;
 };
 
 /** A press that moves less than this (px) places a point note; further drags an area note. */
@@ -84,6 +86,7 @@ export function AnnotationCanvas({
   noteColor = "#d9ff43",
   onNotePlace,
   onPinSelect,
+  onPinDrag,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -222,6 +225,7 @@ export function AnnotationCanvas({
         : resizeAnnotation(moving.initial, moving.handle, dx, dy);
       moving.current = current;
       setMovingAnnotation({ initial: moving.initial, current });
+      if (current.kind === "counter") onPinDrag?.(current.id, current.position);
       return;
     }
     const current = draftRef.current;
@@ -245,6 +249,7 @@ export function AnnotationCanvas({
     if (moving !== null) {
       event.stopPropagation();
       onUpdate(moving.current);
+      if (moving.current.kind === "counter") onPinDrag?.(moving.current.id, null);
       movingAnnotationRef.current = null;
       setMovingAnnotation(null);
       return;

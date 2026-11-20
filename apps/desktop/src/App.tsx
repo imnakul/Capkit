@@ -120,6 +120,7 @@ export function App(): React.JSX.Element {
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [notes, dispatchNotes] = useReducer(notesReducer, []);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [pinDrag, setPinDrag] = useState<{ counterId: string; position: Point } | null>(null);
   const [lookups, setLookups] = useState<Readonly<Record<string, NoteLookupStatus>>>({});
   const [developerTools, setDeveloperTools] = useState(false);
   const noteRetry = useRef<{ noteId: string; request: Parameters<typeof deliverNote>[0] } | null>(null);
@@ -1394,6 +1395,7 @@ export function App(): React.JSX.Element {
             noteColor={settings.accentColor}
             onCommit={handleAnnotation}
             onNotePlace={placeNote}
+            onPinDrag={(annotationId, position) => setPinDrag(position === null ? null : { counterId: annotationId, position })}
             onPinSelect={(annotationId) => {
               const pinned = activeNotes.find((note) => note.counterId === annotationId);
               if (pinned !== undefined) setEditingNoteId(pinned.id);
@@ -1403,7 +1405,7 @@ export function App(): React.JSX.Element {
           />
           {activeNotes.filter((note) => note.id === editingNoteId).map((note) => (
             <NotePopover
-              anchor={note.anchor}
+              anchor={noteAnchor(note, history.present.elements, pinDrag)}
               comment={note.comment}
               container={{ width: selection.width, height: selection.height }}
               key={note.id}
@@ -1563,4 +1565,15 @@ function targetAtPoint(
           left.bounds.width * left.bounds.height - right.bounds.width * right.bounds.height,
       )[0] ?? null
   );
+}
+
+/** Where a note's comment sits: on its pin while dragged, then wherever the pin now is. */
+function noteAnchor(
+  note: CaptureNote,
+  elements: readonly Annotation[],
+  drag: { counterId: string; position: Point } | null,
+): Point {
+  if (drag !== null && drag.counterId === note.counterId) return drag.position;
+  const pin = elements.find((element) => element.id === note.counterId);
+  return pin?.kind === "counter" ? pin.position : note.anchor;
 }

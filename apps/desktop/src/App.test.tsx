@@ -817,6 +817,18 @@ describe("App notes", () => {
     expect(await screen.findByRole("textbox", { name: "Comment for this spot" })).toHaveValue("Too tight");
   });
 
+  it("moves a pin's comment with the pin", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const before = (await screen.findByRole("dialog", { name: "Note 1" })).style.left;
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onPinDrag as unknown as (id: string, p: { x: number; y: number } | null) => void)("c1", { x: 120, y: 60 }));
+    const during = screen.getByRole("dialog", { name: "Note 1" }).style.left;
+    expect(during).not.toBe(before);
+    expect(during).toBe("136px");
+  });
+
   it("renders the note image, then delivers the Markdown", async () => {
     await openWithNotes();
     place("c1", 1);

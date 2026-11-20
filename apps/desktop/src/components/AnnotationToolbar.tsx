@@ -237,7 +237,7 @@ export function AnnotationToolbar({
               {item.shortcut === undefined ? null : (
                 <kbd
                   aria-hidden="true"
-                  className={`pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border px-1 text-center text-[8px] font-semibold leading-3 shadow-sm ${item.active ? "border-stone-950/20 bg-lime-200 text-stone-900" : "border-white/15 bg-stone-950/80 text-stone-300"}`}
+                  className={`pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border px-1 text-center font-(family-name:--font-keycap) text-[8px] font-semibold leading-3 shadow-sm ${item.active ? "border-stone-950/20 bg-lime-200 text-stone-900" : "border-white/15 bg-stone-950/80 text-stone-300"}`}
                 >
                   {item.shortcut}
                 </kbd>

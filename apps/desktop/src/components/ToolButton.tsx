@@ -40,7 +40,7 @@ export function ToolButton({
     >
       <Icon aria-hidden="true" size={18} strokeWidth={active ? 2.4 : 1.9} />
       {shortcut === undefined ? null : (
-        <kbd className="pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border border-white/15 bg-stone-950/80 px-1 text-[8px] font-semibold leading-3 text-stone-300 shadow-sm">
+        <kbd className="pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border border-white/15 bg-stone-950/80 px-1 text-center font-(family-name:--font-keycap) text-[8px] font-semibold leading-3 text-stone-300 shadow-sm">
           {shortcut}
         </kbd>
       )}
