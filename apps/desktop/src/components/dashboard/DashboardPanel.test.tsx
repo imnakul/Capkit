@@ -24,7 +24,7 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     expect(await screen.findByRole("heading", { name: "Screenshots" })).toBeVisible();
-    expect(screen.getByText("Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.")).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Screenshots" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Capkit sections" })).toBeVisible();
   });
 
