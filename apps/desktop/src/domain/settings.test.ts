@@ -21,6 +21,23 @@ describe("Snaphub settings", () => {
     expect(result.success).toBe(false);
   });
 
+  it("defaults the sketch level and fill for settings saved before they existed", () => {
+    const { defaultColor, defaultSize, strokeStyle, cornerRadius } = defaultSnaphubSettings.annotation;
+    const older = { defaultColor, defaultSize, strokeStyle, cornerRadius };
+    const result = snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: older });
+    expect(result.success).toBe(true);
+    expect(result.data?.annotation).toMatchObject({ sketchLevel: "loose", fillStyle: "none" });
+  });
+
+  it("rejects unknown sketch levels and fill styles", () => {
+    expect(
+      snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: { ...defaultSnaphubSettings.annotation, sketchLevel: "frantic" } }).success,
+    ).toBe(false);
+    expect(
+      snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: { ...defaultSnaphubSettings.annotation, fillStyle: "plaid" } }).success,
+    ).toBe(false);
+  });
+
   it("rejects unsafe annotation sizes", () => {
     const result = snaphubSettingsSchema.safeParse({
       ...defaultSnaphubSettings,

@@ -18,7 +18,7 @@ Implementation progress is tracked separately in [Current implementation status]
 - Writing group with highlighter, smoothed freehand pencil, and in-place Caveat text; spotlight, counter, blur, secure pixelation, and blackout
 - Contextual color, stroke, opacity, fill, radius, arrow, font, alignment, and redaction controls
 - Undo and redo
-- Smart select (W) boxes detected content; solid, dashed, dotted and sketchy line styles; rounded rectangle corners; pressing a shape with any drawing tool selects and moves it (Alt draws)
+- Smart select (W) boxes detected content; solid, dashed, dotted and sketchy line styles; rounded rectangle corners; pressing a shape with any drawing tool selects and moves it (Alt draws); Neat/Loose/Wild sketch levels and hatch, cross-hatch, zigzag and dots fills
 - Eyedropper, OCR copy text, and reviewed redaction suggestions from the completion rail (promoted from Think Later on 2026-10-29; OCR is the built-in Windows engine)
 - Save & Showcase from the completion rail, applying the default Showcase style
 - Copy, Copy & Save, Save, Save As, Pin, Cancel, and optional watermark completion actions

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { z } from "zod";
-import { STROKE_STYLES, type StrokeStyle } from "./strokeGeometry";
+import { FILL_STYLES, SKETCH_LEVELS, STROKE_STYLES, type FillStyle, type SketchLevel, type StrokeStyle } from "./strokeGeometry";
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const shapeDefaultSchema = z.enum([
@@ -195,6 +195,10 @@ export const snaphubSettingsSchema = z.object({
     strokeStyle: z.enum(STROKE_STYLES as [StrokeStyle, ...StrokeStyle[]]).default("solid"),
     /** Starting rectangle corner radius in px (0 = square). */
     cornerRadius: z.number().int().min(0).max(48).default(0),
+    /** Starting sketch level, used when the line style is sketchy. */
+    sketchLevel: z.enum(SKETCH_LEVELS as [SketchLevel, ...SketchLevel[]]).default("loose"),
+    /** Starting fill style for new rectangles and ellipses. */
+    fillStyle: z.enum(FILL_STYLES as [FillStyle, ...FillStyle[]]).default("none"),
   }),
   accentColor: hexColorSchema,
   appearance: z.enum(["light", "dark"]).default("light"),
@@ -298,7 +302,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   version: 1,
   palette: ["#d9ff43", "#ff5b4d", "#60a5fa", "#ffffff", "#171717"],
   customColors: [],
-  annotation: { defaultColor: "#d9ff43", defaultSize: 4, strokeStyle: "solid", cornerRadius: 0 },
+  annotation: { defaultColor: "#d9ff43", defaultSize: 4, strokeStyle: "solid", cornerRadius: 0, sketchLevel: "loose", fillStyle: "none" },
   accentColor: "#d9ff43",
   appearance: "light",
   glassStrength: 50,

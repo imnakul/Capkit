@@ -295,6 +295,8 @@ export function App(): React.JSX.Element {
           strokeWidth: settingsRef.current.annotation.defaultSize,
           strokeStyle: settingsRef.current.annotation.strokeStyle,
           cornerRadius: settingsRef.current.annotation.cornerRadius,
+          sketchLevel: settingsRef.current.annotation.sketchLevel,
+          fillStyle: settingsRef.current.annotation.fillStyle,
         });
         dispatchScene({ type: "reset" });
         dispatchNotes({ type: "reset" });

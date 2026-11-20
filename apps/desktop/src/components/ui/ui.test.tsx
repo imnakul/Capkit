@@ -68,6 +68,12 @@ describe("Segmented", () => {
     expect(screen.getByRole("radio", { name: "Small" })).toHaveAttribute("tabindex", "-1");
   });
 
+  it("disables every segment and the tab stop when disabled", () => {
+    render(<Segmented disabled label="Cursor size" options={options} value="medium" onChange={() => undefined} />);
+    expect(screen.getByRole("radiogroup", { name: "Cursor size" })).toHaveAttribute("aria-disabled", "true");
+    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled();
+  });
+
   it("moves and selects with the arrow keys, wrapping at both ends, and jumps with Home and End", () => {
     const onChange = vi.fn();
     render(<Segmented label="Cursor size" options={options} value="large" onChange={onChange} />);
