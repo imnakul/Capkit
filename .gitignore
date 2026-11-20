@@ -15,7 +15,7 @@ docs/*
 !docs/specs/
 docs/specs/*
 !docs/specs/capture-copy-and-save.md
-scripts
+/scripts
 .gitignore
 CHANGELOG.md
 AGENTS.md
