@@ -219,7 +219,7 @@ export function NotesView(): React.JSX.Element {
       {actionError === null ? null : <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{actionError}</div>}
 
       {loading && state.notes.length === 0 ? (
-        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-3" role="status">
+        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3" role="status">
           {Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}
         </div>
       ) : null}
@@ -236,7 +236,7 @@ export function NotesView(): React.JSX.Element {
       ) : null}
 
       {state.notes.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3">
           {state.notes.map((note) => (
             <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} onOpen={showNote} />
           ))}
@@ -351,8 +351,10 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
           <img alt="" className="h-full w-full object-contain" draggable={false} loading="lazy" src={note.imageUrl} />
         </div>
         <div className="border-t border-content/8 px-3 py-2.5">
-          <h2 className="truncate text-[13px] font-medium text-content" title={title}>{title}</h2>
-          {host !== null && host !== title ? <p className="mt-0.5 truncate font-mono text-[11px] text-content/60">{host}</p> : null}
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="min-w-0 truncate text-[13px] font-medium text-content" title={title}>{title}</h2>
+            {host !== null && host !== title ? <p className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-content/60" title={host}>{host}</p> : null}
+          </div>
           {note.firstComment === null || note.firstComment === "" ? null : <p className="mt-1.5 line-clamp-2 text-[12px] leading-4 text-content/60">{note.firstComment}</p>}
           <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-content/60">
             <span className="flex items-center gap-1"><Clock aria-hidden="true" size={10} />{formatDate(note.createdAt)}</span>
