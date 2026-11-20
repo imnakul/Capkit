@@ -30,7 +30,7 @@ const available: UpdateStatus = { state: "available", currentVersion: "0.3.0", v
 
 function openSettings(): void {
   fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
-  fireEvent.click(screen.getByRole("button", { name: /Keep CapKit current/ }));
+  // Updates is the first card of General, so it opens by default.
 }
 
 describe("updates in the dashboard", () => {

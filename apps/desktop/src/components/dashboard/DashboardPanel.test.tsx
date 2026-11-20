@@ -17,7 +17,7 @@ describe("DashboardPanel", () => {
   it("shows the app version and commit in the sidebar", async () => {
     render(<DashboardPanel />);
 
-    expect(await screen.findByText(/v0\.2\.0 ·/)).toBeVisible();
+    expect(await screen.findByText("v0.2.0")).toBeVisible();
   });
 
   it("opens on the screenshots dashboard", async () => {
@@ -72,7 +72,7 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
     openSettings();
     selectTab("Screenshots");
-    openSection("Colors & default size");
+    openSection("Colors and size");
 
     expect(screen.getByText("5 / 5 selected")).toBeVisible();
     expect(screen.getByRole("button", { name: "Add #39ff88" })).toBeDisabled();
@@ -82,20 +82,17 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
     openSettings();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use dark mode" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch to dark mode" }));
 
     expect(document.documentElement).toHaveClass("dark");
-    expect(screen.getByRole("button", { name: "Use dark mode" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: "Switch to light mode" })).toBeVisible();
   });
 
   it("shows a color marker for every default-color option", () => {
     render(<DashboardPanel />);
     openSettings();
     selectTab("Screenshots");
-    openSection("Colors & default size");
+    openSection("Colors and size");
 
     fireEvent.click(screen.getByRole("button", { name: "Default annotation color" }));
 
@@ -104,27 +101,25 @@ describe("DashboardPanel", () => {
     expect(within(colorList).getByRole("option", { name: "#D9FF43" })).toBeVisible();
   });
 
-  it("provides a reset action for every settings section", () => {
+  it("offers a section reset only once a section differs from its default", () => {
     render(<DashboardPanel />);
     openSettings();
 
-    // Every section now sits behind a tab, so the resets are counted the way
-    // they are met: one tab at a time, with each section opened.
-    let resets = 0;
-    for (const tab of Object.keys(sectionTitles) as (keyof typeof sectionTitles)[]) {
-      selectTab(tab);
-      for (const section of sectionTitles[tab]) openSection(section);
-      resets += screen.getAllByRole("button", { name: "Reset this section" }).length;
-    }
+    // At defaults only the two folder cards can be reset (their default is native).
+    expect(screen.getAllByRole("button", { name: "Reset this section" })).toHaveLength(2);
 
-    expect(resets).toBe(12);
+    openSection("Accent");
+    expect(within(sectionOf("Accent")).queryByRole("button", { name: "Reset this section" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use #39ff88 as theme accent" }));
+    fireEvent.click(within(sectionOf("Accent")).getByRole("button", { name: "Reset this section" }));
+    expect(within(sectionOf("Accent")).queryByRole("button", { name: "Reset this section" })).toBeNull();
   });
 
   it("provides inline resets for overlay tint and individual shortcuts", () => {
     render(<DashboardPanel />);
     openSettings();
     selectTab("Screenshots");
-    openSection("Detection & overlay");
+    openSection("Detection and overlay");
 
     expect(screen.getByRole("button", { name: "Reset overlay tint" })).toBeDisabled();
 
@@ -203,11 +198,11 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
     openSettings();
     selectTab("Screenshots");
-    openSection("Default capture method");
+    openSection("Scrolling capture");
 
-    expect(screen.getByRole("radio", { name: "Use Automatic scrolling capture" })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("radio", { name: "Use Always ask scrolling capture" }));
-    expect(screen.getByRole("radio", { name: "Use Always ask scrolling capture" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Automatic" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("radio", { name: "Ask every time" }));
+    expect(screen.getByRole("radio", { name: "Ask every time" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("leaves shortcut recording mode when its inline reset is pressed", () => {
@@ -219,7 +214,7 @@ describe("DashboardPanel", () => {
     const resetShortcut = screen.getByRole("button", { name: "Reset Start capture shortcut" });
 
     fireEvent.click(configureShortcut);
-    expect(configureShortcut).toHaveTextContent("Press shortcut…");
+    expect(configureShortcut).toHaveTextContent("Press keys…");
     expect(resetShortcut).toBeEnabled();
 
     fireEvent.click(resetShortcut);
@@ -233,10 +228,14 @@ describe("DashboardPanel", () => {
     selectTab("Shortcuts");
 
     const configureShortcut = screen.getByRole("button", { name: "Configure Start capture" });
-    const shortcutsHeading = screen.getByRole("heading", { name: "Shortcuts" });
+    const shortcutsHeading = screen.getByRole("heading", { name: /^Global shortcuts/ });
     const shortcutsSection = shortcutsHeading.closest("section");
     if (shortcutsSection === null) throw new Error("Shortcuts heading must be inside a section");
 
+    // The section reset only appears once a shortcut differs from its default.
+    fireEvent.click(configureShortcut);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(configureShortcut).toHaveTextContent("Ctrl+K");
     fireEvent.click(configureShortcut);
     fireEvent.click(within(shortcutsSection).getByRole("button", { name: "Reset this section" }));
 
@@ -285,7 +284,7 @@ describe("DashboardPanel", () => {
     fireEvent.click(configure);
     fireEvent.keyDown(window, { key: "a", ctrlKey: true });
 
-    expect(configure).toHaveTextContent("Press shortcut…");
+    expect(configure).toHaveTextContent("Press keys…");
     expect(configure).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -339,11 +338,13 @@ describe("DashboardPanel", () => {
 
     for (const tab of Object.keys(sectionTitles) as (keyof typeof sectionTitles)[]) {
       selectTab(tab);
-      expect(sectionHeadings()).toEqual(sectionTitles[tab]);
+      // Open at startup is a single control, so it is a row, not an expandable card.
+      const expected = tab === "General" ? ["Open at startup", ...sectionTitles[tab]] : sectionTitles[tab];
+      expect(sectionHeadings()).toEqual(expected);
     }
 
     selectTab("Screenshots");
-    openSection("Detection & overlay");
+    openSection("Detection and overlay");
     expect(screen.queryByRole("switch", { name: "Open at startup" })).toBeNull();
   });
 
@@ -363,10 +364,10 @@ describe("DashboardPanel", () => {
 
     // Opening a second section leaves the first one open.
     selectTab("Screenshots");
-    openSection("Colors & default size");
-    expect(sectionHeader("Choose what stays within reach")).toHaveAttribute("aria-expanded", "true");
-    expect(sectionHeader("Colors & default size")).toHaveAttribute("aria-expanded", "true");
-    expect(sectionHeader("Detection & overlay")).toHaveAttribute("aria-expanded", "false");
+    openSection("Colors and size");
+    expect(sectionHeader("Capture toolbar")).toHaveAttribute("aria-expanded", "true");
+    expect(sectionHeader("Colors and size")).toHaveAttribute("aria-expanded", "true");
+    expect(sectionHeader("Detection and overlay")).toHaveAttribute("aria-expanded", "false");
   });
 
   it("cancels shortcut recording when the section holding it collapses", () => {
@@ -376,12 +377,12 @@ describe("DashboardPanel", () => {
 
     const configure = screen.getByRole("button", { name: "Configure Start capture" });
     fireEvent.click(configure);
-    expect(configure).toHaveTextContent("Press shortcut…");
+    expect(configure).toHaveTextContent("Press keys…");
 
-    fireEvent.click(sectionHeader("Shortcuts"));
-    expect(sectionHeader("Shortcuts")).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(sectionHeader("Global shortcuts"));
+    expect(sectionHeader("Global shortcuts")).toHaveAttribute("aria-expanded", "false");
 
-    fireEvent.click(sectionHeader("Shortcuts"));
+    fireEvent.click(sectionHeader("Global shortcuts"));
     expect(screen.getByRole("button", { name: "Configure Start capture" })).toHaveAttribute(
       "aria-pressed",
       "false",
@@ -391,16 +392,16 @@ describe("DashboardPanel", () => {
 
 /** Section titles per tab, in the order each tab shows them. */
 const sectionTitles = {
-  General: ["Open at startup", "Keep CapKit current", "Theme accent", "Saved captures", "Saved recordings"],
+  General: ["Updates", "Accent", "Screenshot folder", "Recording folder"],
   Screenshots: [
-    "Choose what stays within reach",
-    "Colors & default size",
-    "Detection & overlay",
+    "Capture toolbar",
+    "Colors and size",
+    "Detection and overlay",
     "Capture cursor",
-    "Default capture method",
+    "Scrolling capture",
   ],
-  "Screen Draw": ["On-screen toolbar"],
-  Shortcuts: ["Shortcuts"],
+  "Screen Draw": ["Screen Draw"],
+  Shortcuts: ["Global shortcuts"],
 } as const;
 
 function openSettings(): void {
@@ -415,17 +416,23 @@ function selectTab(label: string): void {
 function sectionHeadings(): readonly (string | null)[] {
   return within(screen.getByRole("tabpanel"))
     .getAllByRole("heading", { level: 2 })
-    .map((heading) => heading.textContent);
+    .map((heading) => heading.querySelector("button > span")?.textContent ?? heading.textContent);
 }
 
 /** The disclosure control of the section carrying this heading. */
 function sectionHeader(title: string): HTMLElement {
-  const heading = screen.getByRole("heading", { name: title });
+  const heading = screen.getByRole("heading", { name: new RegExp(`^${title}`) });
   const section = heading.closest("section");
   if (section === null) throw new Error(`The ${title} heading must be inside a section`);
   const header = section.querySelector<HTMLElement>("button[aria-expanded]");
   if (header === null) throw new Error(`The ${title} section must have a disclosure header`);
   return header;
+}
+
+function sectionOf(title: string): HTMLElement {
+  const section = screen.getByRole("heading", { name: new RegExp(`^${title}`) }).closest("section");
+  if (section === null) throw new Error(`The ${title} heading must be inside a section`);
+  return section;
 }
 
 function openSection(title: string): void {
