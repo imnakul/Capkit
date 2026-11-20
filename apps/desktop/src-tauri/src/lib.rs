@@ -1817,20 +1817,35 @@ fn show_dashboard(app: &AppHandle) -> Result<(), SnaphubError> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
-        app,
-        "dashboard",
-        WebviewUrl::App(PathBuf::from("index.html")),
-    )
-    .title("CapKit")
-    .inner_size(1120.0, 780.0)
-    .min_inner_size(900.0, 640.0)
-    .center()
-    .resizable(true)
-    .visible(false)
-    .build()
-    .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    // Closing destroys the dashboard to keep the resident process small, so this rebuild must
+    // match the first launch exactly: same config entry (undecorated, transparent, hidden until
+    // the page is ready) and the same glass. A hand-written builder drifted from tauri.conf.json
+    // and reopened with the native title bar over an opaque window.
+    let config = dashboard_window_config(&app.config().app.windows)
+        .ok_or_else(|| SnaphubError::Window("tauri.conf.json has no dashboard window".into()))?;
+    let window = WebviewWindowBuilder::from_config(app, config)
+        .and_then(WebviewWindowBuilder::build)
+        .map_err(|error| SnaphubError::Window(error.to_string()))?;
+    apply_dashboard_glass(&window);
     Ok(())
+}
+
+/// The dashboard's entry in `tauri.conf.json`, used for both the first launch and every reopen.
+fn dashboard_window_config(
+    windows: &[tauri::utils::config::WindowConfig],
+) -> Option<&tauri::utils::config::WindowConfig> {
+    windows.iter().find(|window| window.label == "dashboard")
+}
+
+/// Frosted glass behind the dashboard. The page asks `dashboard_supports_glass` and stays
+/// opaque where the blur is unavailable.
+fn apply_dashboard_glass(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    if let Ok(hwnd) = window.hwnd() {
+        platform::windows_glass::apply_blur(hwnd.0);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -3031,13 +3046,8 @@ pub fn run() {
                 .set_notes_images_directory(notes.images_directory());
             app.manage(notes);
 
-            // Frosted glass behind the dashboard. The page asks `dashboard_supports_glass`
-            // and stays opaque where the blur is unavailable.
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("dashboard")
-                && let Ok(hwnd) = window.hwnd()
-            {
-                platform::windows_glass::apply_blur(hwnd.0);
+            if let Some(window) = app.get_webview_window("dashboard") {
+                apply_dashboard_glass(&window);
             }
 
             if launched_in_background()
@@ -3655,5 +3665,20 @@ mod window_config_tests {
 
         assert_eq!(capture["shadow"].as_bool(), Some(false));
         assert_eq!(capture["decorations"].as_bool(), Some(false));
+    }
+
+    /// Reopening the dashboard after Close rebuilds it from this same entry; it must stay
+    /// undecorated (the page draws its own title bar) and transparent (for the glass).
+    #[test]
+    fn dashboard_reopens_from_its_undecorated_transparent_config() {
+        let config: tauri::utils::config::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json"))
+                .expect("Tauri config should parse");
+        let dashboard = super::dashboard_window_config(&config.app.windows)
+            .expect("Tauri config should contain a dashboard window");
+
+        assert!(!dashboard.decorations);
+        assert!(dashboard.transparent);
+        assert!(!dashboard.visible);
     }
 }

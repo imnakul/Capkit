@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defaultToolbarActions,
@@ -139,5 +140,42 @@ describe("completionRailItems", () => {
       handlers(() => undefined),
     );
     expect(items.map((item) => [item.label, item.shortcut])).toEqual([["Copy", "C"]]);
+  });
+});
+
+describe("CompletionToolbar retry focus", () => {
+  it("focuses Retry save in the same commit that shows it", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const props = {
+      diagnostic: undefined,
+      items: [],
+      statusMessage: "",
+      statusSide: "right",
+      onRetrySave: (): void => undefined,
+    } as const;
+    const root = createRoot(container);
+    act(() => root.render(<CompletionToolbar {...props} state="working" />));
+
+    // Leave act so React schedules effects as it does in the app, then read focus when the DOM
+    // mutates — the moment a user (or findByRole) first sees the button.
+    const actEnvironment: unknown = Reflect.get(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+    Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", false);
+    try {
+      const focusedAtCommit = await new Promise<Element | null>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (container.querySelector("button") === null) return;
+          observer.disconnect();
+          resolve(document.activeElement);
+        });
+        observer.observe(container, { childList: true, subtree: true });
+        setTimeout(() => root.render(<CompletionToolbar {...props} state="save-pending" />), 0);
+      });
+      expect(focusedAtCommit).toBe(screen.getByRole("button", { name: "Retry save" }));
+    } finally {
+      Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", actEnvironment);
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });
