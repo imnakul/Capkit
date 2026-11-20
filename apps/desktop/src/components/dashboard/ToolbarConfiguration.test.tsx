@@ -87,4 +87,15 @@ describe("ToolbarConfiguration", () => {
     fireEvent.click(within(view.getByRole("radiogroup", { name: "Save toolbar" })).getByRole("radio", { name: "Horizontal" }));
     expect(changes.at(-1)?.actions.save).toEqual({ enabled: true, placement: "horizontal" });
   });
+
+  it("toggles when the drawn switch is clicked, not only the hidden checkbox", () => {
+    const view = render(<ControlledToolbar />);
+    const copy = view.getByRole("switch", { name: "Show Copy" });
+    const track = copy.nextElementSibling;
+    if (!(track instanceof HTMLElement)) throw new Error("switch track not rendered");
+    fireEvent.click(track);
+    expect(copy).not.toBeChecked();
+    fireEvent.click(track);
+    expect(copy).toBeChecked();
+  });
 });

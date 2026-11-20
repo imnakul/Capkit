@@ -28,6 +28,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Fixed
 
+- The show/hide switches in Settings → Screenshots (tools and finishing actions) respond to clicks again.
 - Saved notes show their screenshot again in the Notes tab.
 - Click a saved note to read all of it: the full screenshot and every pin's comment and details.
 - Detection works again when a tiling window manager such as FancyWM is running. Before, it found nothing in tiled windows.
