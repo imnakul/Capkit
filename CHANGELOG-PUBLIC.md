@@ -15,6 +15,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Improved
 
+- The dashboard has a calmer look: one accent-tinted palette in light and dark, glass behind the window on Windows 11, consistent page headers, and quieter motion. Settings sections open from anywhere on their row, show their current value while closed, and animate smoothly.
+
 - Press 1–9 and 0 to pick a tool in the capture toolbar, and V for Select. Each button shows its number in the corner, like C, S and A.
 - Copy, Save and Copy & Save (C, S, A) now deliver your note when the capture has pins, so the separate note buttons are gone.
 - Click a note pin with the Select tool to edit its comment, and drag the pin to move its comment with it.
