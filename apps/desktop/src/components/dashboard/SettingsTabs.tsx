@@ -107,10 +107,10 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
 
   return (
     <>
-      <div className="sticky top-0 z-10 -mx-7 bg-background-base/90 px-7 py-2">
+      <div className="sticky top-0 z-10 -mx-7 px-7 py-2 backdrop-blur-md">
         <div
           aria-label="Settings sections"
-          className="relative flex w-fit gap-1"
+          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-content/4 p-1"
           ref={listRef}
           role="tablist"
           onBlur={handleBlur}
@@ -121,12 +121,12 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
               the active pill where the eye is already looking. */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none"
+            className="pointer-events-none absolute inset-x-0 inset-y-1 transition-opacity duration-150 motion-reduce:transition-none"
             data-indicator="hover"
             style={{ opacity: hovered === null ? 0 : 1 }}
           >
             <span
-              className="absolute inset-y-0 left-0 rounded-md bg-content/4 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
+              className="absolute inset-y-0 left-0 rounded-md bg-content/6 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
               style={{
                 transform: `translateX(${String(hoverPill.left)}px)`,
                 width: `${String(hoverPill.width)}px`,
@@ -135,7 +135,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
           </span>
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-content/8 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
+            className="pointer-events-none absolute inset-y-1 left-0 rounded-md bg-content/10 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
             data-indicator="active"
             style={{
               transform: `translateX(${String(activePill.left)}px)`,
