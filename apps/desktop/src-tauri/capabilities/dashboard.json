@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "dashboard-window",
-  "description": "Lets the dashboard follow its light/dark toggle with the native window theme (Mica).",
+  "description": "Lets the dashboard follow its light/dark toggle and drive its own title bar buttons.",
   "windows": ["dashboard"],
-  "permissions": ["core:window:allow-set-theme"]
+  "permissions": [
+    "core:window:allow-set-theme",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized"
+  ]
 }

@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { DashboardTitleBar } from "./DashboardTitleBar";
 import { dashboardSupportsGlass, getBrowserLinkStatus, listSavedCaptures, setBrowserLinkAccent, listenForBrowserLinkStatus, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
 import { NotesView } from "./NotesView";
 import { SettingsView } from "./SettingsView";
@@ -147,7 +148,7 @@ export function DashboardPanel(): React.JSX.Element {
     };
   }, []);
 
-  // The native window theme drives Mica's light/dark variant.
+  // Keeps the native theme in step (webview colour scheme, system menus).
   useEffect(() => {
     if (!isTauri()) return;
     void getCurrentWindow().setTheme(settings.appearance).catch((error: unknown) => {
@@ -171,8 +172,10 @@ export function DashboardPanel(): React.JSX.Element {
   const ThemeIcon = settings.appearance === "dark" ? Sun : Moon;
 
   return (
-    <div className="flex h-screen min-h-[640px] min-w-[900px] text-content">
-      <aside className="flex w-48 shrink-0 flex-col border-r border-content/10 bg-background-base/40 px-2.5 py-3.5 text-content/60">
+    <div className="flex h-screen min-h-[640px] min-w-[900px] flex-col text-content">
+      <DashboardTitleBar />
+      <div className="flex min-h-0 flex-1">
+      <aside className="flex w-48 shrink-0 flex-col border-r border-content/10 px-2.5 py-3.5 text-content/60">
         <div className="flex items-center gap-2.5 px-2 pb-6 pt-1">
           <div className="grid size-7 place-items-center rounded-md bg-accent text-accent-ink">
             <ScanLine aria-hidden="true" size={15} strokeWidth={2} />
@@ -251,6 +254,7 @@ export function DashboardPanel(): React.JSX.Element {
           )}
         </div>
       </main>
+      </div>
     </div>
   );
 }

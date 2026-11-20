@@ -533,7 +533,9 @@ export function SettingsView(): React.JSX.Element {
   const toolbarSummary = describeToolbar(settings.toolbar);
   const changed = {
     updates: !sameValue(settings.updates, defaultSnaphubSettings.updates),
-    accent: settings.accentColor !== defaultSnaphubSettings.accentColor,
+    accent:
+      settings.accentColor !== defaultSnaphubSettings.accentColor ||
+      settings.glassStrength !== defaultSnaphubSettings.glassStrength,
     toolbar: !sameValue(settings.toolbar, defaultSnaphubSettings.toolbar),
     colors:
       !sameValue(settings.palette, defaultSnaphubSettings.palette) ||
@@ -623,9 +625,9 @@ export function SettingsView(): React.JSX.Element {
                 onToggle={toggleSection}
                 open={openSections["theme-accent"]}
                 icon={Paintbrush}
-                title="Accent"
+                title="Accent and glass"
                 summary={<><span className="size-2.5 rounded-full" style={{ backgroundColor: settings.accentColor }} /><span className="font-mono">{settings.accentColor.toUpperCase()}</span></>}
-                hint="Used for tools, focus and new annotations."
+                hint="Accent colours tools, focus and new annotations. Glass sets how much of the desktop shows through."
               >
                 <div className="flex flex-wrap gap-2">
                   {[...accentColors, ...(accentColors.some((color) => color === settings.accentColor) ? [] : [settings.accentColor])].map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}
@@ -634,7 +636,14 @@ export function SettingsView(): React.JSX.Element {
                     <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={settings.accentColor} onChange={(event) => update({ ...settings, accentColor: event.currentTarget.value })} />
                   </label>
                 </div>
-                <SectionReset visible={changed.accent} onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor })} />
+                <div className="mt-4 flex items-center justify-between gap-4 border-t border-content/10 pt-3">
+                  <label className="text-[13px] font-medium text-content" htmlFor="glass-strength">Glass strength</label>
+                  <div className="flex items-center gap-3">
+                    <input className="w-44 accent-accent" id="glass-strength" max="100" min="0" type="range" value={settings.glassStrength} onChange={(event) => update({ ...settings, glassStrength: Number(event.currentTarget.value) })} />
+                    <span className="w-9 text-right font-mono text-[12px] tabular-nums text-content/60">{settings.glassStrength}%</span>
+                  </div>
+                </div>
+                <SectionReset visible={changed.accent} onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor, glassStrength: defaultSnaphubSettings.glassStrength })} />
               </SettingsCard>
               <SettingsCard id="save-location" onToggle={toggleSection} open={openSections["save-location"]} icon={FolderCog} title="Screenshot folder" summary={<span title={saveDirectory}>{shortenPath(saveDirectory)}</span>}>
                 <FolderField label="Default save location" path={saveDirectory} chooseLabel="Choose default save location" choosing={choosingDirectory} onChoose={() => void chooseSaveDirectory()} />

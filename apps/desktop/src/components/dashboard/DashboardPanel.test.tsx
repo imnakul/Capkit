@@ -108,11 +108,25 @@ describe("DashboardPanel", () => {
     // At defaults only the two folder cards can be reset (their default is native).
     expect(screen.getAllByRole("button", { name: "Reset this section" })).toHaveLength(2);
 
-    openSection("Accent");
-    expect(within(sectionOf("Accent")).queryByRole("button", { name: "Reset this section" })).toBeNull();
+    openSection("Accent and glass");
+    expect(within(sectionOf("Accent and glass")).queryByRole("button", { name: "Reset this section" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Use #39ff88 as theme accent" }));
-    fireEvent.click(within(sectionOf("Accent")).getByRole("button", { name: "Reset this section" }));
-    expect(within(sectionOf("Accent")).queryByRole("button", { name: "Reset this section" })).toBeNull();
+    fireEvent.click(within(sectionOf("Accent and glass")).getByRole("button", { name: "Reset this section" }));
+    expect(within(sectionOf("Accent and glass")).queryByRole("button", { name: "Reset this section" })).toBeNull();
+  });
+
+  it("drives the page glass from the Glass strength slider and resets it with the section", () => {
+    render(<DashboardPanel />);
+    openSettings();
+    openSection("Accent and glass");
+
+    const slider = screen.getByRole("slider", { name: "Glass strength" });
+    expect(slider).toHaveValue("50");
+    fireEvent.change(slider, { target: { value: "80" } });
+    expect(document.documentElement.style.getPropertyValue("--glass-strength")).toBe("0.8");
+
+    fireEvent.click(within(sectionOf("Accent and glass")).getByRole("button", { name: "Reset this section" }));
+    expect(screen.getByRole("slider", { name: "Glass strength" })).toHaveValue("50");
   });
 
   it("provides inline resets for overlay tint and individual shortcuts", () => {
@@ -392,7 +406,7 @@ describe("DashboardPanel", () => {
 
 /** Section titles per tab, in the order each tab shows them. */
 const sectionTitles = {
-  General: ["Updates", "Accent", "Screenshot folder", "Recording folder"],
+  General: ["Updates", "Accent and glass", "Screenshot folder", "Recording folder"],
   Screenshots: [
     "Capture toolbar",
     "Colors and size",
