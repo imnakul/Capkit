@@ -1,3 +1,4 @@
+import { measureTextBlock } from "./textMetrics";
 import type { Annotation } from "./annotations";
 import type { Point, Rect } from "./capture";
 import { resizeRectFromHandle, type ResizeHandle } from "../lib/geometry";
@@ -14,12 +15,8 @@ export function isResizableAnnotation(annotation: Annotation): boolean {
 export function annotationBounds(annotation: Annotation): Rect {
   if ("bounds" in annotation) return annotation.bounds;
   if (annotation.kind === "text") {
-    return {
-      x: annotation.position.x,
-      y: annotation.position.y,
-      width: Math.max(92, annotation.text.length * annotation.fontSize * 0.54),
-      height: annotation.fontSize * 1.35,
-    };
+    const size = measureTextBlock(annotation.text, annotation.fontSize, annotation.fontFamily);
+    return { x: annotation.position.x, y: annotation.position.y, width: size.width, height: size.height };
   }
   if (annotation.kind === "counter") {
     return {

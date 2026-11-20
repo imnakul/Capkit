@@ -114,7 +114,7 @@ describe("AnnotationCanvas effect previews", () => {
     expect(onDelete).toHaveBeenCalledWith("text-1");
   });
 
-  it("commits the active text before creating a new placeholder", () => {
+  it("commits the active text on click away without creating another box", () => {
     const textScene: AnnotationScene = {
       version: 1,
       elements: [{
@@ -150,7 +150,74 @@ describe("AnnotationCanvas effect previews", () => {
     fireEvent.pointerDown(screen.getByRole("application", { name: "Screenshot annotation canvas" }), { button: 0, clientX: 220, clientY: 180, pointerId: 4 });
 
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: "text-1", text: "Keep this edit" }));
-    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "text", text: "Type something" }));
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  describe("text creation", () => {
+    function renderText(overrides: Partial<React.ComponentProps<typeof AnnotationCanvas>> = {}): {
+      onCommit: ReturnType<typeof vi.fn>;
+      onDelete: ReturnType<typeof vi.fn>;
+      canvas: HTMLElement;
+    } {
+      const onCommit = vi.fn();
+      const onDelete = vi.fn();
+      render(
+        <AnnotationCanvas
+          activeTool="text"
+          bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+          cursor="crosshair"
+          scene={{ version: 1, elements: [] }}
+          snapshotUrl="asset://capture.png"
+          style={defaultAnnotationStyle}
+          onCommit={onCommit}
+          onDelete={onDelete}
+          onUpdate={() => undefined}
+          {...overrides}
+        />,
+      );
+      return { onCommit, onDelete, canvas: screen.getByRole("application", { name: "Screenshot annotation canvas" }) };
+    }
+
+    it("opens an editor with a placeholder on one click and stores nothing yet", () => {
+      const { onCommit, canvas } = renderText();
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
+      const editor = screen.getByRole("textbox", { name: "Edit annotation text" });
+      expect(editor).toHaveAttribute("placeholder", "Type something");
+      expect(editor).toHaveValue("");
+      expect(onCommit).not.toHaveBeenCalled();
+    });
+
+    it("drops empty or whitespace-only text without an undo entry", () => {
+      const { onCommit, onDelete, canvas } = renderText();
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
+      fireEvent.change(screen.getByRole("textbox", { name: "Edit annotation text" }), { target: { value: "   " } });
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 200, clientY: 200, pointerId: 2 });
+      expect(onCommit).not.toHaveBeenCalled();
+      expect(onDelete).not.toHaveBeenCalled();
+      expect(screen.queryByRole("textbox", { name: "Edit annotation text" })).toBeNull();
+    });
+
+    it("commits typed text on Enter, and Shift+Enter keeps editing", () => {
+      const { onCommit, canvas } = renderText();
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
+      const editor = screen.getByRole("textbox", { name: "Edit annotation text" });
+      fireEvent.change(editor, { target: { value: "one\ntwo" } });
+      fireEvent.keyDown(editor, { key: "Enter", shiftKey: true });
+      expect(onCommit).not.toHaveBeenCalled();
+      fireEvent.keyDown(editor, { key: "Enter" });
+      expect(onCommit).toHaveBeenCalledTimes(1);
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "text", text: "one\ntwo" }));
+    });
+
+    it("commits on Escape and returns focus to the canvas", () => {
+      const { onCommit, canvas } = renderText();
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
+      const editor = screen.getByRole("textbox", { name: "Edit annotation text" });
+      fireEvent.change(editor, { target: { value: "hello" } });
+      fireEvent.keyDown(editor, { key: "Escape" });
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ text: "hello" }));
+      expect(canvas).toHaveFocus();
+    });
   });
 
   it("opens a note pin from Select without moving focus off the comment", () => {

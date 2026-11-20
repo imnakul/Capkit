@@ -30,7 +30,6 @@ export type AnnotationStyle = {
   opacity: number;
   fontFamily: string;
   fontSize: number;
-  textContent: string;
 };
 
 type AnnotationBase = {
@@ -108,7 +107,6 @@ export const defaultAnnotationStyle: AnnotationStyle = {
   opacity: 1,
   fontFamily: "Caveat Variable",
   fontSize: 24,
-  textContent: "Type your note",
 };
 
 export const emptyScene: AnnotationScene = { version: 1, elements: [] };

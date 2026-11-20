@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { measureTextBlock, TEXT_LINE_HEIGHT } from "../domain/textMetrics";
 import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
 import type {
   Annotation,
@@ -101,7 +102,10 @@ export function AnnotationCanvas({
   const [movingAnnotation, setMovingAnnotation] = useState<{ initial: Annotation; current: Annotation } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  /** A text box created by a click but not yet committed; it enters the scene (and undo) only with content. */
+  const [pendingText, setPendingText] = useState<TextAnnotation | null>(null);
   const editingTextIdRef = useRef<string | null>(null);
+  const finishEditRef = useRef<() => void>(() => undefined);
   const editingValueRef = useRef("");
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
@@ -178,24 +182,26 @@ export function AnnotationCanvas({
     if ("setPointerCapture" in event.currentTarget) {
       event.currentTarget.setPointerCapture(event.pointerId);
     }
+    if (activeTool === "text" && editingTextIdRef.current !== null) {
+      // Clicking away only commits; it never starts a second box.
+      finishActiveTextEdit();
+      return;
+    }
     if (activeTool === "counter" || activeTool === "text") {
-      if (activeTool === "text") finishActiveTextEdit();
       const annotation = createAnnotation(activeTool, point, point, style, scene);
-      if (annotation !== null) {
+      if (annotation === null) return;
+      if (annotation.kind === "text") {
+        setPendingText(annotation);
+        setSelectedTextId(null);
+        beginTextEdit(annotation, "");
+      } else {
         onCommit(annotation);
-        if (annotation.kind === "text") {
-          setSelectedTextId(annotation.id);
-          setSelectedAnnotationId(annotation.id);
-          setEditingTextId(null);
-          editingTextIdRef.current = null;
-        }
       }
       return;
     }
+    finishActiveTextEdit();
     setSelectedTextId(null);
     setSelectedAnnotationId(null);
-    setEditingTextId(null);
-    editingTextIdRef.current = null;
     const nextDraft = { id: crypto.randomUUID(), start: point, end: point, points: [point] };
     draftRef.current = nextDraft;
     setDraft(nextDraft);
@@ -307,9 +313,8 @@ export function AnnotationCanvas({
 
   useEffect(() => {
     if (activeTool !== "text") {
+      finishEditRef.current();
       setSelectedTextId(null);
-      setEditingTextId(null);
-      editingTextIdRef.current = null;
     }
   }, [activeTool]);
 
@@ -329,41 +334,64 @@ export function AnnotationCanvas({
   function selectText(annotation: Extract<Annotation, { kind: "text" }>): void {
     setSelectedAnnotationId(annotation.id);
     if (selectedTextId === annotation.id) {
-      setEditingTextId(annotation.id);
-      editingTextIdRef.current = annotation.id;
-      const initialValue = annotation.text === "Type something" ? "" : annotation.text;
-      editingValueRef.current = initialValue;
-      setEditingValue(initialValue);
+      beginTextEdit(annotation, annotation.text);
       return;
     }
     setSelectedTextId(annotation.id);
     setEditingTextId(null);
   }
 
-  function commitTextEdit(annotation: Extract<Annotation, { kind: "text" }>): void {
+  function beginTextEdit(annotation: TextAnnotation, initialValue: string): void {
+    setSelectedAnnotationId(annotation.id);
+    setEditingTextId(annotation.id);
+    editingTextIdRef.current = annotation.id;
+    editingValueRef.current = initialValue;
+    setEditingValue(initialValue);
+  }
+
+  /** Commits the open edit: empty text is dropped (no undo entry for a new box), otherwise it is saved. */
+  function commitTextEdit(annotation: TextAnnotation): void {
     if (editingTextIdRef.current !== annotation.id) return;
     const currentValue = editingValueRef.current;
     editingTextIdRef.current = null;
-    const nextText = currentValue.trim() === "" ? "Type something" : currentValue;
-    if (nextText !== annotation.text) onUpdate({ ...annotation, text: nextText });
     setEditingTextId(null);
+    const isEmpty = currentValue.trim() === "";
+    if (pendingText?.id === annotation.id) {
+      setPendingText(null);
+      if (isEmpty) {
+        setSelectedAnnotationId(null);
+      } else {
+        onCommit({ ...annotation, text: currentValue });
+        setSelectedTextId(annotation.id);
+        setSelectedAnnotationId(annotation.id);
+      }
+    } else if (isEmpty) {
+      onDelete(annotation.id);
+      setSelectedTextId(null);
+      setSelectedAnnotationId(null);
+    } else if (currentValue !== annotation.text) {
+      onUpdate({ ...annotation, text: currentValue });
+    }
+    containerRef.current?.focus({ preventScroll: true });
   }
 
   function finishActiveTextEdit(): void {
     const activeId = editingTextIdRef.current;
     if (activeId === null) return;
-    const annotation = scene.elements.find(
-      (element): element is Extract<Annotation, { kind: "text" }> =>
-        element.kind === "text" && element.id === activeId,
-    );
+    const annotation =
+      pendingText?.id === activeId
+        ? pendingText
+        : scene.elements.find((element): element is TextAnnotation => element.kind === "text" && element.id === activeId);
     if (annotation !== undefined) commitTextEdit(annotation);
   }
+  finishEditRef.current = finishActiveTextEdit;
 
   return (
     <div
       className="absolute inset-0 touch-none overflow-hidden"
       ref={containerRef}
       role="application"
+      tabIndex={-1}
       aria-label="Screenshot annotation canvas"
       style={{ cursor }}
       onPointerDown={handlePointerDown}
@@ -382,11 +410,16 @@ export function AnnotationCanvas({
           {preview === null ? null : renderAnnotation(preview)}
         </Layer>
       </Stage>
-      {displayedElements.filter(isTextAnnotation).map((annotation) => {
+      {[...displayedElements.filter(isTextAnnotation), ...(pendingText === null ? [] : [pendingText])].map((annotation) => {
         const selected = selectedTextId === annotation.id;
         const editing = editingTextId === annotation.id;
-        const estimatedWidth = Math.max(92, annotation.text.length * annotation.fontSize * 0.54);
-        const estimatedHeight = annotation.fontSize * 1.35;
+        const measured = measureTextBlock(
+          editing ? editingValue || TEXT_PLACEHOLDER : annotation.text,
+          annotation.fontSize,
+          annotation.fontFamily,
+        );
+        const estimatedWidth = measured.width + (editing ? 6 : 0);
+        const estimatedHeight = measured.height;
         return (
           <div
             className="absolute z-20"
@@ -403,11 +436,14 @@ export function AnnotationCanvas({
               <textarea
                 aria-label="Edit annotation text"
                 autoFocus
-                className="h-full w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-left leading-none outline-none ring-1 ring-lime-300/75"
+                className="h-full w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-left outline-none ring-1 ring-lime-300/75 placeholder:text-current placeholder:opacity-45"
+                placeholder={TEXT_PLACEHOLDER}
+                rows={1}
                 style={{
                   color: annotation.color,
                   fontFamily: annotation.fontFamily,
                   fontSize: annotation.fontSize,
+                  lineHeight: TEXT_LINE_HEIGHT,
                 }}
                 value={editingValue}
                 onBlur={() => commitTextEdit(annotation)}
@@ -422,8 +458,7 @@ export function AnnotationCanvas({
                     commitTextEdit(annotation);
                   } else if (event.key === "Escape") {
                     event.preventDefault();
-                    setEditingTextId(null);
-                    editingTextIdRef.current = null;
+                    commitTextEdit(annotation);
                   }
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
@@ -434,6 +469,7 @@ export function AnnotationCanvas({
                 className={`h-full w-full border bg-transparent outline-none ${selected ? "border-dashed border-lime-300/80" : "border border-transparent"}`}
                 type="button"
                 onClick={() => selectText(annotation)}
+                onDoubleClick={() => beginTextEdit(annotation, annotation.text)}
                 onPointerDown={(event) => {
                   if (activeTool !== "select") event.stopPropagation();
                 }}
@@ -682,6 +718,7 @@ function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
           fontFamily={annotation.fontFamily}
           fontSize={annotation.fontSize}
           key={annotation.id}
+          lineHeight={TEXT_LINE_HEIGHT}
           opacity={annotation.opacity}
           text={annotation.text}
           x={annotation.position.x}
@@ -708,6 +745,10 @@ function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
       );
   }
 }
+
+/** Shown only while a text box is empty; it is never stored in the scene. */
+const TEXT_PLACEHOLDER = "Type something";
+type TextAnnotation = Extract<Annotation, { kind: "text" }>;
 
 type RasterEffectAnnotation = RegionAnnotation & { kind: "blur" | "pixelate" };
 
@@ -881,7 +922,7 @@ function createAnnotation(
         id,
         kind: "text",
         position: start,
-        text: "Type something",
+        text: "",
         color: style.color,
         fontFamily: style.fontFamily,
         fontSize: style.fontSize,

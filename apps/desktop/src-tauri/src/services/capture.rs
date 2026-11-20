@@ -1479,18 +1479,30 @@ fn render_annotation(canvas: &mut RgbaImage, annotation: &Annotation, scale: f64
             ..
         } => {
             if let Some(font) = system_font(font_family) {
-                draw_text_mut(
-                    canvas,
-                    parse_color(color, *opacity),
-                    non_negative_i32(position.x * scale),
-                    non_negative_i32(position.y * scale),
-                    (f64::from(*font_size) * scale) as f32,
-                    &font,
-                    text,
-                );
+                let color = parse_color(color, *opacity);
+                let pixel_size = (f64::from(*font_size) * scale) as f32;
+                for (index, line) in text.split('\n').enumerate() {
+                    draw_text_mut(
+                        canvas,
+                        color,
+                        non_negative_i32(position.x * scale),
+                        non_negative_i32(position.y * scale + text_line_offset(pixel_size, index)),
+                        pixel_size,
+                        &font,
+                        line,
+                    );
+                }
             }
         }
     }
+}
+
+/// Line height multiple shared with the TypeScript canvas (`TEXT_LINE_HEIGHT`).
+const TEXT_LINE_HEIGHT: f32 = 1.2;
+
+/// Vertical offset in output pixels of the zero-based text line `index`.
+fn text_line_offset(pixel_size: f32, index: usize) -> f64 {
+    f64::from(pixel_size * TEXT_LINE_HEIGHT) * index as f64
 }
 
 fn draw_thick_line(
@@ -2948,6 +2960,14 @@ mod tests {
     }
 
     const DASHED_RECT: &str = r##"{"id":"a","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":80,"height":40},"color":"#ff0000","fill":"transparent","strokeWidth":2,"strokeStyle":"dashed","strokeGeometry":{"strokes":[[{"x":10,"y":10},{"x":16,"y":10}],[{"x":20,"y":10},{"x":26,"y":10}]],"dots":[]}}"##;
+
+    #[test]
+    fn multi_line_text_steps_down_by_the_shared_line_height() {
+        assert_eq!(text_line_offset(20.0, 0), 0.0);
+        assert!((text_line_offset(20.0, 1) - 24.0).abs() < 1e-6);
+        assert!((text_line_offset(20.0, 2) - 48.0).abs() < 1e-6);
+        assert_eq!("one\ntwo".split('\n').count(), 2);
+    }
 
     #[test]
     fn dashed_geometry_leaves_gaps_between_dashes() {
