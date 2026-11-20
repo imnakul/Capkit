@@ -627,7 +627,13 @@ export function SettingsView(): React.JSX.Element {
                 summary={<><span className="size-2.5 rounded-full" style={{ backgroundColor: settings.accentColor }} /><span className="font-mono">{settings.accentColor.toUpperCase()}</span></>}
                 hint="Used for tools, focus and new annotations."
               >
-                <div className="flex flex-wrap gap-2">{accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}</div>
+                <div className="flex flex-wrap gap-2">
+                  {[...accentColors, ...(accentColors.some((color) => color === settings.accentColor) ? [] : [settings.accentColor])].map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}
+                  <label aria-label="Choose a custom accent color" className="relative grid size-6 cursor-pointer place-items-center rounded-full border border-dashed border-content/25 text-content/60 transition-colors duration-120 focus-within:ring-2 focus-within:ring-accent/50 hover:border-content/50 hover:text-content motion-reduce:transition-none">
+                    <Plus aria-hidden="true" size={13} />
+                    <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={settings.accentColor} onChange={(event) => update({ ...settings, accentColor: event.currentTarget.value })} />
+                  </label>
+                </div>
                 <SectionReset visible={changed.accent} onClick={() => update({ ...settings, accentColor: defaultSnaphubSettings.accentColor })} />
               </SettingsCard>
               <SettingsCard id="save-location" onToggle={toggleSection} open={openSections["save-location"]} icon={FolderCog} title="Screenshot folder" summary={<span title={saveDirectory}>{shortenPath(saveDirectory)}</span>}>
