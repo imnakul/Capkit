@@ -14,7 +14,6 @@ import {
   startSavedCaptureDrag,
 } from "../../lib/tauri";
 import {
-  Clock as Clock3,
   Copy,
   Delete as Trash2,
   FolderOpen,
@@ -285,12 +284,11 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
           <img alt={`Saved capture ${displayName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
         </div>
         <div className="border-t border-content/8 px-3 py-2.5">
-          <p className="truncate text-[13px] font-medium text-content" title={capture.fileName}>{displayName}</p>
+          <p className="truncate text-[13px] font-medium text-content" title={`${capture.fileName}, ${formatDate(capture.modifiedAt)}`}>{displayName}</p>
           <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-content/60">
             <span>{capture.width} × {capture.height}</span>
             <span>{formatBytes(capture.sizeBytes)}</span>
           </div>
-          <p className="mt-1.5 flex items-center gap-1 text-[11px] text-content/60"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
         </div>
       </button>
       <CopyButton copied={copied} label={`Copy ${displayName}`} onCopy={() => void copy()} />
