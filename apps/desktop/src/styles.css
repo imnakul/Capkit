@@ -175,7 +175,9 @@ button {
 }
 
 /* Dashboard scrollbars: slim, rounded, tinted from the content colour, and the
-   gutter is always reserved so content never shifts when a scrollbar appears. */
+   gutter is always reserved so content never shifts when a scrollbar appears.
+   The main column uses overflow-y-scroll, because a styled scrollbar can ignore
+   scrollbar-gutter and shift content when a short tab removes the scrollbar. */
 body.dashboard-surface :is(.overflow-y-auto, .overflow-auto) {
   scrollbar-gutter: stable;
 }
