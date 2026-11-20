@@ -1143,6 +1143,14 @@ export function App(): React.JSX.Element {
     }
   }, [session]);
 
+  const hasNotes = developerTools && activeNotes.length > 0;
+
+  /** Copy, Save and Copy & Save deliver the note (Markdown plus screenshot) once the capture has a pin. */
+  const finishCapture = useCallback((action: "copy" | "save" | "copy-and-save"): void => {
+    if (hasNotes) void handleNoteComplete(action);
+    else void handleComplete(action);
+  }, [handleComplete, handleNoteComplete, hasNotes]);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       // Escape is the capture surface's unconditional exit hatch. Handle it in
@@ -1195,27 +1203,27 @@ export function App(): React.JSX.Element {
         && key === settingsRef.current.shortcuts.captureModeCopy
       ) {
         event.preventDefault();
-        void handleComplete("copy");
+        finishCapture("copy");
       } else if (
         selectedCompletionReady
         && hasNoModifiers
         && key === settingsRef.current.shortcuts.captureModeCopyAndSave
       ) {
         event.preventDefault();
-        void handleComplete("copy-and-save");
+        finishCapture("copy-and-save");
       } else if (
         selectedCompletionReady
         && hasNoModifiers
         && key === settingsRef.current.shortcuts.captureModeSave
       ) {
         event.preventDefault();
-        void handleComplete("save");
+        finishCapture("save");
       } else if (selectedCompletionReady && developerTools && hasNoModifiers && key === "N") {
         event.preventDefault();
         setActiveTool("note");
       } else if (selectedCompletionReady && event.key === "Enter") {
         event.preventDefault();
-        void handleComplete("copy");
+        finishCapture("copy");
       } else if (
         event.ctrlKey
         && !busy
@@ -1239,7 +1247,7 @@ export function App(): React.JSX.Element {
     editingNoteId,
     requestExit,
     openGroupIndex,
-    handleComplete,
+    finishCapture,
     isDraftingSelection,
     pickColor,
     scrollingCapture,
@@ -1278,11 +1286,8 @@ export function App(): React.JSX.Element {
     saveShortcut: settings.shortcuts.captureModeSave,
     disabled: completionState.phase !== "idle",
     canReadText,
-    hasNotes: developerTools && activeNotes.length > 0,
     onAction: (id: CompletionActionId): void => {
-      if (id === "note-copy") void handleNoteComplete("copy");
-      else if (id === "note-save") void handleNoteComplete("save");
-      else if (id === "note-copy-and-save") void handleNoteComplete("copy-and-save");
+      if (id === "copy" || id === "save" || id === "copy-and-save") finishCapture(id);
       else if (id === "showcase") void handleComplete("save", "showcase");
       else if (id === "copy-text") void handleCopyText();
       else if (id === "find-sensitive") void findSensitiveText();
@@ -1446,6 +1451,7 @@ export function App(): React.JSX.Element {
               onToolChange={setActiveTool}
               onUndo={() => dispatchScene({ type: "undo" })}
               actionItems={horizontalActionItems}
+              keyboardEnabled={scrollingCapture === null && !busy}
               />
             </div>
           ) : null}

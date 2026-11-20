@@ -792,7 +792,7 @@ describe("App notes", () => {
     await waitFor(() => expect(captureMocks.getBrowserLinkStatus).toHaveBeenCalled());
   }
 
-  it("keeps a comment typed on a pin and offers the note actions", async () => {
+  it("keeps a comment typed on a pin, without separate note buttons", async () => {
     await openWithNotes();
     place("c1", 1);
     const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
@@ -801,7 +801,20 @@ describe("App notes", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
     place("c2", 2, { x: 10, y: 10, width: 50, height: 50 });
     expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy note" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy note" })).not.toBeInTheDocument();
+  });
+
+  it("reopens a pin's comment for editing when the pin is clicked", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onPinSelect as unknown as (id: string) => void)("c1"));
+    expect(await screen.findByRole("textbox", { name: "Comment for this spot" })).toHaveValue("Too tight");
   });
 
   it("renders the note image, then delivers the Markdown", async () => {
@@ -810,7 +823,7 @@ describe("App notes", () => {
     const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
     fireEvent.change(field, { target: { value: "Too tight" } });
     fireEvent.keyDown(field, { key: "Enter" });
-    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copy" }));
     await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
     expect(captureMocks.completeCapture.mock.calls.at(-1)?.[0]).toBe("note-image");
     const request = captureMocks.deliverNote.mock.calls[0]?.[0] as { markdown: string; mode: string };
@@ -824,7 +837,8 @@ describe("App notes", () => {
     await openWithNotes();
     place("c1", 1);
     fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("button", { name: "Copy note" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "c" });
     expect((await screen.findAllByText(/Couldn.t copy the note. clipboard busy/)).length).toBeGreaterThan(0);
     expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
   });
@@ -836,7 +850,10 @@ describe("App notes", () => {
     await openWithNotes();
     place("c1", 1);
     fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("button", { name: "Copy & save note" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "a" });
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect((captureMocks.deliverNote.mock.calls[0]?.[0] as { mode: string }).mode).toBe("copy-and-save");
     fireEvent.click(await screen.findByRole("button", { name: "Retry save" }));
     await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(2));
     const retry = captureMocks.deliverNote.mock.calls[1]?.[0] as { mode: string; noteId: string };
@@ -859,9 +876,26 @@ describe("App notes", () => {
     expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
   });
 
-  it("hides the note actions and tool when Developer tools is off", async () => {
+  it("saves the note with S", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "s" });
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect((captureMocks.deliverNote.mock.calls[0]?.[0] as { mode: string }).mode).toBe("save");
+  });
+
+  it("copies the plain image with C while the capture has no notes", async () => {
+    await openWithNotes();
+    fireEvent.keyDown(window, { key: "c" });
+    await waitFor(() => expect(captureMocks.completeCapture).toHaveBeenCalledWith("copy", expect.any(String), expect.anything(), expect.anything()));
+    expect(captureMocks.deliverNote).not.toHaveBeenCalled();
+  });
+
+  it("hides the Note tool when Developer tools is off", async () => {
     captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: false, state: "off", port: null, error: null, connected: [], paired: [] });
     await openWithNotes();
-    expect(screen.queryByRole("button", { name: "Copy note" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Note" })).not.toBeInTheDocument();
   });
 });

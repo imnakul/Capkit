@@ -234,7 +234,7 @@ export function NotesView(): React.JSX.Element {
           <div>
             <span className="mx-auto grid size-10 place-items-center rounded-lg border border-stone-300 bg-white text-stone-400 dark:border-white/10 dark:bg-[#2b2c29]"><NotePin aria-hidden="true" size={17} /></span>
             <p className="mx-auto mt-3 max-w-xs text-[13px] leading-5 text-stone-500 dark:text-stone-400">
-              {searching ? `No notes match '${debouncedQuery}'` : "No notes yet. Use the Note tool (N) in a capture, then Save note."}
+              {searching ? `No notes match '${debouncedQuery}'` : "No notes yet. Use the Note tool (N) in a capture, then press S to save it."}
             </p>
           </div>
         </div>

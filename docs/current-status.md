@@ -54,7 +54,7 @@ This document records what exists in the runtime today. The roadmap remains the 
 
 - **Implemented, awaiting manual checks:** Settings → Developer holds the "Developer tools" switch, pairing code, paired browsers and the "Get the extension" steps. The listener opens only while the switch is on.
 - **Implemented:** the extension answers hover and Find sensitive text for the window under the pointer. If it cannot answer, CapKit falls back to Windows accessibility for that one lookup, and `ui_region_at` is not called when the extension returned elements (counted in a test).
-- **Implemented:** the Note tool (shortcut N, shown only with Developer tools on) pins numbered notes. Copy, Save and Copy & save write Markdown plus a screenshot, and the Notes tab lists them. Clicking a note opens it in full (screenshot and complete Markdown). Notes commands return "Developer tools is off" when the switch is off.
+- **Implemented:** the Note tool (shortcut N, shown only with Developer tools on) pins numbered notes; in Select, clicking a pin reopens its comment. Once a capture has a pin, Copy, Save and Copy & Save (C, S, A, and Enter) write the note's Markdown plus a screenshot instead of a plain image, and the Notes tab lists them. Clicking a note opens it in full (screenshot and complete Markdown). Notes commands return "Developer tools is off" when the switch is off.
 - **Implemented:** when the extension has no details, a note falls back to the hovered element's role, name and screen-pixel box.
 - **Pending:** manual checks in Aside and Chrome, and the release binary size measurement for the SQLite dependency.
 

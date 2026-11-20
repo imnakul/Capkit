@@ -91,7 +91,7 @@ describe("NotesView", () => {
     mocks.listNotes.mockResolvedValue([]);
     render(<NotesView />);
     expect(
-      await screen.findByText("No notes yet. Use the Note tool (N) in a capture, then Save note."),
+      await screen.findByText("No notes yet. Use the Note tool (N) in a capture, then press S to save it."),
     ).toBeInTheDocument();
   });
 

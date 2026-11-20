@@ -28,8 +28,6 @@ export type CompletionActionDefinition = {
   icon: CapkitIconComponent;
   /** Only listed when the OS can read text from images. */
   needsTextRecognition: boolean;
-  /** Only listed when Developer tools is on and the capture has at least one note. */
-  noteOnly?: boolean;
 };
 
 export const completionActionCatalog: readonly CompletionActionDefinition[] = [
@@ -40,9 +38,6 @@ export const completionActionCatalog: readonly CompletionActionDefinition[] = [
   { id: "showcase", label: "Save & Showcase", icon: Presentation, needsTextRecognition: false },
   { id: "copy-text", label: "Copy text", icon: TextSelection, needsTextRecognition: true },
   { id: "find-sensitive", label: "Find sensitive text", icon: SecurityCheck, needsTextRecognition: true },
-  { id: "note-copy", label: "Copy note", icon: Clipboard, needsTextRecognition: false, noteOnly: true },
-  { id: "note-save", label: "Save note", icon: Download, needsTextRecognition: false, noteOnly: true },
-  { id: "note-copy-and-save", label: "Copy & save note", icon: CopyAndSaveIcon, needsTextRecognition: false, noteOnly: true },
 ];
 
 export type CompletionHandlers = {
@@ -53,8 +48,6 @@ export type CompletionHandlers = {
   onAction: (id: CompletionActionId) => void;
   /** False hides Copy text and Find sensitive text. */
   canReadText: boolean;
-  /** True when Developer tools is on and at least one note exists. */
-  hasNotes: boolean;
 };
 
 /** The enabled finishing actions that belong to one toolbar, in catalog order. */
@@ -71,7 +64,6 @@ export function completionRailItems(
   return completionActionCatalog
     .filter((action) => actions[action.id].enabled && actions[action.id].placement === placement)
     .filter((action) => handlers.canReadText || !action.needsTextRecognition)
-    .filter((action) => handlers.hasNotes || action.noteOnly !== true)
     .map((action) => {
       const shortcut = shortcuts[action.id];
       return {

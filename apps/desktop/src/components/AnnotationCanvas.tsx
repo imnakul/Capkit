@@ -148,7 +148,12 @@ export function AnnotationCanvas({
     if (activeTool === "select") {
       const hit = findAnnotationAtPoint(scene.elements, point);
       setSelectedAnnotationId(hit?.id ?? null);
-      if (hit?.kind === "counter") onPinSelect?.(hit.id);
+      if (hit?.kind === "counter" && onPinSelect !== undefined) {
+        // The pin's comment popover focuses its textarea; without this the press's
+        // default mousedown focus change would blur it, so typing would fire capture shortcuts.
+        event.preventDefault();
+        onPinSelect(hit.id);
+      }
       // Leave empty-space presses available to SelectionFrame so the capture
       // region itself can still be moved while Select is active.
       if (hit === undefined) return;

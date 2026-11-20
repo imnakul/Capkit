@@ -23,7 +23,6 @@ function handlers(onAction: (id: CompletionActionId) => void, canReadText = fals
     saveShortcut: "S",
     disabled: false,
     canReadText,
-    hasNotes: false,
     onAction,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId, SnaphubSettings } from "../domain/settings";
 import { SelectPointer, type CapkitIconComponent } from "./icons";
@@ -19,6 +19,8 @@ type AnnotationToolbarProps = {
   openGroupIndex: number | null;
   /** Finishing actions the user moved into this toolbar; shown after the tools. */
   actionItems?: readonly RailItem[];
+  /** False while the capture is busy (scrolling capture, finishing); V and the number keys do nothing. */
+  keyboardEnabled?: boolean;
   onToolChange: (tool: ToolId) => void;
   onStyleChange: (style: AnnotationStyle) => void;
   onUndo: () => void;
@@ -53,6 +55,7 @@ export function AnnotationToolbar({
   lastToolByGroup,
   openGroupIndex,
   actionItems = [],
+  keyboardEnabled = true,
   onToolChange,
   onStyleChange,
   onUndo,
@@ -138,6 +141,12 @@ export function AnnotationToolbar({
     });
   }
 
+  // Tools and groups (not finishing actions, which have their own letters) take 1–9, then 0.
+  items.slice(1).forEach((item, index) => {
+    const key = numberKeys[index];
+    if (key !== undefined) item.shortcut = key;
+  });
+
   for (const action of actionItems) {
     items.push({
       id: action.id,
@@ -151,6 +160,26 @@ export function AnnotationToolbar({
       onSelect: action.onSelect,
     });
   }
+
+  const shortcutItems = useRef(items);
+  useEffect(() => {
+    shortcutItems.current = items;
+  });
+
+  useEffect(() => {
+    if (!keyboardEnabled) return undefined;
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toUpperCase();
+      const item = shortcutItems.current.find((candidate) => candidate.shortcut === key && !candidate.id.startsWith("action-"));
+      if (item === undefined || item.disabled) return;
+      event.preventDefault();
+      item.onSelect();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return (): void => window.removeEventListener("keydown", onKeyDown);
+  }, [keyboardEnabled]);
 
   const activeIndex = items.findIndex((item) => item.active);
   const indicatorIndex = hoveredIndex ?? activeIndex;
@@ -187,6 +216,7 @@ export function AnnotationToolbar({
           return (
             <button
               aria-expanded={item.groupIndex === undefined ? undefined : isOpen}
+              aria-keyshortcuts={item.shortcut}
               aria-label={item.label}
               aria-pressed={item.active}
               className="group relative z-10 grid size-10 shrink-0 place-items-center rounded-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-lime-300 disabled:cursor-not-allowed disabled:opacity-30"
@@ -204,6 +234,14 @@ export function AnnotationToolbar({
                 size={18}
                 strokeWidth={item.active ? 2.4 : 1.9}
               />
+              {item.shortcut === undefined ? null : (
+                <kbd
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border px-1 text-center text-[8px] font-semibold leading-3 shadow-sm ${item.active ? "border-stone-950/20 bg-lime-200 text-stone-900" : "border-white/15 bg-stone-950/80 text-stone-300"}`}
+                >
+                  {item.shortcut}
+                </kbd>
+              )}
               <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-stone-950 px-2 py-1 text-[10px] font-medium text-stone-100 shadow-xl group-hover:block group-focus-visible:block">
                 {item.label}
                 {item.shortcut === undefined ? null : <kbd className="ml-2 text-stone-500">{item.shortcut}</kbd>}
@@ -231,6 +269,14 @@ export function AnnotationToolbar({
       )}
     </div>
   );
+}
+
+const numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"] as const;
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || (target instanceof HTMLElement && target.isContentEditable);
 }
 
 /** A style tool moved to the vertical rail still gets its colour and size row here. */

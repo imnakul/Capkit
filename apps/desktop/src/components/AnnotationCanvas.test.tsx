@@ -153,6 +153,29 @@ describe("AnnotationCanvas effect previews", () => {
     expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "text", text: "Type something" }));
   });
 
+  it("opens a note pin from Select without moving focus off the comment", () => {
+    const pin = { id: "pin-1", kind: "counter" as const, position: { x: 40, y: 40 }, value: 1, color: "#d9ff43", radius: 12, opacity: 1 };
+    const onPinSelect = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [pin] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onPinSelect={onPinSelect}
+        onUpdate={() => undefined}
+      />,
+    );
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    const pressed = fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 40, clientY: 40, pointerId: 3 });
+    expect(onPinSelect).toHaveBeenCalledWith("pin-1");
+    expect(pressed).toBe(false);
+  });
+
   it("selects, moves, and deletes an existing annotation", () => {
     const rectangle = {
       id: "rectangle-1",

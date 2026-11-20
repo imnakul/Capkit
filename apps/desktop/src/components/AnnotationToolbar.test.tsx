@@ -9,6 +9,7 @@ type HarnessProps = {
   toolbar?: typeof defaultSnaphubSettings.toolbar;
   initialTool?: ToolId;
   placement?: "top" | "bottom";
+  keyboardEnabled?: boolean;
   onToolChange?: (tool: ToolId) => void;
 };
 
@@ -17,6 +18,7 @@ function Harness({
   toolbar = defaultSnaphubSettings.toolbar,
   initialTool = "select",
   placement = "bottom",
+  keyboardEnabled = true,
   onToolChange,
 }: HarnessProps): React.JSX.Element {
   const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
@@ -27,6 +29,7 @@ function Harness({
       activeTool={activeTool}
       canRedo={false}
       canUndo={false}
+      keyboardEnabled={keyboardEnabled}
       lastToolByGroup={last}
       openGroupIndex={open}
       palette={defaultSnaphubSettings.palette}
@@ -129,8 +132,41 @@ describe("AnnotationToolbar", () => {
   it("does not advertise A for the Arrow tool", () => {
     render(<Harness toolbar={individual} />);
     const arrow = screen.getByRole("button", { name: "Arrow" });
-    expect(arrow.querySelector("kbd")).toBeNull();
+    expect(arrow).not.toHaveAttribute("aria-keyshortcuts", "A");
     expect(arrow).toHaveTextContent("Arrow");
+  });
+
+  it("numbers the tools 1–9 then 0 and shows each number on its button", () => {
+    render(<Harness toolbar={individual} />);
+    const tools = screen.getAllByRole("button").filter((button) => button.getAttribute("aria-label") !== "Select");
+    expect(screen.getByRole("button", { name: "Select" })).toHaveAttribute("aria-keyshortcuts", "V");
+    expect(tools.slice(0, 10).map((button) => button.getAttribute("aria-keyshortcuts"))).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+    expect(tools[0]?.querySelector("kbd")).toHaveTextContent("1");
+    expect(tools[10]).not.toHaveAttribute("aria-keyshortcuts");
+  });
+
+  it("picks a tool with its number key and Select with V", () => {
+    const onToolChange = vi.fn();
+    render(<Harness toolbar={individual} onToolChange={onToolChange} />);
+    const second = screen.getAllByRole("button").find((button) => button.getAttribute("aria-keyshortcuts") === "2");
+    fireEvent.keyDown(window, { key: "2" });
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(window, { key: "v" });
+    expect(onToolChange).toHaveBeenLastCalledWith("select");
+  });
+
+  it("ignores number keys while typing, with modifiers, or when the keyboard is off", () => {
+    const onToolChange = vi.fn();
+    const { rerender } = render(<Harness toolbar={individual} onToolChange={onToolChange} />);
+    const field = document.createElement("textarea");
+    document.body.append(field);
+    fireEvent.keyDown(field, { key: "1" });
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true });
+    expect(onToolChange).not.toHaveBeenCalled();
+    field.remove();
+    rerender(<Harness keyboardEnabled={false} toolbar={individual} onToolChange={onToolChange} />);
+    fireEvent.keyDown(window, { key: "1" });
+    expect(onToolChange).not.toHaveBeenCalled();
   });
 
   it("puts the style row on the far side of the selection when the toolbar sits above it", () => {

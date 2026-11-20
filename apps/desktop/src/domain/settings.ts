@@ -146,9 +146,6 @@ export const completionActionIds = [
   "showcase",
   "copy-text",
   "find-sensitive",
-  "note-copy",
-  "note-save",
-  "note-copy-and-save",
 ] as const;
 export type CompletionActionId = (typeof completionActionIds)[number];
 
@@ -171,9 +168,6 @@ export const defaultToolbarActions: Record<CompletionActionId, CompletionActionS
   showcase: defaultActionSetting,
   "copy-text": defaultActionSetting,
   "find-sensitive": defaultActionSetting,
-  "note-copy": { enabled: true, placement: "horizontal" },
-  "note-save": { enabled: true, placement: "horizontal" },
-  "note-copy-and-save": { enabled: true, placement: "horizontal" },
 };
 
 const toolbarActionsSchema = z.object({
@@ -184,11 +178,6 @@ const toolbarActionsSchema = z.object({
   showcase: completionActionSettingSchema.default(defaultActionSetting),
   "copy-text": completionActionSettingSchema.default(defaultActionSetting),
   "find-sensitive": completionActionSettingSchema.default(defaultActionSetting),
-  "note-copy": completionActionSettingSchema.default(defaultToolbarActions["note-copy"]),
-  "note-save": completionActionSettingSchema.default(defaultToolbarActions["note-save"]),
-  "note-copy-and-save": completionActionSettingSchema.default(
-    defaultToolbarActions["note-copy-and-save"],
-  ),
 });
 
 export const snaphubSettingsSchema = z.object({
