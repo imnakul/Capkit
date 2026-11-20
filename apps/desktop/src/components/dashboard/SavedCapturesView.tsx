@@ -182,7 +182,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
           <p className="text-[12px] text-content/45">Saving to</p>
           <p className="mt-0.5 truncate font-mono text-[12px] text-content" title={directory}>{directory}</p>
         </div>
-        <Button aria-label="Open save folder" onClick={() => void openFolder()}><FolderOpen aria-hidden="true" size={12} />Open folder</Button>
+        <Button aria-label="Open save folder" onClick={() => void openFolder()}>Open folder</Button>
       </div>
 
       {library.status === "error" ? <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{library.message}</div> : null}
