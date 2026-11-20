@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { CapKitLogo } from "./CapKitLogo";
 import { DashboardTitleBar } from "./DashboardTitleBar";
 import { dashboardSupportsGlass, getBrowserLinkStatus, listSavedCaptures, setBrowserLinkAccent, listenForBrowserLinkStatus, listenForShowcaseRequest, takePendingShowcase, updateGlobalShortcuts } from "../../lib/tauri";
 import { NotesView } from "./NotesView";
@@ -19,7 +20,6 @@ import {
   NotePin,
   Presentation,
   Record,
-  Scan as ScanLine,
   Settings,
   Sun,
 } from "../icons";
@@ -176,11 +176,14 @@ export function DashboardPanel(): React.JSX.Element {
       <DashboardTitleBar />
       <div className="flex min-h-0 flex-1">
       <aside className="flex w-48 shrink-0 flex-col border-r border-content/10 px-2.5 py-3.5 text-content/60">
-        <div className="flex items-center gap-2.5 px-2 pb-6 pt-1">
-          <div className="grid size-7 place-items-center rounded-md bg-accent text-accent-ink">
-            <ScanLine aria-hidden="true" size={15} strokeWidth={2} />
+        <div className="px-2 pb-5 pt-1">
+          <div className="flex items-center gap-2.5">
+            <CapKitLogo size={28} />
+            <p className="text-[14px] font-semibold text-content">CapKit</p>
           </div>
-          <p className="text-[13px] font-semibold text-content">CapKit</p>
+          <p className="mt-2.5 text-balance text-[11px] leading-snug text-content/45">
+            The lightweight desktop toolkit to capture, record, and showcase.
+          </p>
         </div>
 
         <nav aria-label="Capkit sections" className="relative flex flex-col gap-1">
