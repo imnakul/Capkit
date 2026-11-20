@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { captureDisplayName } from "./captureName";
 
 describe("captureDisplayName", () => {
-  it("drops the timestamp and extension, keeping the page or app name", () => {
-    expect(captureDisplayName("GitHub - capkit - Google Chrome_2026-11-20_10-16-47-913.png")).toBe(
-      "GitHub - capkit - Google Chrome",
-    );
+  it("keeps the page or app name and adds the date and time", () => {
+    const name = captureDisplayName("GitHub - capkit - Google Chrome_2026-11-20_10-16-47-913_CapKit.png");
+    expect(name).toMatch(/^GitHub - capkit - Google Chrome, /);
+    expect(name).toContain("Nov");
+    expect(captureDisplayName("GitHub_2026-11-20_10-16-47-913.png")).toMatch(/^GitHub, /);
   });
 
   it("gives older generic names a date so cards can be told apart", () => {

@@ -907,7 +907,7 @@ impl CaptureService {
             })
             .collect::<Vec<_>>();
         files.sort_by_key(|item| Reverse(item.2));
-        files.truncate(200);
+        files.truncate(1000);
 
         let thumbnails = session_directory().join("library-thumbnails");
         fs::create_dir_all(&thumbnails).map_err(SnaphubError::export)?;
@@ -985,7 +985,10 @@ impl CaptureService {
             .ok()
             .and_then(|label| label.as_deref().and_then(file_name_label))
             .unwrap_or_else(|| "CapKit".into());
-        let stem = format!("{label}_{}", Local::now().format("%Y-%m-%d_%H-%M-%S-%3f"));
+        let stem = format!(
+            "{label}_{}_CapKit",
+            Local::now().format("%Y-%m-%d_%H-%M-%S-%3f")
+        );
         for suffix in 0..10_000_u32 {
             let file_name = if suffix == 0 {
                 format!("{stem}.png")

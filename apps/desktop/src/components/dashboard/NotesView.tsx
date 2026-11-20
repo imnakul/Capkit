@@ -296,10 +296,13 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
   }, []);
 
   async function copy(): Promise<void> {
-    if (!(await onCopy(note))) return;
     setCopied(true);
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+    if (!(await onCopy(note))) {
+      window.clearTimeout(timer.current);
+      setCopied(false);
+    }
   }
 
   function onPointerMove(event: React.PointerEvent): void {

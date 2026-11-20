@@ -48,12 +48,15 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   const [actionError, setActionError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = useCallback(async (holdSpinner = false): Promise<void> => {
     setLibrary((current) => ({ status: "loading", captures: current.captures }));
     try {
+      // Hold the spinner for a beat so a fast refresh still visibly responds.
+      const minimumSpin = new Promise<void>((resolve) => window.setTimeout(resolve, holdSpinner ? 600 : 0));
       const [nextDirectory, captures] = await Promise.all([
         getSaveDirectory(),
         listSavedCaptures(),
+        minimumSpin,
       ]);
       setDirectory(nextDirectory);
       setLibrary({ status: "ready", captures });
@@ -169,7 +172,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
         trailing={
           <span className="flex items-center gap-3">
             <span className="tabular-nums">{library.captures.length} {library.captures.length === 1 ? "file" : "files"}</span>
-            <Button aria-label="Refresh saved captures" disabled={library.status === "loading"} variant="ghost" onClick={() => void refresh()}>
+            <Button aria-label="Refresh saved captures" disabled={library.status === "loading"} variant="ghost" onClick={() => void refresh(true)}>
               <RefreshCw aria-hidden="true" className={library.status === "loading" ? "animate-spin motion-reduce:animate-none" : ""} size={13} />
             </Button>
           </span>
@@ -191,7 +194,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
       {library.captures.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3">
           {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
@@ -231,11 +234,14 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
   }, []);
 
   async function copy(): Promise<void> {
-    const succeeded = await onCopy(capture);
-    if (!succeeded) return;
+    // Optimistic: flip the icon on press, take it back only if the copy fails.
     setCopied(true);
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
     copiedTimer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+    if (!(await onCopy(capture))) {
+      window.clearTimeout(copiedTimer.current);
+      setCopied(false);
+    }
   }
 
   function handleKeyDown(event: React.KeyboardEvent): void {
@@ -298,7 +304,7 @@ function ContextAction({ icon: Icon, label, onClick, disabled = false, destructi
 }
 
 function LoadingGrid(): React.JSX.Element {
-  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(13.5rem,1fr))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
+  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
 }
 
 function EmptyLibrary(): React.JSX.Element {
