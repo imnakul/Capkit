@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
 import type {
   Annotation,
   AnnotationScene,
@@ -16,6 +16,12 @@ import {
   translateAnnotation,
 } from "../domain/annotationGeometry";
 import { Cancel } from "./icons";
+import {
+  needsStrokeGeometry,
+  newSketchSeed,
+  shapeStrokeGeometry,
+  type StrokeGeometryInput,
+} from "../domain/strokeGeometry";
 import type { Point, Rect as CaptureRect } from "../domain/capture";
 import { normalizeRect, type ResizeHandle } from "../lib/geometry";
 
@@ -494,7 +500,92 @@ const SceneElements = memo(function SceneElements({
   return <>{elements.map(renderAnnotation)}</>;
 });
 
+/** Draws styled (dashed, dotted, sketchy) and rounded shapes from the shared geometry. */
+function renderStyledAnnotation(
+  annotation: Annotation,
+  input: StrokeGeometryInput,
+): React.JSX.Element {
+  const geometry = shapeStrokeGeometry(input);
+  const color = "color" in annotation ? annotation.color : "#000000";
+  const fill = annotation.kind === "rectangle" || annotation.kind === "ellipse" ? annotation.fill : "transparent";
+  const strokeWidth = input.strokeWidth;
+  return (
+    <Group key={annotation.id} opacity={annotation.opacity}>
+      {geometry.fill !== undefined && fill !== "transparent" ? (
+        <Shape
+          fill={fill}
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            geometry.fill?.forEach((point, index) => {
+              if (index === 0) context.moveTo(point.x, point.y);
+              else context.lineTo(point.x, point.y);
+            });
+            context.closePath();
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+      {geometry.strokes.length > 0 ? (
+        <Shape
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const stroke of geometry.strokes) {
+              stroke.forEach((point, index) => {
+                if (index === 0) context.moveTo(point.x, point.y);
+                else context.lineTo(point.x, point.y);
+              });
+            }
+            context.strokeShape(shape);
+          }}
+          stroke={color}
+          strokeWidth={strokeWidth}
+        />
+      ) : null}
+      {geometry.dots.length > 0 ? (
+        <Shape
+          fill={color}
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const dot of geometry.dots) {
+              context.moveTo(dot.x + strokeWidth / 2, dot.y);
+              context.arc(dot.x, dot.y, strokeWidth / 2, 0, Math.PI * 2);
+            }
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+    </Group>
+  );
+}
+
+/** The geometry input for annotations that can carry a line style, or null for the rest. */
+export function strokeGeometryInputOf(annotation: Annotation): StrokeGeometryInput | null {
+  return hasStrokeGeometry(annotation) ? annotation : null;
+}
+
+function hasStrokeGeometry(annotation: Annotation): annotation is Annotation & StrokeGeometryInput {
+  switch (annotation.kind) {
+    case "line":
+    case "arrow":
+    case "curved-arrow":
+    case "rectangle":
+    case "ellipse":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
+  const geometryInput = strokeGeometryInputOf(annotation);
+  if (geometryInput !== null && needsStrokeGeometry(geometryInput)) {
+    return renderStyledAnnotation(annotation, geometryInput);
+  }
   switch (annotation.kind) {
     case "line":
     case "pencil":
@@ -719,6 +810,15 @@ function isTextAnnotation(
   return annotation.kind === "text";
 }
 
+/** The line-style fields a new shape or line carries; solid shapes stay field-free like older scenes. */
+function styledFields(style: AnnotationStyle): { strokeStyle?: AnnotationStyle["strokeStyle"]; seed?: number } {
+  if (style.strokeStyle === "solid") return {};
+  return {
+    strokeStyle: style.strokeStyle,
+    ...(style.strokeStyle === "sketchy" ? { seed: newSketchSeed() } : {}),
+  };
+}
+
 function createAnnotation(
   tool: ToolId,
   start: Point,
@@ -749,6 +849,7 @@ function createAnnotation(
         color: style.color,
         strokeWidth: tool === "highlighter" ? style.strokeWidth * 4 : style.strokeWidth,
         opacity,
+        ...(tool === "pencil" || tool === "highlighter" ? {} : styledFields(style)),
       };
     case "rectangle":
     case "ellipse":
@@ -760,6 +861,8 @@ function createAnnotation(
         fill: style.fill,
         strokeWidth: style.strokeWidth,
         opacity,
+        ...styledFields(style),
+        ...(tool === "rectangle" && style.cornerRadius > 0 ? { cornerRadius: style.cornerRadius } : {}),
       };
     case "spotlight":
     case "blur":

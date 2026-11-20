@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { pointSchema, type Point, type Rect } from "./capture";
+import {
+  STROKE_STYLES,
+  type StrokeGeometryInput,
+  type StrokeStyle,
+} from "./strokeGeometry";
 
 const onScreenObjectBaseSchema = z.object({
   id: z.string().min(1),
@@ -16,6 +21,9 @@ export const onScreenObjectSchema = z.discriminatedUnion("kind", [
     kind: z.enum(["rectangle", "ellipse", "arrow", "blur"]),
     start: pointSchema,
     end: pointSchema,
+    strokeStyle: z.enum(STROKE_STYLES as [StrokeStyle, ...StrokeStyle[]]).optional(),
+    seed: z.number().int().positive().max(2_147_483_647).optional(),
+    cornerRadius: z.number().min(0).max(48).optional(),
   }),
   onScreenObjectBaseSchema.extend({
     kind: z.literal("text"),
@@ -33,7 +41,37 @@ export type OnScreenShapeObject = {
   size: number;
   start: Point;
   end: Point;
+  /** Absent means solid (older scenes). */
+  strokeStyle?: StrokeStyle | undefined;
+  seed?: number | undefined;
+  /** Rectangles only. Older scenes without it keep their original 3 px corner. */
+  cornerRadius?: number | undefined;
 };
+
+/** Corner radius Screen Draw rectangles had before the radius became a setting. */
+export const LEGACY_ON_SCREEN_CORNER_RADIUS = 3;
+
+/** Maps a Screen Draw shape to the shared geometry input; blur has no outline. */
+export function onScreenGeometryInput(object: OnScreenShapeObject): StrokeGeometryInput | null {
+  if (object.kind === "blur") return null;
+  if (object.kind === "arrow") {
+    return {
+      kind: "arrow",
+      points: [object.start, object.end],
+      strokeWidth: object.size,
+      strokeStyle: object.strokeStyle,
+      seed: object.seed,
+    };
+  }
+  return {
+    kind: object.kind,
+    bounds: normalizedObjectRect(object),
+    cornerRadius: object.kind === "rectangle" ? (object.cornerRadius ?? LEGACY_ON_SCREEN_CORNER_RADIUS) : undefined,
+    strokeWidth: object.size,
+    strokeStyle: object.strokeStyle,
+    seed: object.seed,
+  };
+}
 
 export type OnScreenObject =
   | {

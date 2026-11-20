@@ -211,3 +211,33 @@ export const Undo = createCapkitIcon(Undo03Icon);
 export const Upload = createCapkitIcon(Upload04Icon);
 export const View = createCapkitIcon(ViewIcon);
 export const VerticalScroll = createCapkitIcon(ScrollVerticalIcon);
+
+/** Inline 24px line-style previews; they draw the style itself so they read at a glance. */
+function createLineStyleIcon(children: React.JSX.Element): CapkitIconComponent {
+  function LineStyleIcon({ size = 16, strokeWidth = 1.8, className }: CapkitIconProps): React.JSX.Element {
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        height={size}
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={strokeWidth}
+        viewBox="0 0 24 24"
+        width={size}
+      >
+        {children}
+      </svg>
+    );
+  }
+  return LineStyleIcon;
+}
+
+export const LineStyleSolid = createLineStyleIcon(<path d="M3 12h18" />);
+export const LineStyleDashed = createLineStyleIcon(<path d="M3 12h4M10 12h4M17 12h4" />);
+export const LineStyleDotted = createLineStyleIcon(
+  <path d="M4 12h.01M8.5 12h.01M13 12h.01M17.5 12h.01M21 12h.01" strokeWidth={3} />,
+);
+export const LineStyleSketchy = createLineStyleIcon(<path d="M3 13c3-3 5 2 8-1s5 2 10-1M4 15c4-1 6 1 9 0" />);

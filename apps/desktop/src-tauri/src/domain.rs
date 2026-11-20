@@ -59,6 +59,71 @@ pub struct AnnotationScene {
     pub elements: Vec<Annotation>,
 }
 
+/// Pre-computed outline of a styled (dashed, dotted, sketchy) or rounded shape. The frontend owns the
+/// geometry so the canvas, Screen Draw and this exporter draw identical points.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrokeGeometry {
+    /// Polylines to stroke at the annotation's stroke width.
+    #[serde(default)]
+    pub strokes: Vec<Vec<Point>>,
+    /// Dot centres; each is stamped as a disc as wide as the stroke.
+    #[serde(default)]
+    pub dots: Vec<Point>,
+    /// Closed polygon to fill with the annotation's fill colour.
+    #[serde(default)]
+    pub fill: Option<Vec<Point>>,
+}
+
+/// Upper bound on geometry points in one scene, so a hostile or buggy request cannot exhaust memory.
+pub const MAX_SCENE_GEOMETRY_POINTS: usize = 200_000;
+
+impl StrokeGeometry {
+    pub fn point_count(&self) -> usize {
+        self.strokes.iter().map(Vec::len).sum::<usize>()
+            + self.dots.len()
+            + self.fill.as_ref().map_or(0, Vec::len)
+    }
+
+    /// Rejects non-finite coordinates and degenerate strokes.
+    pub fn validate(&self) -> Result<(), String> {
+        let finite = |point: &Point| point.x.is_finite() && point.y.is_finite();
+        if self.strokes.iter().any(|stroke| stroke.len() < 2) {
+            return Err("A stroke needs at least two points".into());
+        }
+        let all_finite = self.strokes.iter().flatten().all(finite)
+            && self.dots.iter().all(finite)
+            && self.fill.iter().flatten().all(finite);
+        if !all_finite {
+            return Err("Stroke geometry contains a non-finite coordinate".into());
+        }
+        Ok(())
+    }
+}
+
+impl Annotation {
+    pub fn stroke_geometry(&self) -> Option<&StrokeGeometry> {
+        match self {
+            Self::Line {
+                stroke_geometry, ..
+            }
+            | Self::Arrow {
+                stroke_geometry, ..
+            }
+            | Self::CurvedArrow {
+                stroke_geometry, ..
+            }
+            | Self::Rectangle {
+                stroke_geometry, ..
+            }
+            | Self::Ellipse {
+                stroke_geometry, ..
+            } => stroke_geometry.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 // Scene fields remain explicit for versioned IPC fidelity even when a renderer does not yet use
@@ -72,6 +137,8 @@ pub enum Annotation {
         color: String,
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
+        #[serde(default, rename = "strokeGeometry")]
+        stroke_geometry: Option<StrokeGeometry>,
     },
     Arrow {
         id: String,
@@ -80,6 +147,8 @@ pub enum Annotation {
         color: String,
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
+        #[serde(default, rename = "strokeGeometry")]
+        stroke_geometry: Option<StrokeGeometry>,
     },
     CurvedArrow {
         id: String,
@@ -88,6 +157,8 @@ pub enum Annotation {
         color: String,
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
+        #[serde(default, rename = "strokeGeometry")]
+        stroke_geometry: Option<StrokeGeometry>,
     },
     Highlighter {
         id: String,
@@ -113,6 +184,8 @@ pub enum Annotation {
         fill: String,
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
+        #[serde(default, rename = "strokeGeometry")]
+        stroke_geometry: Option<StrokeGeometry>,
     },
     Ellipse {
         id: String,
@@ -122,6 +195,8 @@ pub enum Annotation {
         fill: String,
         #[serde(rename = "strokeWidth")]
         stroke_width: f32,
+        #[serde(default, rename = "strokeGeometry")]
+        stroke_geometry: Option<StrokeGeometry>,
     },
     Spotlight {
         id: String,

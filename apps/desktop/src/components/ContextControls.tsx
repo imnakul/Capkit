@@ -1,7 +1,10 @@
 import { useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId } from "../domain/settings";
+import { LineStyleControl } from "./LineStyleControl";
 import type { ToolbarToolDefinition } from "./toolbarCatalog";
+
+const LINE_STYLE_TOOLS: readonly ToolId[] = ["rectangle", "ellipse", "line", "arrow", "curved-arrow"];
 
 type ContextControlsProps = {
   activeTool: ToolId;
@@ -97,6 +100,13 @@ export function ContextControls({
               onChange={(event) => onStyleChange({ ...style, strokeWidth: Number(event.currentTarget.value) })}
             />
           </label>
+
+          {LINE_STYLE_TOOLS.includes(activeTool) ? (
+            <LineStyleControl
+              value={style.strokeStyle}
+              onChange={(strokeStyle) => onStyleChange({ ...style, strokeStyle })}
+            />
+          ) : null}
 
           {activeTool === "text" ? (
             <select

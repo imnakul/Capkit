@@ -34,10 +34,12 @@ import {
 } from "../domain/settings";
 import {
   initialOnScreenHistory,
+  LEGACY_ON_SCREEN_CORNER_RADIUS,
   moveArrowEndpoint,
   normalizedObjectRect,
   objectAtPoint,
   objectBounds,
+  onScreenGeometryInput,
   onScreenHistoryReducer,
   parsePersistedOnScreenScene,
   pointsToSvgPath,
@@ -49,6 +51,8 @@ import {
   type OnScreenShapeObject,
   type ResizeHandle,
 } from "../domain/onScreen";
+import { needsStrokeGeometry, newSketchSeed, shapeStrokeGeometry, type StrokeGeometryInput, type StrokeStyle } from "../domain/strokeGeometry";
+import { LineStyleControl } from "./LineStyleControl";
 import { onScreenCursor } from "../lib/cursor";
 import {
   describeInvokeError,
@@ -217,6 +221,8 @@ export function OnScreenOverlay(): React.JSX.Element {
     createInitialHistory,
   );
   const [draft, setDraft] = useState<OnScreenObject | null>(null);
+  /** Line style for new shapes; per Screen Draw session, it does not write Settings. */
+  const [strokeStyle, setStrokeStyle] = useState<StrokeStyle>("solid");
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const [pointerHeld, setPointerHeld] = useState(false);
@@ -804,6 +810,7 @@ export function OnScreenOverlay(): React.JSX.Element {
         point,
         settings.onScreen.color,
         settings.onScreen.strokeSize,
+        strokeStyle,
       );
       draftRef.current = nextDraft;
       setDraft(nextDraft);
@@ -1071,8 +1078,10 @@ export function OnScreenOverlay(): React.JSX.Element {
         canUndo={history.past.length > 0}
         capturing={isCapturing}
         saveDisabled={saveInFlight.current || isCapturing}
+        strokeStyle={strokeStyle}
         toolShortcuts={settings.onScreen.toolShortcuts}
         onClear={clearAll}
+        onStrokeStyleChange={setStrokeStyle}
         onRedo={redo}
         onSave={() => void saveScreen()}
         onToolChange={selectTool}
@@ -1131,6 +1140,7 @@ function createDraft(
   point: Point,
   color: string,
   size: number,
+  strokeStyle: StrokeStyle,
 ): OnScreenObject {
   if (tool === "pencil") {
     return {
@@ -1148,6 +1158,9 @@ function createDraft(
     size,
     start: point,
     end: point,
+    ...(strokeStyle === "solid" || tool === "blur"
+      ? {}
+      : { strokeStyle, ...(strokeStyle === "sketchy" ? { seed: newSketchSeed() } : {}) }),
   };
 }
 
@@ -1300,6 +1313,31 @@ function PointerLayer({
   );
 }
 
+/** Draws dashed, dotted, sketchy or rounded shapes from the same geometry as the capture canvas. */
+function StyledSvgObject({
+  color,
+  id,
+  input,
+  size,
+}: {
+  color: string;
+  id: string;
+  input: StrokeGeometryInput;
+  size: number;
+}): React.JSX.Element {
+  const geometry = shapeStrokeGeometry(input);
+  return (
+    <g data-onscreen-object={id}>
+      {geometry.strokes.length > 0 ? (
+        <path d={geometry.strokes.map((stroke) => pointsToSvgPath(stroke)).join(" ")} fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={size} />
+      ) : null}
+      {geometry.dots.map((dot) => (
+        <circle cx={dot.x} cy={dot.y} fill={color} key={`${String(dot.x)}:${String(dot.y)}`} r={size / 2} />
+      ))}
+    </g>
+  );
+}
+
 function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.Element | null {
   if (object.kind === "blur") return null;
   if (object.kind === "text") {
@@ -1310,10 +1348,20 @@ function OnScreenSvgObject({ object }: { object: OnScreenObject }): React.JSX.El
   }
   const rect = normalizedObjectRect(object);
   if (object.kind === "rectangle") {
-    return <rect data-onscreen-object={object.id} fill="transparent" height={rect.height} rx="3" stroke={object.color} strokeWidth={object.size} width={rect.width} x={rect.x} y={rect.y} />;
+    // Old scenes (no radius, solid) keep the native rect with its original 3 px corner.
+    const input = onScreenGeometryInput(object);
+    const styled = (object.strokeStyle ?? "solid") !== "solid" || (object.cornerRadius ?? 0) > 0;
+    if (input !== null && styled) return <StyledSvgObject color={object.color} id={object.id} input={input} size={object.size} />;
+    return <rect data-onscreen-object={object.id} fill="transparent" height={rect.height} rx={object.cornerRadius ?? LEGACY_ON_SCREEN_CORNER_RADIUS} stroke={object.color} strokeWidth={object.size} width={rect.width} x={rect.x} y={rect.y} />;
   }
   if (object.kind === "ellipse") {
+    const input = onScreenGeometryInput(object);
+    if (input !== null && needsStrokeGeometry(input)) return <StyledSvgObject color={object.color} id={object.id} input={input} size={object.size} />;
     return <ellipse cx={rect.x + rect.width / 2} cy={rect.y + rect.height / 2} data-onscreen-object={object.id} fill="transparent" rx={rect.width / 2} ry={rect.height / 2} stroke={object.color} strokeWidth={object.size} />;
+  }
+  if (object.strokeStyle !== undefined && object.strokeStyle !== "solid") {
+    const input = onScreenGeometryInput(object);
+    if (input !== null) return <StyledSvgObject color={object.color} id={object.id} input={input} size={object.size} />;
   }
   return <line data-onscreen-object={object.id} markerEnd="url(#on-screen-arrow)" stroke={object.color} strokeLinecap="round" strokeWidth={object.size} x1={object.start.x} x2={object.end.x} y1={object.start.y} y2={object.end.y} />;
 }
@@ -1474,7 +1522,9 @@ const OnScreenDock = memo(function OnScreenDock({
   canRedo,
   capturing,
   saveDisabled,
+  strokeStyle,
   toolShortcuts,
+  onStrokeStyleChange,
   onToolChange,
   onUndo,
   onRedo,
@@ -1486,7 +1536,9 @@ const OnScreenDock = memo(function OnScreenDock({
   canRedo: boolean;
   capturing: boolean;
   saveDisabled: boolean;
+  strokeStyle: StrokeStyle;
   toolShortcuts: Record<OnScreenDrawingToolId, string>;
+  onStrokeStyleChange: (style: StrokeStyle) => void;
   onToolChange: (tool: OnScreenToolId) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -1513,6 +1565,9 @@ const OnScreenDock = memo(function OnScreenDock({
           return <button aria-label={`${tool.label}${shortcut === "" ? "" : `, shortcut ${shortcut}`}`} aria-pressed={activeTool === tool.id} className={`relative z-10 grid size-11 shrink-0 place-items-center rounded-[11px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-white ${highlighted ? "text-[#11130f]" : "text-stone-300 hover:text-white"}`} key={tool.id} title={tool.label} type="button" onClick={() => onToolChange(tool.id)} onFocus={() => setHoveredTool(tool.id)} onPointerEnter={() => setHoveredTool(tool.id)}><Icon aria-hidden="true" size={20} strokeWidth={2} />{shortcut === "" ? null : <kbd className="absolute right-1 top-1 font-mono text-[10px] font-bold opacity-65">{shortcut}</kbd>}</button>;
         })}
       </div>
+      {activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "arrow" ? (
+        <LineStyleControl value={strokeStyle} onChange={onStrokeStyleChange} />
+      ) : null}
       <span aria-hidden="true" className="mx-0.5 h-7 w-px bg-white/12" />
       <button aria-label="Undo on-screen change" className="grid size-11 place-items-center rounded-[11px] text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-25" disabled={!canUndo} title="Undo" type="button" onClick={onUndo}><Undo aria-hidden="true" size={20} /></button>
       <button aria-label="Redo on-screen change" className="grid size-11 place-items-center rounded-[11px] text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-25" disabled={!canRedo} title="Redo" type="button" onClick={onRedo}><Redo aria-hidden="true" size={20} /></button>

@@ -1,5 +1,6 @@
 import { translateAnnotation } from "./annotationGeometry";
 import type { Point, Rect } from "./capture";
+import type { StrokeStyle } from "./strokeGeometry";
 
 export type ToolId =
   | "select"
@@ -19,6 +20,10 @@ export type ToolId =
   | "text";
 
 export type AnnotationStyle = {
+  /** Line style for new shapes and lines. Session-only unless set in Settings. */
+  strokeStyle: StrokeStyle;
+  /** Corner radius for new rectangles, in logical pixels. */
+  cornerRadius: number;
   color: string;
   fill: string;
   strokeWidth: number;
@@ -38,6 +43,10 @@ export type LineAnnotation = AnnotationBase & {
   points: readonly Point[];
   color: string;
   strokeWidth: number;
+  /** Only meaningful for line, arrow and curved-arrow; absent means solid. */
+  strokeStyle?: StrokeStyle;
+  /** Rough.js seed so a sketchy line keeps its wobble when moved. */
+  seed?: number;
 };
 
 export type ShapeAnnotation = AnnotationBase & {
@@ -46,6 +55,12 @@ export type ShapeAnnotation = AnnotationBase & {
   color: string;
   fill: string;
   strokeWidth: number;
+  /** Absent means solid. */
+  strokeStyle?: StrokeStyle;
+  /** Rough.js seed so a sketchy shape keeps its wobble when moved. */
+  seed?: number;
+  /** Rectangles only. Clamped at render time to half the shorter side. */
+  cornerRadius?: number;
 };
 
 export type RegionAnnotation = AnnotationBase & {
@@ -85,6 +100,8 @@ export type AnnotationScene = {
 };
 
 export const defaultAnnotationStyle: AnnotationStyle = {
+  strokeStyle: "solid",
+  cornerRadius: 0,
   color: "#d9ff43",
   fill: "transparent",
   strokeWidth: 4,
