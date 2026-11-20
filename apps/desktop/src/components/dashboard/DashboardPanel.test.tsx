@@ -32,12 +32,12 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     expect(screen.queryByRole("button", { name: "Open Cloud" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Open Record" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Screen record" })).toBeVisible();
     // Studio is reached from a recording, so it is no longer a section.
     expect(screen.queryByRole("button", { name: "Open Studio" })).toBeNull();
   });
 
-  it("orders the sidebar Screenshots, Showcase, Record, then Settings", () => {
+  it("groups the sidebar: Screenshots and Screen record, then Studio, then Settings", () => {
     render(<DashboardPanel />);
 
     const nav = screen.getByRole("navigation", { name: "Capkit sections" });
@@ -46,14 +46,14 @@ describe("DashboardPanel", () => {
       within(nav)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Open Screenshots", "Open Showcase", "Open Record", "Open Settings"]);
+    ).toEqual(["Open Screenshots", "Open Screen record", "Open Showcase", "Open Settings"]);
   });
 
-  it("opens the recorder from Record", async () => {
+  it("opens the recorder from Screen record", async () => {
     render(<DashboardPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Record" }));
-    expect(await screen.findByRole("heading", { name: "Record" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open Screen record" }));
+    expect(await screen.findByRole("heading", { name: "Screen record" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Start recording" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Screenshots" })).not.toBeInTheDocument();
   });

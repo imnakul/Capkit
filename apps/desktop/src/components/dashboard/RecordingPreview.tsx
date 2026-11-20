@@ -116,7 +116,8 @@ export function RecordingPreview({ item }: { item: RecordingArtifacts }): React.
         controls
         preload="metadata"
         ref={videoRef}
-        src={recordingSrc(item.videoPath)}
+        // The fragment makes the webview decode and show the first frame as the poster.
+        src={`${recordingSrc(item.videoPath)}#t=0.001`}
         onEnded={stopLoop}
         onPause={() => {
           stopLoop();

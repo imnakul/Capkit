@@ -97,9 +97,9 @@ export function RecordView(): React.JSX.Element {
   }
 
   return (
-    <section aria-label="Record" className="flex min-h-full flex-col px-6 py-4">
+    <section aria-label="Screen record" className="flex min-h-full flex-col px-6 py-4">
       <PageHeader
-        title="Record"
+        title="Screen record"
         trailing={
           <Button aria-label="Start recording" disabled={supported === false || opening} variant="primary" onClick={() => void start()}>
             <Record aria-hidden="true" size={13} />

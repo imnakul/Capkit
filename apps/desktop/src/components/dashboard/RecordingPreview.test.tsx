@@ -95,7 +95,7 @@ describe("RecordingPreview", () => {
     fireEvent.play(preview);
 
     expect(loadTrack).not.toHaveBeenCalled();
-    expect(preview).toHaveAttribute("src", item.videoPath);
+    expect(preview).toHaveAttribute("src", `${item.videoPath}#t=0.001`);
   });
 
   it("maps a wide video into a tall box and a tall video into a wide box", () => {

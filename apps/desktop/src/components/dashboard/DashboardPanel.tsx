@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSnaphubSettings } from "../../domain/settings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CapKitLogo } from "./CapKitLogo";
@@ -26,17 +26,33 @@ import {
 
 type DashboardTab = "screenshots" | "notes" | "showcase" | "record" | "settings";
 
-const navigation = [
-  { id: "screenshots", label: "Screenshots", icon: Image },
-  { id: "notes", label: "Page notes", icon: StickyNote },
-  { id: "showcase", label: "Showcase", icon: Presentation },
-  { id: "record", label: "Record", icon: Record },
-  { id: "settings", label: "Settings", icon: Settings },
-] as const satisfies readonly { id: DashboardTab; label: string; icon: typeof Settings }[];
+type NavigationItem = { id: DashboardTab; label: string; icon: typeof Settings };
+type NavigationGroup = { heading?: string; hasDivider?: boolean; items: readonly NavigationItem[] };
+
+/** Capture things first, then the studio that edits them, then settings apart at the end. */
+const navigationGroups: readonly NavigationGroup[] = [
+  {
+    items: [
+      { id: "screenshots", label: "Screenshots", icon: Image },
+      { id: "record", label: "Screen record", icon: Record },
+      { id: "notes", label: "Page notes", icon: StickyNote },
+    ],
+  },
+  { heading: "Studio", items: [{ id: "showcase", label: "Showcase", icon: Presentation }] },
+  { hasDivider: true, items: [{ id: "settings", label: "Settings", icon: Settings }] },
+];
+
+function navPillStyle(position: { top: number; height: number } | undefined): React.CSSProperties {
+  return position === undefined
+    ? { height: 0 }
+    : { height: `${String(position.height)}px`, transform: `translateY(${String(position.top)}px)` };
+}
 
 export function DashboardPanel(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<DashboardTab>("screenshots");
-  const [hoveredNavIndex, setHoveredNavIndex] = useState<number | null>(null);
+  const [hoveredTab, setHoveredTab] = useState<DashboardTab | null>(null);
+  const [navPositions, setNavPositions] = useState<Partial<Record<DashboardTab, { top: number; height: number }>>>({});
+  const navButtons = useRef(new Map<DashboardTab, HTMLButtonElement>());
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
   const [isShowcaseStylePending, setIsShowcaseStylePending] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
@@ -167,8 +183,15 @@ export function DashboardPanel(): React.JSX.Element {
     });
   }
 
-  const visibleNavigation = navigation.filter((item) => item.id !== "notes" || developerTools);
-  const activeIndex = Math.max(0, visibleNavigation.findIndex((item) => item.id === activeTab));
+  const visibleGroups = navigationGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.id !== "notes" || developerTools) }))
+    .filter((group) => group.items.length > 0);
+  useLayoutEffect(() => {
+    const next: Partial<Record<DashboardTab, { top: number; height: number }>> = {};
+    for (const [id, button] of navButtons.current) next[id] = { top: button.offsetTop, height: button.offsetHeight };
+    setNavPositions(next);
+  }, [developerTools]);
+
   const nextAppearance = settings.appearance === "dark" ? "light" : "dark";
   const ThemeIcon = settings.appearance === "dark" ? Sun : Moon;
 
@@ -187,39 +210,60 @@ export function DashboardPanel(): React.JSX.Element {
           </p>
         </div>
 
-        <nav aria-label="Capkit sections" className="relative flex flex-col gap-1" onMouseLeave={() => setHoveredNavIndex(null)}>
+        <nav aria-label="Capkit sections" className="relative flex flex-col" onMouseLeave={() => setHoveredTab(null)}>
           {/* Hover pill glides between items like the settings tabs; the active pill sits above it. */}
-          <span
-            aria-hidden="true"
-            className={`pointer-events-none absolute inset-x-0 top-0 h-8 rounded-md bg-content/6 transition-[transform,opacity] duration-200 ease-track motion-reduce:transition-none ${hoveredNavIndex === null ? "opacity-0" : "opacity-100"}`}
-            style={{ transform: `translateY(${String((hoveredNavIndex ?? activeIndex) * 36)}px)` }}
-          />
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 h-8 rounded-md bg-content/8 transition-transform duration-200 ease-track motion-reduce:transition-none"
-            style={{ transform: `translateY(${String(activeIndex * 36)}px)` }}
-          />
-          {visibleNavigation.map((item, index) => {
-            const Icon = item.icon;
-            const isActive = item.id === activeTab;
-            return (
-              <button
-                aria-label={`Open ${item.label}`}
-                aria-current={isActive ? "page" : undefined}
-                className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none transition-colors duration-120 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-[current=page]:font-medium aria-[current=page]:text-content motion-reduce:transition-none"
-                key={item.id}
-                type="button"
-                onBlur={() => setHoveredNavIndex(null)}
-                onClick={() => setActiveTab(item.id)}
-                onFocus={() => setHoveredNavIndex(index)}
-                onMouseEnter={() => setHoveredNavIndex(index)}
-              >
-                <Icon aria-hidden="true" className={isActive ? "text-accent" : "text-content/45"} size={14} strokeWidth={1.75} />
-                {item.label}
-              </button>
-            );
-          })}
+          {hoveredTab === null && navPositions[activeTab] === undefined ? null : (
+            <>
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-x-0 top-0 rounded-md bg-content/6 transition-[transform,opacity,height] duration-200 ease-track motion-reduce:transition-none ${hoveredTab === null ? "opacity-0" : "opacity-100"}`}
+                style={navPillStyle(navPositions[hoveredTab ?? activeTab])}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 top-0 rounded-md bg-content/8 transition-[transform,height] duration-200 ease-track motion-reduce:transition-none"
+                style={navPillStyle(navPositions[activeTab])}
+              />
+            </>
+          )}
+          {visibleGroups.map((group, groupIndex) => (
+            <div
+              className={`flex flex-col gap-1 ${groupIndex === 0 ? "" : group.hasDivider ? "mt-3 border-t border-content/10 pt-3" : "mt-4"}`}
+              key={group.heading ?? group.items[0]?.id}
+              role="group"
+              aria-label={group.heading}
+            >
+              {group.heading === undefined ? null : (
+                <p className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-content/45">{group.heading}</p>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = item.id === activeTab;
+                return (
+                  <button
+                    aria-label={`Open ${item.label}`}
+                    aria-current={isActive ? "page" : undefined}
+                    className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none transition-colors duration-120 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-[current=page]:font-medium aria-[current=page]:text-content motion-reduce:transition-none"
+                    key={item.id}
+                    ref={(node: HTMLButtonElement | null): void => {
+                      if (node === null) navButtons.current.delete(item.id);
+                      else navButtons.current.set(item.id, node);
+                    }}
+                    type="button"
+                    onBlur={() => setHoveredTab(null)}
+                    onClick={() => setActiveTab(item.id)}
+                    onFocus={() => setHoveredTab(item.id)}
+                    onMouseEnter={() => setHoveredTab(item.id)}
+                  >
+                    <Icon aria-hidden="true" className={isActive ? "text-accent" : "text-content/45"} size={14} strokeWidth={1.75} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
+
 
         <div className="mt-auto space-y-3 px-1">
           <UpdateNotice controller={updates} />

@@ -47,7 +47,7 @@ describe("SavedCapturesView", () => {
     const onShowcase = vi.fn();
     render(<SavedCapturesView onShowcase={onShowcase} />);
 
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.click(screen.getByRole("button", { name: "Open save folder" }));
     fireEvent.click(capture);
     expect(mocks.openFolder).toHaveBeenCalledOnce();
@@ -86,7 +86,7 @@ describe("SavedCapturesView", () => {
         modifiedAt: "2026-07-19T09:30:00+05:30",
       },
     ]);
-    await screen.findByRole("button", { name: "View capture.png" });
+    await screen.findByRole("button", { name: "View capture" });
 
     const section = document.querySelector("section[aria-labelledby='saved-captures-title']");
     expect(section?.className).not.toContain("max-w-[1120px]");
@@ -96,27 +96,27 @@ describe("SavedCapturesView", () => {
 
   it("copies from the card button without opening the image, then shows Copied for 1.5 s", async () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    await screen.findByRole("button", { name: "View capture.png" });
+    await screen.findByRole("button", { name: "View capture" });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy capture.png" }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy capture" }));
       await Promise.resolve();
     });
     expect(mocks.copyCapture).toHaveBeenCalledWith("C:/Pictures/Snaphub/capture.png");
     expect(mocks.openCapture).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Copy capture.png" })).toHaveTextContent("Copied");
+    expect(screen.getByRole("button", { name: "Copy capture" })).toHaveTextContent("Copied");
 
     act(() => {
       vi.advanceTimersByTime(1500);
     });
-    expect(screen.getByRole("button", { name: "Copy capture.png" })).toHaveTextContent("Copy");
-    expect(screen.getByRole("button", { name: "Copy capture.png" })).not.toHaveTextContent("Copied");
+    expect(screen.getByRole("button", { name: "Copy capture" })).toHaveTextContent("Copy");
+    expect(screen.getByRole("button", { name: "Copy capture" })).not.toHaveTextContent("Copied");
   });
 
   it("copies from the context menu and closes it", async () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.contextMenu(capture, { clientX: 140, clientY: 120 });
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
     expect(items).toEqual(["View", "Copy", "Showcase", "Delete"]);
@@ -128,7 +128,7 @@ describe("SavedCapturesView", () => {
 
   it("copies the focused card with Ctrl+C", async () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.keyDown(capture, { key: "c", ctrlKey: true });
     await waitFor(() => expect(mocks.copyCapture).toHaveBeenCalledOnce());
     fireEvent.keyDown(document.body, { key: "c", ctrlKey: true });
@@ -138,17 +138,17 @@ describe("SavedCapturesView", () => {
   it("shows the error banner and refreshes when a copy fails", async () => {
     mocks.copyCapture.mockRejectedValueOnce(new Error("gone"));
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    await screen.findByRole("button", { name: "View capture.png" });
+    await screen.findByRole("button", { name: "View capture" });
     const listCalls = mocks.listCaptures.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy capture.png" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy capture" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't copy this capture.");
     await waitFor(() => expect(mocks.listCaptures.mock.calls.length).toBeGreaterThan(listCalls));
   });
 
   it("opens the image when the pointer moves less than 5 px", async () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.pointerDown(capture, { button: 0, buttons: 1, clientX: 10, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(capture, { buttons: 1, clientX: 13, clientY: 12, pointerId: 1 });
     fireEvent.pointerUp(capture, { button: 0, clientX: 13, clientY: 12, pointerId: 1 });
@@ -159,7 +159,7 @@ describe("SavedCapturesView", () => {
 
   it("starts one native drag after 5 px of movement and suppresses the following click", async () => {
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.pointerDown(capture, { button: 0, buttons: 1, clientX: 10, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(capture, { buttons: 1, clientX: 16, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(capture, { buttons: 1, clientX: 30, clientY: 10, pointerId: 1 });
@@ -176,7 +176,7 @@ describe("SavedCapturesView", () => {
   it("shows an error banner when the drag cannot start", async () => {
     mocks.startDrag.mockRejectedValueOnce(new Error("no"));
     render(<SavedCapturesView onShowcase={vi.fn()} />);
-    const capture = await screen.findByRole("button", { name: "View capture.png" });
+    const capture = await screen.findByRole("button", { name: "View capture" });
     fireEvent.pointerDown(capture, { button: 0, buttons: 1, clientX: 0, clientY: 0, pointerId: 1 });
     fireEvent.pointerMove(capture, { buttons: 1, clientX: 20, clientY: 0, pointerId: 1 });
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't start dragging this capture.");

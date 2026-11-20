@@ -25,6 +25,7 @@ import {
   View as Eye,
 } from "../icons";
 import { LAYER } from "../layers";
+import { captureDisplayName } from "../../lib/captureName";
 import { Button } from "../ui/Button";
 import { Keycap } from "../ui/Keycap";
 import { PageHeader } from "../ui/PageHeader";
@@ -223,6 +224,7 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
   const copiedTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const dragStarted = useRef(false);
+  const displayName = captureDisplayName(capture.fileName);
 
   useEffect(() => (): void => {
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
@@ -271,13 +273,13 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
   }
 
   return (
-    <div aria-label={capture.fileName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
-      <button aria-label={`View ${capture.fileName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-content/10 bg-content/4 text-left outline-none transition-colors duration-150 hover:border-content/20 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
+    <div aria-label={displayName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
+      <button aria-label={`View ${displayName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-content/10 bg-content/4 text-left outline-none transition-colors duration-150 hover:border-content/20 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
         <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
-          <img alt={`Saved capture ${capture.fileName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
+          <img alt={`Saved capture ${displayName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
         </div>
         <div className="border-t border-content/8 px-3 py-2.5">
-          <p className="truncate text-[13px] font-medium text-content" title={capture.fileName}>{capture.fileName}</p>
+          <p className="truncate text-[13px] font-medium text-content" title={capture.fileName}>{displayName}</p>
           <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-content/60">
             <span>{capture.width} × {capture.height}</span>
             <span>{formatBytes(capture.sizeBytes)}</span>
@@ -285,7 +287,7 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
           <p className="mt-1.5 flex items-center gap-1 text-[11px] text-content/60"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
         </div>
       </button>
-      <button aria-label={`Copy ${capture.fileName}`} className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-medium text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none group-focus-within:opacity-100 group-hover:opacity-100" type="button" onClick={() => void copy()}>
+      <button aria-label={`Copy ${displayName}`} className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-medium text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none group-focus-within:opacity-100 group-hover:opacity-100" type="button" onClick={() => void copy()}>
         {copied ? <Check aria-hidden="true" size={12} /> : <Copy aria-hidden="true" size={12} />}
         {copied ? "Copied" : "Copy"}
       </button>

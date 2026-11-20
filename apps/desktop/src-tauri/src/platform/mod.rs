@@ -13,6 +13,8 @@ pub(crate) mod plugin_startup;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_display;
 #[cfg(target_os = "windows")]
+pub(crate) mod windows_foreground;
+#[cfg(target_os = "windows")]
 pub(crate) mod windows_glass;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_ocr;

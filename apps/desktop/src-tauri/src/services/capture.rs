@@ -106,6 +106,8 @@ pub struct CaptureService {
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
     save_output_lock: Mutex<()>,
+    /// What was on screen when the capture started, used to name the saved file.
+    source_label: Mutex<Option<String>>,
     #[cfg(test)]
     render_count: AtomicUsize,
     #[cfg(test)]
@@ -153,6 +155,7 @@ impl CaptureService {
             manual_scrolling: Mutex::new(HashMap::new()),
             save_directory: Mutex::new(save_directory),
             save_output_lock: Mutex::new(()),
+            source_label: Mutex::new(None),
             #[cfg(test)]
             render_count: AtomicUsize::new(0),
             #[cfg(test)]
@@ -224,6 +227,7 @@ impl CaptureService {
             ));
         }
 
+        self.remember_source_label();
         self.targets.begin_session()?;
         #[cfg(debug_assertions)]
         let capture_started = Instant::now();
@@ -289,6 +293,7 @@ impl CaptureService {
                 "Screen capture permission is not available".into(),
             ));
         }
+        self.remember_source_label();
         let captured = self.capture.capture_display_at_point(cursor)?;
         match action {
             CompletionAction::Copy => {
@@ -606,6 +611,14 @@ impl CaptureService {
         #[cfg(test)]
         if let Ok(mut operations) = self.operation_log.lock() {
             operations.push(_operation);
+        }
+    }
+
+    /// Records the focused window's title before the capture overlay takes focus.
+    fn remember_source_label(&self) {
+        #[cfg(target_os = "windows")]
+        if let Ok(mut label) = self.source_label.lock() {
+            *label = crate::platform::windows_foreground::foreground_window_title();
         }
     }
 
@@ -966,7 +979,13 @@ impl CaptureService {
     fn next_save_path(&self) -> Result<PathBuf, SnaphubError> {
         let directory = self.save_directory()?;
         fs::create_dir_all(&directory).map_err(SnaphubError::export)?;
-        let stem = format!("CapKit_{}", Local::now().format("%Y-%m-%d_%H-%M-%S-%3f"));
+        let label = self
+            .source_label
+            .lock()
+            .ok()
+            .and_then(|label| label.as_deref().and_then(file_name_label))
+            .unwrap_or_else(|| "CapKit".into());
+        let stem = format!("{label}_{}", Local::now().format("%Y-%m-%d_%H-%M-%S-%3f"));
         for suffix in 0..10_000_u32 {
             let file_name = if suffix == 0 {
                 format!("{stem}.png")
@@ -1471,6 +1490,26 @@ fn parse_color(value: &str, opacity: f32) -> Rgba<u8> {
     Rgba([red, green, blue, (opacity.clamp(0.0, 1.0) * 255.0) as u8])
 }
 
+/// Turns a window title into a safe file-name prefix, or `None` when nothing is left.
+fn file_name_label(title: &str) -> Option<String> {
+    let cleaned: String = title
+        .chars()
+        .map(|character| {
+            if character.is_control() || "<>:\"/\\|?*".contains(character) {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect();
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shortened: String = collapsed.chars().take(60).collect();
+    let trimmed = shortened.trim_matches(|character: char| {
+        character == '.' || character == '_' || character.is_whitespace()
+    });
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
 fn default_save_directory() -> PathBuf {
     dirs::picture_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
@@ -1508,6 +1547,12 @@ fn legacy_storage_preferences_path() -> PathBuf {
 
 fn load_save_directory() -> PathBuf {
     let current_path = storage_preferences_path();
+    if let Some(directory) = read_save_directory(&current_path)
+        && let Some(migrated) = migrate_legacy_default_directory(&directory)
+    {
+        let _ = persist_save_directory(&migrated);
+        return migrated;
+    }
     let previous_path = previous_snaphub_storage_preferences_path();
     let legacy_path = legacy_storage_preferences_path();
     for path in [&current_path, &previous_path, &legacy_path] {
@@ -1520,8 +1565,7 @@ fn load_save_directory() -> PathBuf {
             continue;
         };
         if path != &current_path {
-            if directory == previous_default_save_directory() {
-                let migrated = default_save_directory();
+            if let Some(migrated) = migrate_legacy_default_directory(&directory) {
                 let _ = persist_save_directory(&migrated);
                 return migrated;
             }
@@ -1696,10 +1740,35 @@ mod storage_preferences_tests {
     }
 }
 
-fn previous_default_save_directory() -> PathBuf {
-    dirs::picture_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("Snaphub")
+/// Renames an untouched Snaphub/ShotHub default folder to `CapKit`, so existing
+/// captures come along. Returns `None` for any other folder, or when `CapKit`
+/// already exists and renaming would merge two libraries.
+fn migrate_legacy_default_directory(directory: &Path) -> Option<PathBuf> {
+    let target = default_save_directory();
+    let pictures = target.parent()?;
+    let is_legacy_default = directory.parent() == Some(pictures)
+        && directory.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.eq_ignore_ascii_case("Snaphub") || name.eq_ignore_ascii_case("ShotHub")
+        });
+    if !is_legacy_default {
+        return None;
+    }
+    if !directory.exists() {
+        return Some(target);
+    }
+    if target.exists() {
+        return None;
+    }
+    fs::rename(directory, &target).ok().map(|()| target)
+}
+
+fn read_save_directory(path: &Path) -> Option<PathBuf> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<StoragePreferences>(&raw).ok())
+        .map(|preferences| preferences.save_directory)
+        .filter(|directory| directory.is_absolute())
 }
 
 fn save_atomic(image: &RgbaImage, destination: &Path) -> Result<(), SnaphubError> {
@@ -2019,6 +2088,27 @@ mod tests {
                     .ends_with(".png.partial")
             })
         })
+    }
+
+    #[test]
+    fn file_name_label_keeps_readable_titles_and_strips_unsafe_characters() {
+        assert_eq!(
+            file_name_label("GitHub: capkit/issues? - Google Chrome").as_deref(),
+            Some("GitHub capkit issues - Google Chrome")
+        );
+        assert_eq!(file_name_label("  ...  "), None);
+        assert_eq!(
+            file_name_label(&"a".repeat(200)).map(|name| name.len()),
+            Some(60)
+        );
+    }
+
+    #[test]
+    fn legacy_default_folder_is_left_alone_when_it_is_not_a_default_name() {
+        assert_eq!(
+            migrate_legacy_default_directory(Path::new("D:/Work/Shots")),
+            None
+        );
     }
 
     #[test]
