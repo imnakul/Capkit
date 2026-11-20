@@ -150,7 +150,9 @@ export function DashboardPanel(): React.JSX.Element {
   // The native window theme drives Mica's light/dark variant.
   useEffect(() => {
     if (!isTauri()) return;
-    void getCurrentWindow().setTheme(settings.appearance).catch(() => undefined);
+    void getCurrentWindow().setTheme(settings.appearance).catch((error: unknown) => {
+      console.error("CK-WINDOW-THEME-001", error);
+    });
   }, [settings.appearance]);
 
   /** Snaps the page for one frame so the theme swap never smears through transitions. */
