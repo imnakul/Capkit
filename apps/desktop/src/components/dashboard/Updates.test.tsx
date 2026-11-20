@@ -30,7 +30,7 @@ const available: UpdateStatus = { state: "available", currentVersion: "0.3.0", v
 
 function openSettings(): void {
   fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
-  fireEvent.click(screen.getByRole("button", { name: /Keep CapKit current/ }));
+  // Updates is the first card of General, so it opens by default.
 }
 
 describe("updates in the dashboard", () => {
@@ -72,7 +72,7 @@ describe("updates in the dashboard", () => {
     await waitFor(() => expect(mocks.emit.handler).not.toBeNull());
     act(() => mocks.emit.handler?.(available));
 
-    expect(await screen.findByText("Update available: v0.4.0")).toBeVisible();
+    expect(await screen.findByText("Update ready")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Install and restart" }));
     await waitFor(() => expect(mocks.install).toHaveBeenCalledOnce());
   });

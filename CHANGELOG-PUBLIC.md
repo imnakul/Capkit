@@ -2,6 +2,28 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.5.0 — 2026-11-20
+
+### Added
+
+- Star your favourite screenshots. Hover a screenshot and press the star; it fills in and stays visible. Use the All | Favourites switch at the top of the Screenshots page to see only your favourites.
+- Screenshots are now named after the page or app you captured, with the date and time, for example `GitHub - capkit - Google Chrome, Nov 20, 11:52 AM`. Older captures that were all called "CapKit" now show a readable date instead.
+- Recordings show a thumbnail of their first frame instead of a black box.
+- Copy and favourite buttons have a soft click sound and a gentle press effect. The copy icon turns into a check the moment you press it. Settings switches get the same sound and press effect.
+- A new left-hand menu groups your work: Screenshots and Screen record at the top, Showcase under Studio, and Settings at the bottom. A soft highlight glides to whatever you point at.
+
+### Improved
+
+- A fresh glass look across the dashboard: frosted buttons and cards that follow your accent colour in light and dark, Geist and Geist Mono as the fonts everywhere, and one consistent set of icons.
+- The custom accent colour can be changed by clicking the swatch, and the CapKit logo and tagline are back on the dashboard.
+- Screenshot, recording and note cards are the same size, fill each row evenly and no longer leave an odd gap on the right. Screenshot cards no longer repeat the date twice.
+- Notes (now called Page notes) show the title and the website on one line, with a shorter preview.
+- Settings content now fades softly under the tabs as you scroll instead of overlapping them.
+- The page no longer jumps sideways when you switch between tabs of different length.
+- "Record" is now called "Screen record". The minimize, maximize and close buttons are visible in light mode.
+- Refresh on the Screenshots page now visibly spins, and the file count is no longer stuck at 200 (up to 1000 are shown).
+- Your save folder is now `PicturesCapKit`. If you used the old Snaphub or ShotHub folder, CapKit renames it for you and keeps your files.
+
 ## 0.4.0 — 2026-11-20
 
 ### Added
@@ -14,6 +36,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 - Settings → Screenshots lets you show or hide each finishing action (Copy, Save, Pin, Showcase and more) and choose whether each tool and action sits in the horizontal or the vertical toolbar.
 
 ### Improved
+
+- The dashboard has a calmer look: one accent-tinted palette in light and dark, glass behind the window on Windows 11, consistent page headers, and quieter motion. Settings sections open from anywhere on their row, show their current value while closed, and animate smoothly.
 
 - Press 1–9 and 0 to pick a tool in the capture toolbar, and V for Select. Each button shows its number in the corner, like C, S and A.
 - Copy, Save and Copy & Save (C, S, A) now deliver your note when the capture has pins, so the separate note buttons are gone.

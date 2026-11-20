@@ -2,18 +2,80 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  --theme-hue: 60;
+  --theme-saturation: 4%;
+  --background-lightness: 97%;
+  --content-lightness: 13%;
+  /* 0 = nearly solid, 1 = most glass; set from the Glass strength setting. */
+  --glass-strength: 0.5;
+  --glass-tint: 10%;
+  --glass-base: calc(98% - 48% * var(--glass-strength));
   --snaphub-accent: #d9ff43;
   --capture-overlay: rgb(7 8 7 / 64%);
   --color-lime-300: var(--snaphub-accent);
-  --font-mono: "JetBrains Mono Variable", "Cascadia Mono", monospace;
-  /* Shortcut badges use Geist Mono when the system has it; it is not bundled, so others get the app mono. */
-  --font-keycap: "Geist Mono", var(--font-mono);
-  --font-sans: "Plus Jakarta Sans Variable", "Segoe UI Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Cascadia Mono", monospace;
+  /* Shortcut badges use the same mono as every other technical value. */
+  --font-keycap: var(--font-mono);
+  --font-sans: "Geist Variable", "Segoe UI Variable", system-ui, sans-serif;
   color: #f3f4ef;
   background: #111310;
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: geometricPrecision;
+}
+
+.dark {
+  --background-lightness: 10%;
+  --content-lightness: 93%;
+  --glass-tint: 12%;
+  --glass-base: calc(92% - 68% * var(--glass-strength));
+}
+
+@theme {
+  --color-background-base: hsl(var(--theme-hue) var(--theme-saturation) var(--background-lightness));
+  --color-content: hsl(var(--theme-hue) var(--theme-saturation) var(--content-lightness));
+  --color-accent: var(--snaphub-accent);
+  --color-accent-ink: #12130f;
+  --color-danger: #dc2626;
+  --color-warning: #b45309;
+  --color-success: #15803d;
+
+  /* A surface arriving: page, dialog, popover. */
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Collapse, toast, icon swap. */
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Follows the pointer: indicators, switch thumb. */
+  --ease-track: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html.dark {
+  --color-warning: #fbbf24;
+  --color-success: #4ade80;
+}
+
+/* Dashboard page: Mica shows through, carrying a breath of the accent. */
+body.dashboard-surface {
+  background: var(--color-background-base);
+  color: var(--color-content);
+}
+
+/* index.html paints html, body and #root solid so the first frame is not white;
+   #root has to give that up too or it hides the blur behind it. */
+html.glass,
+html.glass #root {
+  background: transparent;
+}
+
+html.glass body.dashboard-surface {
+  background:
+    linear-gradient(color-mix(in oklab, var(--color-accent) var(--glass-tint), transparent) 0 0),
+    color-mix(in oklab, var(--color-background-base) var(--glass-base), transparent);
+}
+
+html.dark-dashboard-swap *,
+html.dark-dashboard-swap *::before,
+html.dark-dashboard-swap *::after {
+  transition: none !important;
 }
 
 * {
@@ -110,4 +172,37 @@ button {
   0% { grid-template-rows: 0fr; opacity: 0; overflow: hidden; }
   99% { overflow: hidden; }
   100% { grid-template-rows: 1fr; opacity: 1; }
+}
+
+/* Dashboard scrollbars: slim, rounded, tinted from the content colour, and the
+   gutter is always reserved so content never shifts when a scrollbar appears.
+   The main column uses overflow-y-scroll, because a styled scrollbar can ignore
+   scrollbar-gutter and shift content when a short tab removes the scrollbar. */
+body.dashboard-surface :is(.overflow-y-auto, .overflow-auto) {
+  scrollbar-gutter: stable;
+}
+
+body.dashboard-surface ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-track,
+body.dashboard-surface ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--color-content) 18%, transparent);
+  background-clip: padding-box;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-content) 32%, transparent);
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
 }

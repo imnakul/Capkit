@@ -23,7 +23,7 @@ type SettingsTabsProps = {
 /**
  * The Settings tab bar and the single panel it controls.
  *
- * The bar is sticky because a tab such as Screenshots scrolls far past the
+ * The bar stays put because a tab such as Screenshots scrolls far past the
  * header, and the two pills are measured from the tabs themselves rather than
  * animated with a shared layout library, because the desktop app ships no
  * animation runtime: the only motion here is a CSS transition on `transform`
@@ -106,11 +106,11 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
   }
 
   return (
-    <>
-      <div className="sticky top-0 z-10 -mx-7 bg-[#f4f4f1] px-7 py-2 dark:bg-[#242523]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="w-fit shrink-0 px-7 py-2">
         <div
           aria-label="Settings sections"
-          className="relative flex w-fit gap-1"
+          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-content/6 p-1"
           ref={listRef}
           role="tablist"
           onBlur={handleBlur}
@@ -121,12 +121,12 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
               the active pill where the eye is already looking. */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none"
+            className="pointer-events-none absolute inset-x-0 inset-y-1 transition-opacity duration-150 motion-reduce:transition-none"
             data-indicator="hover"
             style={{ opacity: hovered === null ? 0 : 1 }}
           >
             <span
-              className="absolute inset-y-0 left-0 rounded-md bg-black/5 transition-[transform,width] duration-[220ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:bg-white/5"
+              className="absolute inset-y-0 left-0 rounded-md bg-content/6 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
               style={{
                 transform: `translateX(${String(hoverPill.left)}px)`,
                 width: `${String(hoverPill.width)}px`,
@@ -135,7 +135,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
           </span>
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-white shadow-sm transition-[transform,width] duration-[220ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:bg-white/9"
+            className="pointer-events-none absolute inset-y-1 left-0 rounded-md bg-content/10 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
             data-indicator="active"
             style={{
               transform: `translateX(${String(activePill.left)}px)`,
@@ -149,7 +149,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
               <button
                 aria-controls={`settings-panel-${tab.id}`}
                 aria-selected={isActive}
-                className="relative z-10 rounded-md px-3 py-1.5 text-[13px] font-semibold text-stone-500 outline-none transition-colors duration-150 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 aria-selected:text-stone-950 dark:text-stone-400 dark:hover:text-stone-200 dark:aria-selected:text-white"
+                className="relative z-10 rounded-md px-3 py-1.5 text-[13px] font-medium text-content/60 outline-none transition-colors duration-150 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none aria-selected:text-content"
                 id={`settings-tab-${tab.id}`}
                 key={tab.id}
                 role="tab"
@@ -170,14 +170,19 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
         </div>
       </div>
 
-      <div
-        aria-labelledby={`settings-tab-${active}`}
-        className="pt-6"
-        id={`settings-panel-${active}`}
-        role="tabpanel"
-      >
-        {children}
+      {/* Only this region scrolls, so content dissolves under the tab strip through
+          a mask instead of sliding behind it and overlapping its labels. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-8 pt-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px)]">
+        <div
+          aria-labelledby={`settings-tab-${active}`}
+          className="max-w-[1080px] transition-opacity duration-[140ms] ease-arrive starting:opacity-0 motion-reduce:transition-none"
+          id={`settings-panel-${active}`}
+          key={active}
+          role="tabpanel"
+        >
+          {children}
+        </div>
       </div>
-    </>
+    </div>
   );
 }

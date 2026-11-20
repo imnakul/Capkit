@@ -70,6 +70,7 @@ import {
   SpotlightIcon,
   SquareIcon,
   SquareRoundCornerIcon,
+  StickyNote02Icon,
   StarIcon,
   Sun03Icon,
   Tablet01Icon,
@@ -200,6 +201,7 @@ export const Spotlight = createCapkitIcon(SpotlightIcon);
 export const SquareShape = createCapkitIcon(SquareIcon);
 export const RoundedSquareShape = createCapkitIcon(SquareRoundCornerIcon);
 export const Star = createCapkitIcon(StarIcon);
+export const StickyNote = createCapkitIcon(StickyNote02Icon);
 export const Sun = createCapkitIcon(Sun03Icon);
 export const Tablet = createCapkitIcon(Tablet01Icon);
 export const Text = createCapkitIcon(TextIcon);

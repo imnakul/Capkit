@@ -1,6 +1,6 @@
 {
   "name": "@snaphub/desktop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@fontsource-variable/caveat": "5.2.8",
-    "@fontsource-variable/jetbrains-mono": "5.2.8",
-    "@fontsource-variable/plus-jakarta-sans": "5.2.8",
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
     "@hugeicons/core-free-icons": "4.2.3",
     "@hugeicons/react": "1.1.9",
     "@snaphub/devtools-protocol": "workspace:*",

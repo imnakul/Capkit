@@ -190,6 +190,8 @@ export const snaphubSettingsSchema = z.object({
   }),
   accentColor: hexColorSchema,
   appearance: z.enum(["light", "dark"]).default("light"),
+  /** How see-through the dashboard is, 0 (nearly solid) to 100 (most glass). */
+  glassStrength: z.number().int().min(0).max(100).default(50),
   toolbar: z.object({
     shapes: z.boolean(),
     effects: z.boolean(),
@@ -291,6 +293,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   annotation: { defaultColor: "#d9ff43", defaultSize: 4 },
   accentColor: "#d9ff43",
   appearance: "light",
+  glassStrength: 50,
   toolbar: {
     shapes: true,
     effects: true,
@@ -509,6 +512,7 @@ export function useSnaphubSettings(): {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", settings.appearance === "dark");
     document.documentElement.style.setProperty("--snaphub-accent", settings.accentColor);
+    document.documentElement.style.setProperty("--glass-strength", String(settings.glassStrength / 100));
     document.documentElement.style.setProperty(
       "--capture-overlay",
       hexToRgba(settings.overlay.color, settings.overlay.opacity),
@@ -516,6 +520,7 @@ export function useSnaphubSettings(): {
   }, [
     settings.accentColor,
     settings.appearance,
+    settings.glassStrength,
     settings.overlay.color,
     settings.overlay.opacity,
   ]);

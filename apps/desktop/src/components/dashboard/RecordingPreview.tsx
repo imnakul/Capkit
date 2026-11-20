@@ -109,14 +109,15 @@ export function RecordingPreview({ item }: { item: RecordingArtifacts }): React.
   }
 
   return (
-    <div className="relative aspect-video w-full bg-black">
+    <div className="relative aspect-[16/10] w-full bg-black">
       <video
         aria-label={`Recording ${formatDuration(item.durationSeconds)}`}
-        className="aspect-video w-full bg-black object-contain"
+        className="aspect-[16/10] w-full bg-black object-contain"
         controls
         preload="metadata"
         ref={videoRef}
-        src={recordingSrc(item.videoPath)}
+        // The fragment makes the webview decode and show the first frame as the poster.
+        src={`${recordingSrc(item.videoPath)}#t=0.001`}
         onEnded={stopLoop}
         onPause={() => {
           stopLoop();

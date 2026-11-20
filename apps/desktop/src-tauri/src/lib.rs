@@ -245,6 +245,44 @@ fn launched_in_background() -> bool {
     })
 }
 
+/// Whether the dashboard's blurred backdrop exists on this OS (Windows 11, build
+/// 22000 or later). Elsewhere the page keeps an opaque background, because a
+/// transparent window without a backdrop would show the desktop through it.
+#[tauri::command]
+fn dashboard_supports_glass() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        #[repr(C)]
+        struct OsVersionInfo {
+            size: u32,
+            major: u32,
+            minor: u32,
+            build: u32,
+            platform: u32,
+            service_pack: [u16; 128],
+        }
+        #[link(name = "ntdll")]
+        unsafe extern "system" {
+            fn RtlGetVersion(info: *mut OsVersionInfo) -> i32;
+        }
+        let mut info = OsVersionInfo {
+            size: std::mem::size_of::<OsVersionInfo>() as u32,
+            major: 0,
+            minor: 0,
+            build: 0,
+            platform: 0,
+            service_pack: [0; 128],
+        };
+        // SAFETY: `info` is a correctly sized, writable OSVERSIONINFOW and `size` is set.
+        let status = unsafe { RtlGetVersion(&mut info) };
+        status == 0 && info.build >= 22000
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 #[tauri::command]
 fn dashboard_ready(
     app: AppHandle,
@@ -2886,6 +2924,7 @@ pub fn run() {
             begin_capture,
             show_capture_surface,
             dashboard_ready,
+            dashboard_supports_glass,
             open_in_showcase,
             take_pending_showcase,
             on_screen_session,
@@ -2991,6 +3030,15 @@ pub fn run() {
             app.state::<CaptureService>()
                 .set_notes_images_directory(notes.images_directory());
             app.manage(notes);
+
+            // Frosted glass behind the dashboard. The page asks `dashboard_supports_glass`
+            // and stays opaque where the blur is unavailable.
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("dashboard")
+                && let Ok(hwnd) = window.hwnd()
+            {
+                platform::windows_glass::apply_blur(hwnd.0);
+            }
 
             if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")

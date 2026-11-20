@@ -9,6 +9,8 @@ import {
 import { openRecorder, recordingSupported } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { ChevronDown, Delete, Film, Record } from "../icons";
+import { Button } from "../ui/Button";
+import { PageHeader } from "../ui/PageHeader";
 import { RecordingPreview } from "./RecordingPreview";
 import { StudioView } from "./StudioView";
 
@@ -78,18 +80,13 @@ export function RecordView(): React.JSX.Element {
 
   if (editing !== null) {
     return (
-      <section aria-label="Edit recording" className="flex h-full min-h-full flex-col px-6 py-5">
-        <div className="flex shrink-0 items-center gap-3 border-b border-stone-300/80 pb-3 dark:border-white/10">
-          <button
-            aria-label="Back to recordings"
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold text-stone-600 outline-none transition hover:bg-black/5 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:text-stone-300 dark:hover:bg-white/7 dark:hover:text-white"
-            type="button"
-            onClick={() => setEditing(null)}
-          >
+      <section aria-label="Edit recording" className="flex h-full min-h-full flex-col px-6 py-4">
+        <div className="flex shrink-0 items-center gap-3 border-b border-content/10 pb-3">
+          <Button aria-label="Back to recordings" variant="ghost" onClick={() => setEditing(null)}>
             <ChevronDown aria-hidden="true" className="-rotate-90" size={14} />
             Recordings
-          </button>
-          <p className="font-mono text-[12px] text-stone-500 dark:text-stone-400">{formatDuration(editing.durationSeconds)}</p>
+          </Button>
+          <p className="text-[12px] tabular-nums text-content/60">{formatDuration(editing.durationSeconds)}</p>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col pt-3">
@@ -100,80 +97,63 @@ export function RecordView(): React.JSX.Element {
   }
 
   return (
-    <section aria-labelledby="record-title" className="flex min-h-full flex-col px-6 py-5">
-      <header className="flex shrink-0 items-start justify-between gap-5 border-b border-stone-300/80 pb-4 dark:border-white/10">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Record</p>
-          <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-stone-900 dark:text-stone-100" id="record-title">
-            Capture your screen.
-          </h1>
-          <p className="mt-1 text-[13px] text-stone-500 dark:text-stone-400">
-            The dock stays out of the video, and the cursor is recorded as its own track so Studio can smooth it later.
-          </p>
-        </div>
-        <button
-          aria-label="Start recording"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#ff5b4d] px-3.5 py-2 text-[13px] font-semibold text-white outline-none transition hover:bg-[#ff7468] focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={supported === false || opening}
-          type="button"
-          onClick={() => void start()}
-        >
-          <Record aria-hidden="true" size={15} />
-          Start recording
-        </button>
-      </header>
+    <section aria-label="Screen record" className="flex min-h-full flex-col px-6 py-4">
+      <PageHeader
+        title="Screen record"
+        trailing={
+          <Button aria-label="Start recording" disabled={supported === false || opening} variant="primary" onClick={() => void start()}>
+            <Record aria-hidden="true" size={13} />
+            Start recording
+          </Button>
+        }
+      />
 
       {supported === false ? (
-        <p className="mt-4 rounded-md border border-amber-300/40 bg-amber-100/40 px-3 py-2 text-[13px] text-amber-900 dark:border-amber-200/20 dark:bg-amber-200/8 dark:text-amber-100" role="status">
+        <p className="mt-4 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[13px] text-warning" role="status">
           Screen recording needs Windows 10 version 2004 or newer.
         </p>
       ) : null}
       {error === null ? null : (
-        <p className="mt-4 rounded-md border border-amber-300/40 bg-amber-100/40 px-3 py-2 text-[13px] text-amber-900 dark:border-amber-200/20 dark:bg-amber-200/8 dark:text-amber-100" role="status">
+        <p className="mt-4 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[13px] text-warning" role="status">
           {error}
         </p>
       )}
 
       <div className="mt-5 min-h-0 flex-1">
         {library.length === 0 ? (
-          <div className="grid h-full place-items-center rounded-lg border border-dashed border-stone-300 px-6 py-10 text-center dark:border-white/12">
+          <div className="grid h-full place-items-center rounded-lg border border-dashed border-content/15 px-6 py-10 text-center">
             <div className="max-w-sm">
-              <Film aria-hidden="true" className="mx-auto text-stone-300 dark:text-stone-600" size={28} />
-              <p className="mt-3 text-[14px] font-semibold text-stone-700 dark:text-stone-200">No recordings yet</p>
-              <p className="mt-1 text-[13px] leading-5 text-stone-500 dark:text-stone-400">
+              <Film aria-hidden="true" className="mx-auto text-content/30" size={28} />
+              <p className="mt-3 text-[13px] font-semibold text-content">No recordings yet</p>
+              <p className="mt-1 text-[12px] leading-5 text-content/60">
                 Recordings stay on this device until you export them.
               </p>
             </div>
           </div>
         ) : (
-          <ul aria-label="Recordings" className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <ul aria-label="Recordings" className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
             {library.map((item) => (
               <li
-                className="overflow-hidden rounded-lg border border-stone-300/80 bg-white/60 dark:border-white/10 dark:bg-white/5"
+                className="overflow-hidden rounded-lg border border-content/10 bg-content/4"
                 key={item.id}
               >
                 <RecordingPreview item={item} />
                 <div className="flex items-center gap-2 px-2.5 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-100">
-                      {formatDuration(item.durationSeconds)} · {String(item.width)}×{String(item.height)}
+                    <p className="truncate text-[13px] font-medium tabular-nums text-content">
+                      {formatDuration(item.durationSeconds)}, {String(item.width)}×{String(item.height)}
                     </p>
-                    <p className="truncate text-[12px] text-stone-500 dark:text-stone-400">
-                      {String(item.fps)} fps · {formatBytes(item.stats.bytesWritten)}
-                      {item.cursorPath === null ? "" : " · cursor track"}
+                    <p className="truncate text-[12px] tabular-nums text-content/60">
+                      {String(item.fps)} fps, {formatBytes(item.stats.bytesWritten)}
+                      {item.cursorPath === null ? "" : ", cursor track"}
                     </p>
                   </div>
-                  <button
-                    aria-label="Edit this recording"
-                    className="rounded-md border border-stone-300 px-2 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-500 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/12 dark:text-stone-300 dark:hover:text-white"
-                    type="button"
-                    onClick={() => setEditing(item)}
-                  >
+                  <Button aria-label="Edit this recording" onClick={() => setEditing(item)}>
                     Edit
-                  </button>
+                  </Button>
                   <button
                     aria-label="Remove this recording from the list"
-                    className="grid size-7 shrink-0 place-items-center rounded text-stone-400 outline-none transition hover:bg-stone-200/70 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:hover:bg-white/10 dark:hover:text-white"
+                    className="grid size-7 shrink-0 place-items-center rounded text-content/45 outline-none transition-colors duration-120 hover:bg-content/6 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
                     type="button"
                     onClick={() => remove(item.id)}
                   >

@@ -1,6 +1,7 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SavedCapture } from "../../domain/capture";
+import { useSnaphubSettings } from "../../domain/settings";
 import {
   copySavedCapture,
   describeInvokeError,
@@ -13,9 +14,7 @@ import {
   startSavedCaptureDrag,
 } from "../../lib/tauri";
 import {
-  Clock as Clock3,
   Copy,
-  Tick as Check,
   Delete as Trash2,
   FolderOpen,
   HardDrive,
@@ -23,6 +22,21 @@ import {
   Refresh as RefreshCw,
   View as Eye,
 } from "../icons";
+import { LAYER } from "../layers";
+import { captureDisplayName } from "../../lib/captureName";
+import { useFavoriteCaptures } from "../../lib/favoriteCaptures";
+import { Button } from "../ui/Button";
+import { CopyButton } from "../ui/CopyButton";
+import { FavoriteButton } from "../ui/FavoriteButton";
+import { Keycap } from "../ui/Keycap";
+import { PageHeader } from "../ui/PageHeader";
+import { Segmented } from "../ui/Segmented";
+
+type LibraryFilter = "all" | "favorites";
+const filterOptions = [
+  { value: "all", label: "All" },
+  { value: "favorites", label: "Favourites" },
+] as const satisfies readonly { value: LibraryFilter; label: string }[];
 
 type LibraryState =
   | { status: "loading"; captures: readonly SavedCapture[] }
@@ -40,14 +54,20 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   const [library, setLibrary] = useState<LibraryState>({ status: "loading", captures: [] });
   const [menu, setMenu] = useState<CaptureMenu | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const { favorites, toggleFavorite } = useFavoriteCaptures();
   const menuRef = useRef<HTMLDivElement>(null);
+  const visibleCaptures = filter === "favorites" ? library.captures.filter((capture) => favorites.has(capture.path)) : library.captures;
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = useCallback(async (holdSpinner = false): Promise<void> => {
     setLibrary((current) => ({ status: "loading", captures: current.captures }));
     try {
+      // Hold the spinner for a beat so a fast refresh still visibly responds.
+      const minimumSpin = new Promise<void>((resolve) => window.setTimeout(resolve, holdSpinner ? 600 : 0));
       const [nextDirectory, captures] = await Promise.all([
         getSaveDirectory(),
         listSavedCaptures(),
+        minimumSpin,
       ]);
       setDirectory(nextDirectory);
       setLibrary({ status: "ready", captures });
@@ -157,50 +177,48 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   }
 
   return (
-    <section aria-labelledby="saved-captures-title" className="px-7 pb-12 pt-7">
-      <header className="flex items-end justify-between gap-6 border-b border-stone-300/80 pb-5 dark:border-white/10">
-        <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Local workspace</p>
-          <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100" id="saved-captures-title">Screenshots</h1>
-          <p className="mt-1.5 text-xs leading-5 text-stone-500 dark:text-stone-400">Only images explicitly saved by Capkit appear here. Clipboard-only captures stay private and unindexed.</p>
-        </div>
-        <button
-          aria-label="Refresh saved captures"
-          className="grid size-8 shrink-0 place-items-center rounded-md border border-stone-300 bg-white text-stone-500 outline-none transition hover:border-stone-400 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-400 dark:hover:text-white"
-          disabled={library.status === "loading"}
-          type="button"
-          onClick={() => void refresh()}
-        >
-          <RefreshCw aria-hidden="true" className={library.status === "loading" ? "animate-spin" : ""} size={14} />
-        </button>
-      </header>
+    <section aria-labelledby="saved-captures-title" className="px-7 pb-8 pt-4">
+      <PageHeader
+        title="Screenshots"
+        trailing={
+          <span className="flex items-center gap-3">
+            <Segmented label="Show screenshots" options={filterOptions} value={filter} onChange={setFilter} />
+            <span className="tabular-nums">{visibleCaptures.length} {visibleCaptures.length === 1 ? "file" : "files"}</span>
+            <Button aria-label="Refresh saved captures" disabled={library.status === "loading"} variant="ghost" onClick={() => void refresh(true)}>
+              <RefreshCw aria-hidden="true" className={library.status === "loading" ? "animate-spin motion-reduce:animate-none" : ""} size={13} />
+            </Button>
+          </span>
+        }
+      />
 
-      <div className="mt-5 flex min-h-12 items-center gap-3 rounded-lg border border-stone-300/80 bg-white/65 px-3.5 dark:border-white/9 dark:bg-[#2b2c29]">
-        <span className="grid size-7 shrink-0 place-items-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/6 dark:text-stone-400"><FolderOpen aria-hidden="true" size={14} /></span>
+      <div className="flex min-h-12 items-center gap-3 rounded-lg border border-content/10 bg-content/4 px-3.5">
+        <span className="grid size-7 shrink-0 place-items-center rounded-md bg-content/6 text-content/60"><FolderOpen aria-hidden="true" size={14} /></span>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400 dark:text-stone-500">Saving to</p>
-          <p className="mt-0.5 truncate font-mono text-[12px] text-stone-700 dark:text-stone-300" title={directory}>{directory}</p>
+          <p className="text-[12px] text-content/45">Saving to</p>
+          <p className="mt-0.5 truncate font-mono text-[12px] text-content" title={directory}>{directory}</p>
         </div>
-        <span className="shrink-0 font-mono text-[12px] text-stone-400">{library.captures.length} files</span>
-        <button aria-label="Open save folder" className="flex shrink-0 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-400 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20 dark:hover:text-white" type="button" onClick={() => void openFolder()}><FolderOpen aria-hidden="true" size={12} />Open folder</button>
+        <Button aria-label="Open save folder" onClick={() => void openFolder()}>Open folder</Button>
       </div>
 
-      {library.status === "error" ? <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{library.message}</div> : null}
-      {actionError === null ? null : <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{actionError}</div>}
+      {library.status === "error" ? <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{library.message}</div> : null}
+      {actionError === null ? null : <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{actionError}</div>}
 
       {library.status === "loading" && library.captures.length === 0 ? <LoadingGrid /> : null}
       {library.status !== "loading" && library.captures.length === 0 ? <EmptyLibrary /> : null}
-      {library.captures.length > 0 ? (
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {library.captures.map((capture) => <CaptureCard capture={capture} key={capture.path} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
+      {library.captures.length > 0 && visibleCaptures.length === 0 ? (
+        <p className="mt-10 text-center text-[13px] text-content/60">No favourites yet. Hover a screenshot and press the star.</p>
+      ) : null}
+      {visibleCaptures.length > 0 ? (
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
+          {visibleCaptures.map((capture) => <CaptureCard capture={capture} favorite={favorites.has(capture.path)} key={capture.path} onToggleFavorite={toggleFavorite} onContextMenu={showContextMenu} onCopy={copyCapture} onDrag={dragCapture} onView={(selected) => void viewCapture(selected)} />)}
         </div>
       ) : null}
       {menu === null ? null : (
-        <div className="fixed z-50 w-[196px] overflow-hidden rounded-lg border border-stone-300 bg-[#f7f7f4] p-1.5 text-stone-700 shadow-[0_18px_48px_rgba(0,0,0,0.28)] dark:border-white/12 dark:bg-[#2b2c29] dark:text-stone-200" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top }}>
+        <div className="fixed w-[196px] overflow-hidden rounded-lg border border-content/10 bg-background-base p-1.5 text-content shadow-xl" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top, zIndex: LAYER.popover }}>
           <ContextAction icon={Eye} label="View" onClick={() => void viewCapture(menu.capture)} />
           <ContextAction icon={Copy} label="Copy" onClick={() => void copyCapture(menu.capture)} />
           <ContextAction icon={Images} label="Showcase" onClick={() => { setMenu(null); onShowcase(menu.capture); }} />
-          <div className="my-1 border-t border-stone-300/80 dark:border-white/9" />
+          <div className="my-1 border-t border-content/10" />
           <ContextAction destructive icon={Trash2} label="Delete" onClick={() => void deleteCapture(menu.capture)} />
         </div>
       )}
@@ -210,6 +228,8 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
 
 type CaptureCardProps = {
   capture: SavedCapture;
+  favorite: boolean;
+  onToggleFavorite: (path: string) => void;
   onView: (capture: SavedCapture) => void;
   onCopy: (capture: SavedCapture) => Promise<boolean>;
   onDrag: (capture: SavedCapture) => void;
@@ -219,22 +239,26 @@ type CaptureCardProps = {
 const dragThresholdPx = 5;
 const copiedLabelMs = 1500;
 
-function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: CaptureCardProps): React.JSX.Element {
+function CaptureCard({ capture, favorite, onToggleFavorite, onView, onCopy, onDrag, onContextMenu }: CaptureCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const dragStarted = useRef(false);
+  const displayName = captureDisplayName(capture.fileName);
 
   useEffect(() => (): void => {
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
   }, []);
 
   async function copy(): Promise<void> {
-    const succeeded = await onCopy(capture);
-    if (!succeeded) return;
+    // Optimistic: flip the icon on press, take it back only if the copy fails.
     setCopied(true);
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
     copiedTimer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+    if (!(await onCopy(capture))) {
+      window.clearTimeout(copiedTimer.current);
+      setCopied(false);
+    }
   }
 
   function handleKeyDown(event: React.KeyboardEvent): void {
@@ -272,39 +296,45 @@ function CaptureCard({ capture, onView, onCopy, onDrag, onContextMenu }: Capture
   }
 
   return (
-    <div aria-label={capture.fileName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
-      <button aria-label={`View ${capture.fileName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-stone-300/80 bg-white text-left outline-none transition-colors hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29] dark:hover:border-white/16" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
-        <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-[linear-gradient(135deg,#ecece8_25%,transparent_25%),linear-gradient(225deg,#ecece8_25%,transparent_25%),linear-gradient(45deg,#ecece8_25%,transparent_25%),linear-gradient(315deg,#ecece8_25%,#f6f6f3_25%)] bg-[length:16px_16px] bg-[position:8px_0,8px_0,0_0,0_0] dark:bg-[#20211f]">
-          <img alt={`Saved capture ${capture.fileName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015]" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
+    <div aria-label={displayName} className="group relative min-w-0" role="group" onKeyDown={handleKeyDown}>
+      <button aria-label={`View ${displayName}`} className="block w-full min-w-0 overflow-hidden rounded-lg border border-content/10 bg-content/4 text-left outline-none transition-colors duration-150 hover:border-content/20 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none" type="button" onClick={handleClick} onContextMenu={(event) => onContextMenu(event, capture)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { pressStart.current = null; }}>
+        <div className="grid aspect-[16/10] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
+          <img alt={`Saved capture ${displayName}`} className="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100" draggable={false} loading="lazy" src={capture.thumbnailUrl} />
         </div>
-        <div className="border-t border-stone-200 px-3 py-2.5 dark:border-white/8">
-          <p className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-200" title={capture.fileName}>{capture.fileName}</p>
-          <div className="mt-1.5 flex items-center justify-between gap-2 font-mono text-[11px] text-stone-400 dark:text-stone-500">
+        <div className="border-t border-content/8 px-3 py-2.5">
+          <p className="truncate text-[13px] font-medium text-content" title={`${capture.fileName}, ${formatDate(capture.modifiedAt)}`}>{displayName}</p>
+          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-content/60">
             <span>{capture.width} × {capture.height}</span>
             <span>{formatBytes(capture.sizeBytes)}</span>
           </div>
-          <p className="mt-1.5 flex items-center gap-1 text-[11px] text-stone-400 dark:text-stone-500"><Clock3 aria-hidden="true" size={10} />{formatDate(capture.modifiedAt)}</p>
         </div>
       </button>
-      <button aria-label={`Copy ${capture.fileName}`} className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-semibold text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] group-focus-within:opacity-100 group-hover:opacity-100" type="button" onClick={() => void copy()}>
-        {copied ? <Check aria-hidden="true" size={12} /> : <Copy aria-hidden="true" size={12} />}
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <FavoriteButton favorite={favorite} label={`${favorite ? "Remove" : "Mark"} ${displayName} ${favorite ? "from" : "as"} favourites`} onToggle={() => onToggleFavorite(capture.path)} />
+      <CopyButton copied={copied} label={`Copy ${displayName}`} onCopy={() => void copy()} />
     </div>
   );
 }
 
 type ContextActionProps = { icon: typeof Eye; label: string; onClick: () => void; disabled?: boolean; destructive?: boolean; title?: string };
 function ContextAction({ icon: Icon, label, onClick, disabled = false, destructive = false, title }: ContextActionProps): React.JSX.Element {
-  return <button aria-label={label} className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-35 ${destructive ? "text-red-600 hover:bg-red-500/8 dark:text-red-300" : "hover:bg-black/5 dark:hover:bg-white/7"}`} disabled={disabled} role="menuitem" title={title} type="button" onClick={onClick}><Icon aria-hidden="true" size={13} />{label}</button>;
+  return <button aria-label={label} className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12px] font-medium outline-none transition-colors duration-120 focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-35 motion-reduce:transition-none ${destructive ? "text-danger hover:bg-danger/10" : "hover:bg-content/6"}`} disabled={disabled} role="menuitem" title={title} type="button" onClick={onClick}><Icon aria-hidden="true" size={13} />{label}</button>;
 }
 
 function LoadingGrid(): React.JSX.Element {
-  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-stone-300/60 bg-stone-200/60 dark:border-white/6 dark:bg-white/4" key={index} />)}</div>;
+  return <div aria-label="Loading saved captures" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3" role="status">{Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}</div>;
 }
 
 function EmptyLibrary(): React.JSX.Element {
-  return <div className="mt-5 grid min-h-72 place-items-center rounded-lg border border-dashed border-stone-300 bg-white/35 text-center dark:border-white/10 dark:bg-white/[0.015]"><div><span className="mx-auto grid size-10 place-items-center rounded-lg border border-stone-300 bg-white text-stone-400 dark:border-white/10 dark:bg-[#2b2c29]"><HardDrive aria-hidden="true" size={17} /></span><h2 className="mt-3 text-sm font-semibold">No saved captures yet</h2><p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-stone-500 dark:text-stone-400">Use Save in the capture toolbar or your Capture &amp; save shortcut. Copied screenshots will not appear here.</p></div></div>;
+  const { settings } = useSnaphubSettings();
+  return (
+    <div className="mt-5 grid min-h-72 place-items-center rounded-lg border border-dashed border-content/15 text-center">
+      <div>
+        <span className="mx-auto grid size-10 place-items-center rounded-lg bg-content/6 text-content/45"><HardDrive aria-hidden="true" size={17} /></span>
+        <h2 className="mt-3 text-[13px] font-semibold text-content">No saved captures yet</h2>
+        <p className="mx-auto mt-1 max-w-xs text-[12px] leading-5 text-content/60">Use Save in the capture toolbar or press <Keycap>{settings.shortcuts.captureAndSave}</Keycap> to capture and save. Copied screenshots will not appear here.</p>
+      </div>
+    </div>
+  );
 }
 
 function formatBytes(bytes: number): string {

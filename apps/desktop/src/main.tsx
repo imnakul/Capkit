@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "@fontsource-variable/caveat/wght.css";
-import "@fontsource-variable/jetbrains-mono/index.css";
-import "@fontsource-variable/plus-jakarta-sans/index.css";
+import "@fontsource-variable/geist-mono/index.css";
+import "@fontsource-variable/geist/index.css";
 import "./styles.css";
 
 const CaptureApp = lazy(async () => {

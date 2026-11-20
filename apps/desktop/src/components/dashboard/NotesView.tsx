@@ -15,11 +15,14 @@ import {
   Copy,
   Delete as Trash2,
   Magnifier,
-  NotePin,
+  StickyNote,
   Refresh as RefreshCw,
-  Tick as Check,
   View as Eye,
 } from "../icons";
+import { LAYER } from "../layers";
+import { Button } from "../ui/Button";
+import { CopyButton } from "../ui/CopyButton";
+import { PageHeader } from "../ui/PageHeader";
 import { NoteDialog } from "./NoteDialog";
 
 const pageSize = 60;
@@ -185,29 +188,21 @@ export function NotesView(): React.JSX.Element {
   const searching = debouncedQuery !== "";
 
   return (
-    <section aria-labelledby="notes-title" className="px-7 pb-12 pt-7">
-      <header className="flex items-end justify-between gap-6 border-b border-stone-300/80 pb-5 dark:border-white/10">
-        <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-stone-400 dark:text-stone-500">Developer tools</p>
-          <h1 className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[#171815] dark:text-stone-100" id="notes-title">Notes</h1>
-          <p className="mt-1.5 text-xs leading-5 text-stone-500 dark:text-stone-400">Saved notes stay on this device. Copy one to paste the image and its Markdown into an AI chat.</p>
-        </div>
-        <button
-          aria-label="Refresh notes"
-          className="grid size-8 shrink-0 place-items-center rounded-md border border-stone-300 bg-white text-stone-500 outline-none transition hover:border-stone-400 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-50 dark:border-white/10 dark:bg-[#30312e] dark:text-stone-400 dark:hover:text-white"
-          disabled={loading}
-          type="button"
-          onClick={() => void load(debouncedQuery, 0)}
-        >
-          <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : ""} size={14} />
-        </button>
-      </header>
+    <section aria-labelledby="notes-title" className="px-7 pb-8 pt-4">
+      <PageHeader
+        title="Page notes"
+        trailing={
+          <Button aria-label="Refresh notes" disabled={loading} variant="ghost" onClick={() => void load(debouncedQuery, 0)}>
+            <RefreshCw aria-hidden="true" className={loading ? "animate-spin motion-reduce:animate-none" : ""} size={13} />
+          </Button>
+        }
+      />
 
-      <label className="mt-5 flex min-h-10 items-center gap-2.5 rounded-lg border border-stone-300/80 bg-white/65 px-3 focus-within:ring-2 focus-within:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29]">
-        <Magnifier aria-hidden="true" className="shrink-0 text-stone-400" size={14} />
+      <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-content/10 bg-content/4 px-3 focus-within:ring-2 focus-within:ring-accent/50">
+        <Magnifier aria-hidden="true" className="shrink-0 text-content/45" size={14} />
         <input
           aria-label="Search notes"
-          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-stone-400"
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/45"
           placeholder="Search page, URL or comment"
           type="search"
           value={query}
@@ -216,24 +211,24 @@ export function NotesView(): React.JSX.Element {
       </label>
 
       {state.status === "error" ? (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">
           <span>{state.message}</span>
-          <button className="rounded px-2 py-1 text-[12px] font-semibold outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)]" type="button" onClick={() => void load(debouncedQuery, 0)}>Retry</button>
+          <Button variant="ghost" onClick={() => void load(debouncedQuery, 0)}>Retry</Button>
         </div>
       ) : null}
-      {actionError === null ? null : <div className="mt-4 rounded-md border border-red-300/40 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-300/15 dark:bg-red-300/5 dark:text-red-200" role="alert">{actionError}</div>}
+      {actionError === null ? null : <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{actionError}</div>}
 
       {loading && state.notes.length === 0 ? (
-        <div aria-label="Loading notes" className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4" role="status">
-          {Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-stone-300/60 bg-stone-200/60 dark:border-white/6 dark:bg-white/4" key={index} />)}
+        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3" role="status">
+          {Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}
         </div>
       ) : null}
 
       {state.status === "ready" && state.notes.length === 0 ? (
-        <div className="mt-5 grid min-h-64 place-items-center rounded-lg border border-dashed border-stone-300 bg-white/35 px-6 text-center dark:border-white/10 dark:bg-white/[0.015]">
+        <div className="mt-5 grid min-h-64 place-items-center rounded-lg border border-dashed border-content/15 px-6 text-center">
           <div>
-            <span className="mx-auto grid size-10 place-items-center rounded-lg border border-stone-300 bg-white text-stone-400 dark:border-white/10 dark:bg-[#2b2c29]"><NotePin aria-hidden="true" size={17} /></span>
-            <p className="mx-auto mt-3 max-w-xs text-[13px] leading-5 text-stone-500 dark:text-stone-400">
+            <span className="mx-auto grid size-10 place-items-center rounded-lg bg-content/6 text-content/45"><StickyNote aria-hidden="true" size={17} /></span>
+            <p className="mx-auto mt-3 max-w-xs text-[12px] leading-5 text-content/60">
               {searching ? `No notes match '${debouncedQuery}'` : "No notes yet. Use the Note tool (N) in a capture, then press S to save it."}
             </p>
           </div>
@@ -241,7 +236,7 @@ export function NotesView(): React.JSX.Element {
       ) : null}
 
       {state.notes.length > 0 ? (
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
           {state.notes.map((note) => (
             <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} onOpen={showNote} />
           ))}
@@ -250,17 +245,17 @@ export function NotesView(): React.JSX.Element {
 
       {state.status === "ready" && state.hasMore ? (
         <div className="mt-5 flex justify-center">
-          <button className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-600 outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/10 dark:bg-[#333431] dark:text-stone-300" type="button" onClick={() => void load(debouncedQuery, state.notes.length)}>Load more</button>
+          <Button onClick={() => void load(debouncedQuery, state.notes.length)}>Load more</Button>
         </div>
       ) : null}
 
       {menu === null ? null : (
-        <div className="fixed z-50 w-[196px] overflow-hidden rounded-lg border border-stone-300 bg-[#f7f7f4] p-1.5 text-stone-700 shadow-[0_18px_48px_rgba(0,0,0,0.28)] dark:border-white/12 dark:bg-[#2b2c29] dark:text-stone-200" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top }}>
-          <MenuItem icon={NotePin} label="Open note" onClick={() => showNote(menu.note)} />
+        <div className="fixed w-[196px] overflow-hidden rounded-lg border border-content/10 bg-background-base p-1.5 text-content shadow-xl" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top, zIndex: LAYER.popover }}>
+          <MenuItem icon={StickyNote} label="Open note" onClick={() => showNote(menu.note)} />
           <MenuItem icon={Copy} label="Copy Markdown" onClick={() => void copyMarkdown(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Eye} label="Open page" onClick={() => void openPage(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Copy} label="Copy URL" onClick={() => void copyUrl(menu.note)} />
-          <div className="my-1 border-t border-stone-300/80 dark:border-white/9" />
+          <div className="my-1 border-t border-content/10" />
           <MenuItem destructive icon={Trash2} label="Delete" onClick={() => void remove(menu.note)} />
         </div>
       )}
@@ -301,10 +296,13 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
   }, []);
 
   async function copy(): Promise<void> {
-    if (!(await onCopy(note))) return;
     setCopied(true);
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+    if (!(await onCopy(note))) {
+      window.clearTimeout(timer.current);
+      setCopied(false);
+    }
   }
 
   function onPointerMove(event: React.PointerEvent): void {
@@ -329,7 +327,7 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
       <button
         aria-label={`Open note: ${title}`}
         aria-haspopup="dialog"
-        className="block w-full min-w-0 overflow-hidden rounded-lg border border-stone-300/80 bg-white text-left outline-none transition-colors hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29] dark:hover:border-white/16"
+        className="block w-full min-w-0 overflow-hidden rounded-lg border border-content/10 bg-content/4 text-left outline-none transition-colors duration-150 hover:border-content/20 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
         type="button"
         onClick={() => {
           pressStart.current = null;
@@ -352,28 +350,22 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
         onPointerMove={onPointerMove}
         onPointerUp={() => { pressStart.current = null; }}
       >
-        <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-stone-100 dark:bg-[#20211f]">
+        <div className="grid aspect-[16/10] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
           <img alt="" className="h-full w-full object-contain" draggable={false} loading="lazy" src={note.imageUrl} />
         </div>
-        <div className="border-t border-stone-200 px-3 py-2.5 dark:border-white/8">
-          <h2 className="truncate text-[13px] font-semibold text-stone-800 dark:text-stone-200" title={title}>{title}</h2>
-          {host !== null && host !== title ? <p className="mt-0.5 truncate font-mono text-[11px] text-stone-400">{host}</p> : null}
-          {note.firstComment === null || note.firstComment === "" ? null : <p className="mt-1.5 line-clamp-2 text-[12px] leading-4 text-stone-500 dark:text-stone-400">{note.firstComment}</p>}
-          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-stone-400 dark:text-stone-500">
+        <div className="border-t border-content/8 px-3 py-2.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="min-w-0 truncate text-[13px] font-medium text-content" title={title}>{title}</h2>
+            {host !== null && host !== title ? <p className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-content/60" title={host}>{host}</p> : null}
+          </div>
+          {note.firstComment === null || note.firstComment === "" ? null : <p className="mt-1.5 line-clamp-2 text-[12px] leading-4 text-content/60">{note.firstComment}</p>}
+          <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums text-content/60">
             <span className="flex items-center gap-1"><Clock aria-hidden="true" size={10} />{formatDate(note.createdAt)}</span>
             <span>{note.pinCount === 1 ? "1 pin" : `${String(note.pinCount)} pins`}</span>
           </div>
         </div>
       </button>
-      <button
-        aria-label={`Copy Markdown for ${title}`}
-        className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-semibold text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] group-focus-within:opacity-100 group-hover:opacity-100"
-        type="button"
-        onClick={() => void copy()}
-      >
-        {copied ? <Check aria-hidden="true" size={12} /> : <Copy aria-hidden="true" size={12} />}
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <CopyButton copied={copied} label={`Copy Markdown for ${title}`} onCopy={() => void copy()} />
     </div>
   );
 }
@@ -384,7 +376,7 @@ function MenuItem({ icon: Icon, label, onClick, disabled = false, destructive = 
   return (
     <button
       aria-label={label}
-      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-35 ${destructive ? "text-red-600 hover:bg-red-500/8 dark:text-red-300" : "hover:bg-black/5 dark:hover:bg-white/7"}`}
+      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12px] font-medium outline-none transition-colors duration-120 focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-35 motion-reduce:transition-none ${destructive ? "text-danger hover:bg-danger/10" : "hover:bg-content/6"}`}
       disabled={disabled}
       role="menuitem"
       type="button"
