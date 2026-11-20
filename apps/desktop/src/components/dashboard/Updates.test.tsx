@@ -72,7 +72,7 @@ describe("updates in the dashboard", () => {
     await waitFor(() => expect(mocks.emit.handler).not.toBeNull());
     act(() => mocks.emit.handler?.(available));
 
-    expect(await screen.findByText("Update available: v0.4.0")).toBeVisible();
+    expect(await screen.findByText("Update ready")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Install and restart" }));
     await waitFor(() => expect(mocks.install).toHaveBeenCalledOnce());
   });

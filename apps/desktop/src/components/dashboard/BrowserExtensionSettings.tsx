@@ -10,9 +10,10 @@ import {
   type BrowserLinkStatus,
   type PairingCode,
 } from "../../lib/tauri";
-
-const buttonClass =
-  "shrink-0 rounded-md border border-stone-300 bg-stone-50 px-3 py-1.5 text-[12px] font-semibold text-stone-700 outline-none transition hover:border-stone-500 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#333431] dark:text-stone-300 dark:hover:border-white/20";
+import { Copy, Tick as Check } from "../icons";
+import { Button } from "../ui/Button";
+import { SettingRow } from "../ui/SettingRow";
+import { Switch } from "../ui/Switch";
 
 /** Whole seconds left until `expiresAt`, never below zero. */
 export function secondsUntil(expiresAt: string, now: number): number {
@@ -26,7 +27,7 @@ function describeState(status: BrowserLinkStatus): string[] {
   if (!status.enabled) return ["Off. Nothing is listening."];
   if (status.state === "error") return [status.error ?? "Could not start the browser link."];
   if (status.connected.length > 0) {
-    return status.connected.map((browser) => `Connected · ${browser.name} ${browser.version}`);
+    return status.connected.map((browser) => `Connected to ${browser.name} ${browser.version}`);
   }
   return [status.port === null ? "Starting…" : "Waiting for the extension"];
 }
@@ -145,76 +146,66 @@ export function BrowserExtensionSettings(): React.JSX.Element {
 
   return (
     <div>
-      <label className="flex cursor-pointer items-start justify-between gap-3">
-        <span>
-          <span className="block text-xs font-semibold text-stone-800 dark:text-stone-200">Developer tools</span>
-          <span className="mt-0.5 block text-[12px] leading-4 text-stone-500 dark:text-stone-400">
-            Connect the CapKit Inspector browser extension for exact page elements, source locations and notes for AI. Off by default.
-          </span>
-        </span>
-        <span className="relative mt-0.5 shrink-0">
-          <input
-            aria-label="Developer tools"
-            checked={enabled}
-            className="peer sr-only"
-            disabled={busy || status === null}
-            role="switch"
-            type="checkbox"
-            onChange={(event) => void toggle(event.currentTarget.checked)}
-          />
-          <span className="block h-5 w-9 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" />
-          <span className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4 peer-checked:bg-[#171815]" />
-        </span>
-      </label>
+      <SettingRow
+        label="Developer tools"
+        hint="Connect the CapKit Inspector browser extension for exact page elements, source locations and notes for AI. Off by default."
+      >
+        <Switch checked={enabled} disabled={busy || status === null} label="Developer tools" onChange={(next) => void toggle(next)} />
+      </SettingRow>
 
       {status === null ? null : (
-        <div aria-live="polite" className="mt-3 space-y-0.5 text-[12px] text-stone-500 dark:text-stone-400">
-          {describeState(status).map((line) => <p key={line}>{line}</p>)}
+        <div aria-live="polite" className="mt-3 space-y-1 text-[12px] text-content/60">
+          {describeState(status).map((line) => (
+            <p className="flex items-center gap-2" key={line}>
+              <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${status.connected.length > 0 && enabled ? "bg-emerald-500" : status.state === "error" ? "bg-danger" : "bg-content/30"}`} />
+              {line}
+            </p>
+          ))}
         </div>
       )}
 
       {enabled && status?.state === "listening" ? (
-        <div className="mt-3 rounded-lg border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-[#2b2c29]">
+        <div className="mt-3 rounded-lg border border-content/10 bg-content/4 p-3">
           {pairing === null || codeExpired || locked ? (
             <div className="flex items-center gap-3">
-              <p className="min-w-0 flex-1 text-[12px] leading-4 text-stone-600 dark:text-stone-400">
+              <p className="min-w-0 flex-1 text-[12px] leading-4 text-content/60">
                 {locked ? "Too many wrong codes. Generate a new code." : codeExpired ? "Code expired" : "Pair a browser by entering a one-time code in the extension."}
               </p>
-              <button className={buttonClass} type="button" onClick={() => void pair()}>
+              <Button variant="primary" onClick={() => void pair()}>
                 {locked || codeExpired ? "New code" : "Pair a browser"}
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="text-[12px] text-stone-500 dark:text-stone-400">Enter this code in the extension popup</p>
-                <p aria-label={`Pairing code ${pairing.code.split("").join(" ")}`} className="mt-1 font-mono text-2xl font-semibold tracking-[0.15em] tabular-nums text-stone-900 dark:text-stone-100">{`${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}`}</p>
-                <p className="mt-1 text-[12px] tabular-nums text-stone-500 dark:text-stone-400">Expires in {formatCountdown(remaining)}</p>
+                <p className="text-[12px] text-content/60">Enter this code in the extension popup</p>
+                <p aria-label={`Pairing code ${pairing.code.split("").join(" ")}`} className="mt-1 font-mono text-[20px] font-semibold tabular-nums text-content">{`${pairing.code.slice(0, 3)} ${pairing.code.slice(3)}`}</p>
+                <p className="mt-1 text-[12px] tabular-nums text-content/60">Expires in {formatCountdown(remaining)}</p>
               </div>
-              <button className={buttonClass} type="button" onClick={() => void cancel()}>Cancel</button>
+              <Button onClick={() => void cancel()}>Cancel</Button>
             </div>
           )}
         </div>
       ) : null}
 
       {status !== null && status.paired.length > 0 ? (
-        <ul aria-label="Paired browsers" className="mt-3 divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">
+        <ul aria-label="Paired browsers" className="mt-3 divide-y divide-content/8 rounded-lg border border-content/10 bg-content/4">
           {status.paired.map((entry) => {
             const isConnected = status.connected.some((browser) => browser.name === entry.browser.name);
             return (
               <li className="flex items-center gap-3 px-3 py-2.5" key={entry.origin}>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-semibold text-stone-800 dark:text-stone-200">{entry.browser.name} {entry.browser.version}</p>
-                  <p className="truncate text-[12px] text-stone-500 dark:text-stone-400">{isConnected ? "Connected" : "Not connected"} · {entry.origin}</p>
+                  <p className="truncate text-[13px] font-medium text-content">{entry.browser.name} {entry.browser.version}</p>
+                  <p className="truncate text-[12px] text-content/60">{isConnected ? "Connected" : "Not connected"}, {entry.origin}</p>
                 </div>
                 {confirmingForget === entry.origin ? (
                   <div className="flex shrink-0 items-center gap-2" role="group" aria-label={`Forget ${entry.browser.name}?`}>
-                    <p className="text-[12px] text-stone-600 dark:text-stone-300">Forget {entry.browser.name}? It will need a new code.</p>
-                    <button className={buttonClass} type="button" onClick={() => void forget(entry.origin)}>Forget</button>
-                    <button autoFocus className={buttonClass} type="button" onClick={() => setConfirmingForget(null)}>Keep</button>
+                    <p className="text-[12px] text-content/60">Forget {entry.browser.name}? It will need a new code.</p>
+                    <Button onClick={() => void forget(entry.origin)}>Forget</Button>
+                    <Button autoFocus variant="ghost" onClick={() => setConfirmingForget(null)}>Keep</Button>
                   </div>
                 ) : (
-                  <button aria-label={`Forget ${entry.browser.name}`} className={buttonClass} type="button" onClick={() => setConfirmingForget(entry.origin)}>Forget</button>
+                  <Button aria-label={`Forget ${entry.browser.name}`} variant="ghost" onClick={() => setConfirmingForget(entry.origin)}>Forget</Button>
                 )}
               </li>
             );
@@ -222,15 +213,21 @@ export function BrowserExtensionSettings(): React.JSX.Element {
         </ul>
       ) : null}
 
-      <div className="mt-3 flex items-center gap-3 rounded-lg border border-stone-200 bg-white p-3 dark:border-white/10 dark:bg-[#2b2c29]">
+      <div className="mt-3 flex items-center gap-3 rounded-lg border border-content/10 bg-content/4 p-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-stone-800 dark:text-stone-200">Get the extension</p>
-          <p className="mt-0.5 text-[12px] leading-4 text-stone-500 dark:text-stone-400">{EXTENSION_STEPS}</p>
+          <p className="text-[13px] font-medium text-content">Get the extension</p>
+          <p className="mt-0.5 text-[12px] leading-4 text-content/60">{EXTENSION_STEPS}</p>
         </div>
-        <button className={buttonClass} type="button" onClick={() => void copySteps()}>{stepsCopied ? "Copied" : "Copy steps"}</button>
+        <Button aria-label="Copy steps" onClick={() => void copySteps()}>
+          <span className="relative grid size-3 place-items-center" aria-hidden="true">
+            <Copy className={`absolute transition-[opacity,transform,filter] duration-200 ease-arrive motion-reduce:transition-none ${stepsCopied ? "scale-[0.25] opacity-0 blur-[4px]" : "scale-100 opacity-100 blur-0"}`} size={12} />
+            <Check className={`absolute transition-[opacity,transform,filter] duration-200 ease-arrive motion-reduce:transition-none ${stepsCopied ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"}`} size={12} />
+          </span>
+          {stepsCopied ? "Copied" : "Copy steps"}
+        </Button>
       </div>
 
-      {message === null ? null : <p className="mt-2 text-[12px] text-red-600 dark:text-red-400" role="alert">{message}</p>}
+      {message === null ? null : <p className="mt-2 text-[12px] text-danger" role="alert">{message}</p>}
     </div>
   );
 }

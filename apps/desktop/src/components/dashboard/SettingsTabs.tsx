@@ -107,7 +107,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
 
   return (
     <>
-      <div className="sticky top-0 z-10 -mx-7 bg-[#f4f4f1] px-7 py-2 dark:bg-[#242523]">
+      <div className="sticky top-0 z-10 -mx-7 bg-background-base/90 px-7 py-2">
         <div
           aria-label="Settings sections"
           className="relative flex w-fit gap-1"
@@ -126,7 +126,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
             style={{ opacity: hovered === null ? 0 : 1 }}
           >
             <span
-              className="absolute inset-y-0 left-0 rounded-md bg-black/5 transition-[transform,width] duration-[220ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:bg-white/5"
+              className="absolute inset-y-0 left-0 rounded-md bg-content/4 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
               style={{
                 transform: `translateX(${String(hoverPill.left)}px)`,
                 width: `${String(hoverPill.width)}px`,
@@ -135,7 +135,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
           </span>
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-white shadow-sm transition-[transform,width] duration-[220ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none dark:bg-white/9"
+            className="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-content/8 transition-[transform,width] duration-200 ease-track motion-reduce:transition-none"
             data-indicator="active"
             style={{
               transform: `translateX(${String(activePill.left)}px)`,
@@ -149,7 +149,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
               <button
                 aria-controls={`settings-panel-${tab.id}`}
                 aria-selected={isActive}
-                className="relative z-10 rounded-md px-3 py-1.5 text-[13px] font-semibold text-stone-500 outline-none transition-colors duration-150 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 aria-selected:text-stone-950 dark:text-stone-400 dark:hover:text-stone-200 dark:aria-selected:text-white"
+                className="relative z-10 rounded-md px-3 py-1.5 text-[13px] font-medium text-content/60 outline-none transition-colors duration-150 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none aria-selected:text-content"
                 id={`settings-tab-${tab.id}`}
                 key={tab.id}
                 role="tab"
@@ -172,8 +172,9 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
 
       <div
         aria-labelledby={`settings-tab-${active}`}
-        className="pt-6"
+        className="pt-4 transition-opacity duration-[140ms] ease-arrive starting:opacity-0 motion-reduce:transition-none"
         id={`settings-panel-${active}`}
+        key={active}
         role="tabpanel"
       >
         {children}

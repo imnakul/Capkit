@@ -7,6 +7,8 @@ import {
   type SnaphubSettings,
   type ToolbarPlacement,
 } from "../../domain/settings";
+import { LAYER } from "../layers";
+import { Switch } from "../ui/Switch";
 import { completionActionCatalog } from "../captureActions";
 import { getToolbarTool, toolbarCatalog } from "../toolbarCatalog";
 import {
@@ -197,10 +199,10 @@ export function ToolbarConfiguration({
   return (
     <div>
       <div className="mb-5 flex items-center justify-between gap-4">
-        <p className="max-w-lg text-[12px] leading-4 text-stone-500 dark:text-stone-400">
+        <p className="max-w-lg text-[12px] leading-4 text-content/60">
           Select stays fixed as the first recovery tool. Configure everything that follows it. In Group mode, groups always sit in the horizontal toolbar.
         </p>
-        <div aria-label="Toolbar organization" className="grid grid-cols-2 rounded-md border border-stone-300 bg-stone-100 p-1 dark:border-white/10 dark:bg-[#20211f]" role="radiogroup">
+        <div aria-label="Toolbar organization" className="grid grid-cols-2 rounded-md bg-content/6 p-0.5" role="radiogroup">
           <ModeButton active={toolbar.mode === "individual"} icon={List} label="Individual" onClick={() => setMode("individual")} />
           <ModeButton active={toolbar.mode === "group"} icon={Rows3} label="Group" onClick={() => setMode("group")} />
         </div>
@@ -222,7 +224,7 @@ export function ToolbarConfiguration({
         </div>
       ) : (
         <div>
-          <div className="mb-4 grid gap-px overflow-hidden rounded-lg border border-stone-200 bg-stone-200 sm:grid-cols-3 dark:border-white/9 dark:bg-white/9">
+          <div className="mb-4 grid gap-px overflow-hidden rounded-lg border border-content/10 bg-content/10 sm:grid-cols-3">
             <GroupRule number="01" title="Each row is one group" description="One primary toolbar slot opens the tools in that row." />
             <GroupRule number="02" title="Rows mean enabled" description="Anything left in Available tools stays disabled." />
             <GroupRule number="03" title="First is the starting tool" description="A group starts on its first tool, then remembers the one you used last." />
@@ -234,19 +236,19 @@ export function ToolbarConfiguration({
               return (
                 <div
                   aria-label={`Toolbar group ${String(rowIndex + 1)}`}
-                  className={`grid min-h-16 grid-cols-[96px_1fr_32px] items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${dropTarget?.row === rowIndex ? "border-[var(--snaphub-accent)] bg-[color-mix(in_srgb,var(--snaphub-accent)_7%,transparent)]" : "border-stone-200 bg-white dark:border-white/9 dark:bg-[#2b2c29]"}`}
+                  className={`grid min-h-16 grid-cols-[96px_1fr_32px] items-center gap-3 rounded-lg border px-3 py-2 transition-colors duration-120 motion-reduce:transition-none ${dropTarget?.row === rowIndex ? "border-accent bg-accent/10" : "border-content/10 bg-content/4"}`}
                   data-toolbar-row={rowIndex}
                   key={`group-${String(rowIndex)}`}
                 >
                   <div>
-                    <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-400">Group {String(rowIndex + 1).padStart(2, "0")}</p>
-                    <p className="mt-1 truncate text-[11px] text-stone-500 dark:text-stone-500">{firstTool === null ? "Drop a default" : `Default · ${firstTool.label}`}</p>
+                    <p className="text-[11px] font-medium tabular-nums text-content/45">Group {String(rowIndex + 1).padStart(2, "0")}</p>
+                    <p className="mt-1 truncate text-[11px] text-content/60">{firstTool === null ? "Drop a default" : `Default · ${firstTool.label}`}</p>
                   </div>
                   <div className="flex min-h-9 flex-wrap items-center gap-1.5">
-                    {group.length === 0 ? <span className="text-[12px] text-stone-400 dark:text-stone-600">Drop tools here</span> : null}
+                    {group.length === 0 ? <span className="text-[12px] text-content/45">Drop tools here</span> : null}
                     {group.map((toolId, toolIndex) => (
                       <Fragment key={toolId}>
-                        {dropTarget?.row === rowIndex && dropTarget.index === toolIndex && draggingToolId !== toolId ? <span aria-hidden="true" className="h-7 w-0.5 rounded-full bg-[var(--snaphub-accent)] shadow-[0_0_8px_var(--snaphub-accent)]" /> : null}
+                        {dropTarget?.row === rowIndex && dropTarget.index === toolIndex && draggingToolId !== toolId ? <span aria-hidden="true" className="h-7 w-0.5 rounded-full bg-accent" /> : null}
                         <ToolPill
                           dragging={draggingToolId === toolId}
                           isDefault={toolIndex === 0}
@@ -261,23 +263,23 @@ export function ToolbarConfiguration({
                         />
                       </Fragment>
                     ))}
-                    {dropTarget?.row === rowIndex && dropTarget.index === group.length ? <span aria-hidden="true" className="h-7 w-0.5 rounded-full bg-[var(--snaphub-accent)] shadow-[0_0_8px_var(--snaphub-accent)]" /> : null}
+                    {dropTarget?.row === rowIndex && dropTarget.index === group.length ? <span aria-hidden="true" className="h-7 w-0.5 rounded-full bg-accent" /> : null}
                   </div>
-                  <button aria-label={`Remove toolbar group ${String(rowIndex + 1)}`} className="grid size-7 place-items-center rounded-md text-stone-400 outline-none transition hover:bg-red-500/10 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:hover:text-red-300" type="button" onClick={() => removeRow(rowIndex)}><X aria-hidden="true" size={14} /></button>
+                  <button aria-label={`Remove toolbar group ${String(rowIndex + 1)}`} className="grid size-7 place-items-center rounded-md text-content/45 outline-none transition-colors duration-120 hover:bg-danger/10 hover:text-danger focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none" type="button" onClick={() => removeRow(rowIndex)}><X aria-hidden="true" size={14} /></button>
                 </div>
               );
             })}
           </div>
 
-          <button aria-label="Add toolbar group" className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-stone-300 text-[12px] font-semibold text-stone-500 outline-none transition hover:border-stone-500 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/12 dark:text-stone-400 dark:hover:border-white/25 dark:hover:text-stone-200" disabled={toolbar.groups.length >= 8} type="button" onClick={addRow}><Plus aria-hidden="true" size={13} />Add group</button>
+          <button aria-label="Add toolbar group" className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-content/20 text-[12px] font-medium text-content/60 outline-none transition-colors duration-120 hover:border-content/40 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none" disabled={toolbar.groups.length >= 8} type="button" onClick={addRow}><Plus aria-hidden="true" size={13} />Add group</button>
 
-          <div className="mt-5 border-t border-stone-200 pt-4 dark:border-white/8">
-            <div className="mb-2 flex items-center justify-between"><p className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-400">Available tools</p><p className="text-[11px] text-stone-400">Drag into a row to enable</p></div>
+          <div className="mt-5 border-t border-content/10 pt-4">
+            <div className="mb-2 flex items-center justify-between"><p className="text-[13px] font-semibold text-content">Available tools</p><p className="text-[12px] text-content/45">Drag into a row to enable</p></div>
             <div
-              className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-stone-300 bg-stone-100/60 p-2 transition-colors dark:border-white/10 dark:bg-black/10"
+              className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-content/15 bg-content/4 p-2"
               data-toolbar-available="true"
             >
-              {disabledTools.length === 0 ? <span className="text-[12px] text-stone-400">Every tool is enabled</span> : disabledTools.map((toolId) => (
+              {disabledTools.length === 0 ? <span className="text-[12px] text-content/45">Every tool is enabled</span> : disabledTools.map((toolId) => (
                 <ToolPill
                   dragging={draggingToolId === toolId}
                   isDefault={false}
@@ -298,9 +300,9 @@ export function ToolbarConfiguration({
         </div>
       )}
 
-      <div className="mt-6 border-t border-stone-200 pt-4 dark:border-white/8">
-        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-400">Finishing actions</p>
-        <p className="mt-1 max-w-lg text-[12px] leading-4 text-stone-500 dark:text-stone-400">
+      <div className="mt-6 border-t border-content/10 pt-4">
+        <p className="text-[13px] font-semibold text-content">Finishing actions</p>
+        <p className="mt-1 max-w-lg text-[12px] leading-4 text-content/60">
           Choose which actions appear and which toolbar holds them. Copy, Save and Copy &amp; Save keep their keyboard shortcuts even when hidden.
         </p>
         <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
@@ -336,14 +338,14 @@ type ItemRowProps = {
 };
 function ItemRow({ label, icon: Icon, enabled, placement, note, onEnabledChange, onPlacementChange }: ItemRowProps): React.JSX.Element {
   return (
-    <div className="flex min-h-10 items-center gap-2.5 border-b border-stone-200/80 py-2 dark:border-white/7">
-      <Icon aria-hidden="true" className={enabled ? "text-[var(--snaphub-accent)]" : "text-stone-400 dark:text-stone-600"} size={14} />
+    <div className="flex min-h-10 items-center gap-2.5 border-b border-content/8 py-2">
+      <Icon aria-hidden="true" className={enabled ? "text-content" : "text-content/45"} size={14} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-semibold text-stone-700 dark:text-stone-300">{label}</span>
-        {note === undefined ? null : <span className="block truncate text-[11px] text-stone-400">{note}</span>}
+        <span className="block truncate text-[13px] font-medium text-content">{label}</span>
+        {note === undefined ? null : <span className="block truncate text-[11px] text-content/45">{note}</span>}
       </span>
       <PlacementSwitch disabled={!enabled} label={label} value={placement} onChange={onPlacementChange} />
-      <CompactToggle checked={enabled} label={`Show ${label}`} onChange={onEnabledChange} />
+      <Switch checked={enabled} label={`Show ${label}`} onChange={onEnabledChange} />
     </div>
   );
 }
@@ -362,11 +364,11 @@ function PlacementSwitch({ label, value, disabled, onChange }: PlacementSwitchPr
     event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-placement="${next}"]`)?.focus();
   }
   return (
-    <div aria-label={`${label} toolbar`} className="grid shrink-0 grid-cols-2 rounded-md border border-stone-300 bg-stone-100 p-0.5 dark:border-white/10 dark:bg-[#20211f]" role="radiogroup">
+    <div aria-label={`${label} toolbar`} className="grid shrink-0 grid-cols-2 rounded-md bg-content/6 p-0.5" role="radiogroup">
       {(["horizontal", "vertical"] as const).map((option) => (
         <button
           aria-checked={value === option}
-          className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-stone-500 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-40 aria-checked:bg-white aria-checked:text-stone-900 dark:text-stone-400 dark:aria-checked:bg-white/9 dark:aria-checked:text-white"
+          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-content/60 outline-none transition-colors duration-150 ease-track focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-40 aria-checked:bg-content/8 aria-checked:text-content motion-reduce:transition-none"
           data-placement={option}
           disabled={disabled}
           key={option}
@@ -385,12 +387,12 @@ function PlacementSwitch({ label, value, disabled, onChange }: PlacementSwitchPr
 
 type ModeButtonProps = { active: boolean; icon: typeof List; label: string; onClick: () => void };
 function ModeButton({ active, icon: Icon, label, onClick }: ModeButtonProps): React.JSX.Element {
-  return <button aria-label={`Use ${label} toolbar mode`} aria-checked={active} className="flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold text-stone-500 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:bg-white aria-checked:text-stone-900 dark:text-stone-400 dark:aria-checked:bg-white/9 dark:aria-checked:text-white" role="radio" type="button" onClick={onClick}><Icon aria-hidden="true" size={12} />{label}</button>;
+  return <button aria-label={`Use ${label} toolbar mode`} aria-checked={active} className="flex items-center justify-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium text-content/60 outline-none transition-colors duration-150 ease-track focus-visible:ring-2 focus-visible:ring-accent/50 aria-checked:bg-content/8 aria-checked:text-content motion-reduce:transition-none" role="radio" type="button" onClick={onClick}><Icon aria-hidden="true" size={12} />{label}</button>;
 }
 
 type GroupRuleProps = { number: string; title: string; description: string };
 function GroupRule({ number, title, description }: GroupRuleProps): React.JSX.Element {
-  return <div className="bg-white p-3 dark:bg-[#2b2c29]"><span className="font-mono text-[11px] font-bold text-[var(--snaphub-accent)]">{number}</span><p className="mt-1 text-[12px] font-semibold text-stone-700 dark:text-stone-200">{title}</p><p className="mt-1 text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</p></div>;
+  return <div className="bg-background-base p-3"><span className="text-[11px] font-medium tabular-nums text-content/45">{number}</span><p className="mt-1 text-[12px] font-semibold text-content">{title}</p><p className="mt-1 text-[11px] leading-4 text-content/60">{description}</p></div>;
 }
 
 type ToolPillProps = {
@@ -408,17 +410,11 @@ type ToolPillProps = {
 function ToolPill({ toolId, rowIndex, toolIndex, isDefault, dragging, onKeyDown, onPointerCancel, onPointerDown, onPointerMove, onPointerUp }: ToolPillProps): React.JSX.Element {
   const tool = getToolbarTool(toolId);
   const Icon = tool.icon;
-  return <button aria-label={`${tool.label}${isDefault ? ", group default" : ""}. Drag to reorder; Delete disables`} className={`flex h-8 touch-none cursor-grab items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold outline-none transition-[transform,opacity,border-color,background-color] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] active:cursor-grabbing ${isDefault ? "border-[var(--snaphub-accent)]/55 bg-[color-mix(in_srgb,var(--snaphub-accent)_9%,white)] text-stone-800 dark:bg-[color-mix(in_srgb,var(--snaphub-accent)_12%,#2b2c29)] dark:text-stone-100" : "border-stone-200 bg-stone-50 text-stone-600 dark:border-white/10 dark:bg-[#343532] dark:text-stone-300"} ${dragging ? "scale-95 opacity-35" : "opacity-100"}`} data-toolbar-index={toolIndex} data-toolbar-pill="true" data-toolbar-row={rowIndex ?? undefined} data-toolbar-tool={toolId} type="button" onKeyDown={onKeyDown} onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}><GripVertical aria-hidden="true" className="text-stone-400" size={11} /><Icon aria-hidden="true" size={12} />{tool.label}{isDefault ? <span className="ml-0.5 rounded bg-black/6 px-1 py-0.5 font-mono text-[11px] uppercase tracking-wide dark:bg-white/8">Default</span> : null}</button>;
+  return <button aria-label={`${tool.label}${isDefault ? ", group default" : ""}. Drag to reorder; Delete disables`} className={`flex h-8 touch-none cursor-grab items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium outline-none transition-[transform,opacity,background-color] duration-150 hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-accent/50 active:cursor-grabbing motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${isDefault ? "border-accent/55 bg-accent/10 text-content" : "border-content/10 bg-content/4 text-content/80"} ${dragging ? "scale-95 opacity-35" : "opacity-100"}`} data-toolbar-index={toolIndex} data-toolbar-pill="true" data-toolbar-row={rowIndex ?? undefined} data-toolbar-tool={toolId} type="button" onKeyDown={onKeyDown} onPointerCancel={onPointerCancel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}><GripVertical aria-hidden="true" className="text-content/45" size={11} /><Icon aria-hidden="true" size={12} />{tool.label}{isDefault ? <span className="ml-0.5 rounded bg-content/8 px-1 py-0.5 text-[11px]">Default</span> : null}</button>;
 }
 
 function DragPreview({ toolId, x, y }: { toolId: CaptureToolbarToolId; x: number; y: number }): React.JSX.Element {
   const tool = getToolbarTool(toolId);
   const Icon = tool.icon;
-  return <div aria-hidden="true" className="pointer-events-none fixed z-[200] flex h-8 items-center gap-1.5 rounded-md border border-[var(--snaphub-accent)]/60 bg-[#242522] px-2 text-[11px] font-semibold text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)]" style={{ left: x + 12, top: y + 12 }}><GripVertical size={11} /><Icon size={12} />{tool.label}</div>;
-}
-
-type CompactToggleProps = { checked: boolean; label: string; onChange: (checked: boolean) => void };
-function CompactToggle({ checked, label, onChange }: CompactToggleProps): React.JSX.Element {
-  // The input is visually hidden, so the label carries clicks on the drawn switch to it.
-  return <label className="relative shrink-0 cursor-pointer"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-4 w-7 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-3 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-3 peer-checked:bg-[#171815]" /></label>;
+  return <div aria-hidden="true" className="pointer-events-none fixed flex h-8 items-center gap-1.5 rounded-md border border-accent/60 bg-background-base px-2 text-[11px] font-medium text-content shadow-xl" style={{ left: x + 12, top: y + 12, zIndex: LAYER.toast }}><GripVertical size={11} /><Icon size={12} />{tool.label}</div>;
 }

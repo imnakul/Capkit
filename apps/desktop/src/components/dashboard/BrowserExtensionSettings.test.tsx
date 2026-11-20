@@ -97,8 +97,8 @@ describe("BrowserExtensionSettings", () => {
     });
     render(<BrowserExtensionSettings />);
 
-    expect(await screen.findByText("Connected · Chrome 130")).toBeVisible();
-    expect(screen.getByText("Connected · Aside 2.1")).toBeVisible();
+    expect(await screen.findByText("Connected to Chrome 130")).toBeVisible();
+    expect(screen.getByText("Connected to Aside 2.1")).toBeVisible();
   });
 
   it("shows the switch description and copies the load-unpacked steps", async () => {
@@ -123,7 +123,7 @@ describe("BrowserExtensionSettings", () => {
     tauri.forgetBrowser.mockResolvedValue(listening);
     render(<BrowserExtensionSettings />);
 
-    expect(await screen.findByText(/Connected · chrome-extension/)).toBeVisible();
+    expect(await screen.findByText(/Connected, chrome-extension/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Forget Chrome" }));
     expect(tauri.forgetBrowser).not.toHaveBeenCalled();
     expect(screen.getByText("Forget Chrome? It will need a new code.")).toBeVisible();

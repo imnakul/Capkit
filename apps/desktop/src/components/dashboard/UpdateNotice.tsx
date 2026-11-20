@@ -1,3 +1,4 @@
+import { Button } from "../ui/Button";
 import type { UpdateController } from "./useUpdateStatus";
 
 /** Sidebar notice for an available, running or failed install. Hidden otherwise. */
@@ -9,7 +10,7 @@ export function UpdateNotice({ controller }: { controller: UpdateController }): 
   const busy = status.state === "installing";
   const text =
     status.state === "available"
-      ? `Update available: v${status.version}`
+      ? "Update ready"
       : status.state === "installing"
         ? `Downloading… ${String(status.percent)}%`
         : status.message;
@@ -17,19 +18,17 @@ export function UpdateNotice({ controller }: { controller: UpdateController }): 
   return (
     <div
       aria-busy={busy}
-      className="mb-3 rounded-lg border border-stone-300/80 bg-white/70 p-2.5 text-[12px] dark:border-white/10 dark:bg-white/5"
+      className="mb-2 rounded-md border border-content/10 bg-content/4 px-2.5 py-2 text-[12px]"
       role="status"
     >
-      <p className="font-medium text-stone-800 dark:text-stone-200">{text}</p>
-      {guardMessage === null ? null : <p className="mt-1 text-amber-700 dark:text-amber-300">{guardMessage}</p>}
-      <button
-        className="mt-2 w-full rounded-md bg-[var(--snaphub-accent)] px-2.5 py-1.5 text-[12px] font-semibold text-stone-950 outline-none transition focus-visible:ring-2 focus-visible:ring-stone-900 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-white"
-        disabled={busy}
-        type="button"
-        onClick={install}
-      >
-        {failed ? "Try again" : "Install and restart"}
-      </button>
+      <div className="flex items-center gap-2">
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent" />
+        <p className="min-w-0 flex-1 truncate font-medium text-content" title={text}>{text}</p>
+        <Button aria-label={failed ? "Try again" : "Install and restart"} disabled={busy} variant="secondary" onClick={install}>
+          {failed ? "Try again" : "Install"}
+        </Button>
+      </div>
+      {guardMessage === null ? null : <p className="mt-1.5 text-amber-500">{guardMessage}</p>}
     </div>
   );
 }
