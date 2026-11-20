@@ -57,7 +57,10 @@ body.dashboard-surface {
   color: var(--color-content);
 }
 
-html.glass {
+/* index.html paints html, body and #root solid so the first frame is not white;
+   #root has to give that up too or it hides the blur behind it. */
+html.glass,
+html.glass #root {
   background: transparent;
 }
 
