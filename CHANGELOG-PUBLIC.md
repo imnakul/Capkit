@@ -2,20 +2,39 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
-## Unreleased — 2026-11-19
+## 0.4.0 — 2026-11-20
 
 ### Added
 
-- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
+- The CapKit Inspector extension now uses the accent colour you chose in CapKit.
+- Developer tools (off by default): link the CapKit Inspector browser extension to see exact page elements, find sensitive text precisely, and pin numbered notes on a page. Notes copy as Markdown with a screenshot and are kept in a new Notes tab.
+- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General. Install 0.4.0 by hand once; later versions arrive through the app.
 - Copy any capture from the Screenshots page, and drag it straight into another app.
-- Choose how the capture overlay appears: Dim and rise, Fade in, or Fade in and out.
 - Capture toolbar groups open when you click them and remember the last tool you used in each group.
+- Settings → Screenshots lets you show or hide each finishing action (Copy, Save, Pin, Showcase and more) and choose whether each tool and action sits in the horizontal or the vertical toolbar.
 
 ### Improved
 
+- Press 1–9 and 0 to pick a tool in the capture toolbar, and V for Select. Each button shows its number in the corner, like C, S and A.
+- Copy, Save and Copy & Save (C, S, A) now deliver your note when the capture has pins, so the separate note buttons are gone.
+- Click a note pin with the Select tool to edit its comment, and drag the pin to move its comment with it.
 - The capture toolbar is a single card, with the colour and size row only for tools that use them.
 - Only one CapKit runs at a time; opening it again brings the existing window forward.
+- Shapes, arrows, pen strokes and highlights can be resized: select one and drag any of its eight handles, or focus a handle and use the arrow keys.
+- The highlight that follows your pointer before you select now glides smoothly from one area to the next. It jumps instantly when Windows animation effects are off.
 - Folder paths in Settings no longer start with `\\?\`.
+- The capture overlay fades in and out. The other overlay animations and their setting are gone.
+- Drawings stay where they are on screen when you move or resize the capture area.
+
+### Fixed
+
+- The CapKit Inspector extension reconnects by itself after CapKit restarts, instead of staying disconnected until you open its popup.
+- The show/hide switches in Settings → Screenshots (tools and finishing actions) respond to clicks again.
+- Saved notes show their screenshot again in the Notes tab.
+- Click a saved note to read all of it: the full screenshot and every pin's comment and details.
+- Detection works again when a tiling window manager such as FancyWM is running. Before, it found nothing in tiled windows.
+- Screenshots in Aside now highlight exact page elements when the CapKit Inspector extension is linked.
+- Detection mode finds parts of web pages in Chrome, Edge and other Chromium browsers again, not just the browser's own buttons.
 
 ## Earlier — 2026-10-29
 

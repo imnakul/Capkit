@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId, SnaphubSettings } from "../domain/settings";
 import { SelectPointer, type CapkitIconComponent } from "./icons";
 import { ContextControls } from "./ContextControls";
-import { getToolbarTool, toolbarCatalog, type ToolbarToolDefinition } from "./toolbarCatalog";
+import type { RailItem } from "./captureActions";
+import { getToolbarTool, runToolbarTool, toolbarCatalog, type ToolbarToolDefinition } from "./toolbarCatalog";
 
 type AnnotationToolbarProps = {
   activeTool: ToolId;
@@ -16,6 +17,10 @@ type AnnotationToolbarProps = {
   placement?: "top" | "bottom";
   lastToolByGroup: Readonly<Partial<Record<number, CaptureToolbarToolId>>>;
   openGroupIndex: number | null;
+  /** Finishing actions the user moved into this toolbar; shown after the tools. */
+  actionItems?: readonly RailItem[];
+  /** False while the capture is busy (scrolling capture, finishing); V and the number keys do nothing. */
+  keyboardEnabled?: boolean;
   onToolChange: (tool: ToolId) => void;
   onStyleChange: (style: AnnotationStyle) => void;
   onUndo: () => void;
@@ -49,6 +54,8 @@ export function AnnotationToolbar({
   placement = "bottom",
   lastToolByGroup,
   openGroupIndex,
+  actionItems = [],
+  keyboardEnabled = true,
   onToolChange,
   onStyleChange,
   onUndo,
@@ -60,14 +67,7 @@ export function AnnotationToolbar({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   function runTool(toolId: CaptureToolbarToolId): void {
-    const tool = getToolbarTool(toolId);
-    if (tool.annotationTool !== undefined) {
-      onToolChange(tool.annotationTool);
-      return;
-    }
-    if (toolId === "scrolling-capture") onScrollCapture();
-    else if (toolId === "undo") onUndo();
-    else onRedo();
+    runToolbarTool(toolId, { onToolChange, onScrollCapture, onUndo, onRedo });
   }
 
   const groups = toolbar.mode === "group" ? toolbar.groups : [];
@@ -97,7 +97,7 @@ export function AnnotationToolbar({
 
   if (toolbar.mode === "individual") {
     for (const tool of toolbarCatalog) {
-      if (!toolbar.individual[tool.id]) continue;
+      if (!toolbar.individual[tool.id] || toolbar.verticalTools.includes(tool.id)) continue;
       const active = tool.annotationTool === activeTool;
       items.push({
         id: `tool-${tool.id}`,
@@ -141,13 +141,53 @@ export function AnnotationToolbar({
     });
   }
 
+  // Tools and groups (not finishing actions, which have their own letters) take 1–9, then 0.
+  items.slice(1).forEach((item, index) => {
+    const key = numberKeys[index];
+    if (key !== undefined) item.shortcut = key;
+  });
+
+  for (const action of actionItems) {
+    items.push({
+      id: action.id,
+      label: action.label,
+      icon: action.icon,
+      ...(action.shortcut === undefined ? {} : { shortcut: action.shortcut }),
+      active: false,
+      disabled: action.disabled ?? false,
+      tools: [],
+      showStyleControls: false,
+      onSelect: action.onSelect,
+    });
+  }
+
+  const shortcutItems = useRef(items);
+  useEffect(() => {
+    shortcutItems.current = items;
+  });
+
+  useEffect(() => {
+    if (!keyboardEnabled) return undefined;
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toUpperCase();
+      const item = shortcutItems.current.find((candidate) => candidate.shortcut === key && !candidate.id.startsWith("action-"));
+      if (item === undefined || item.disabled) return;
+      event.preventDefault();
+      item.onSelect();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return (): void => window.removeEventListener("keydown", onKeyDown);
+  }, [keyboardEnabled]);
+
   const activeIndex = items.findIndex((item) => item.active);
   const indicatorIndex = hoveredIndex ?? activeIndex;
   const openGroup = items.find(
     (item) => item.groupIndex !== undefined && item.groupIndex === openGroupIndex,
   );
   const activeStyleItem = toolbar.mode === "individual"
-    ? items.find((item) => item.active && item.showStyleControls)
+    ? items.find((item) => item.active && item.showStyleControls) ?? railStyleItem(toolbar, activeTool)
     : undefined;
   const rowTwo = openGroup ?? activeStyleItem;
 
@@ -176,6 +216,7 @@ export function AnnotationToolbar({
           return (
             <button
               aria-expanded={item.groupIndex === undefined ? undefined : isOpen}
+              aria-keyshortcuts={item.shortcut}
               aria-label={item.label}
               aria-pressed={item.active}
               className="group relative z-10 grid size-10 shrink-0 place-items-center rounded-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-lime-300 disabled:cursor-not-allowed disabled:opacity-30"
@@ -193,6 +234,14 @@ export function AnnotationToolbar({
                 size={18}
                 strokeWidth={item.active ? 2.4 : 1.9}
               />
+              {item.shortcut === undefined ? null : (
+                <kbd
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute right-1 top-1 min-w-3.5 rounded border px-1 text-center font-(family-name:--font-keycap) text-[8px] font-semibold leading-3 shadow-sm ${item.active ? "border-stone-950/20 bg-lime-200 text-stone-900" : "border-white/15 bg-stone-950/80 text-stone-300"}`}
+                >
+                  {item.shortcut}
+                </kbd>
+              )}
               <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-stone-950 px-2 py-1 text-[10px] font-medium text-stone-100 shadow-xl group-hover:block group-focus-visible:block">
                 {item.label}
                 {item.shortcut === undefined ? null : <kbd className="ml-2 text-stone-500">{item.shortcut}</kbd>}
@@ -220,4 +269,29 @@ export function AnnotationToolbar({
       )}
     </div>
   );
+}
+
+const numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"] as const;
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || (target instanceof HTMLElement && target.isContentEditable);
+}
+
+/** A style tool moved to the vertical rail still gets its colour and size row here. */
+function railStyleItem(toolbar: SnaphubSettings["toolbar"], activeTool: ToolId): PrimaryItem | undefined {
+  const tool = toolbarCatalog.find((candidate) =>
+    candidate.annotationTool === activeTool && toolbar.verticalTools.includes(candidate.id) && toolbar.individual[candidate.id]);
+  if (!tool?.supportsStyle) return undefined;
+  return {
+    id: `rail-${tool.id}`,
+    label: tool.label,
+    icon: tool.icon,
+    active: true,
+    disabled: false,
+    tools: [],
+    showStyleControls: true,
+    onSelect: () => undefined,
+  };
 }

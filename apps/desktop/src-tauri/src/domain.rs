@@ -176,6 +176,9 @@ pub struct CompletionRequest {
     pub session_id: String,
     pub selection: Rect,
     pub scene: AnnotationScene,
+    /// Required (a uuid) for `note-image`, where it names the screenshot file.
+    #[serde(default)]
+    pub note_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -186,6 +189,8 @@ pub enum CompletionAction {
     Save,
     SaveAs,
     Pin,
+    /// Renders the capture into the Notes library and leaves the session open.
+    NoteImage,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]

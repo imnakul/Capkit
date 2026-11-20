@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseToolbarPlacement, clampRect, normalizeRect, toolbarPosition } from "./geometry";
+import { chooseToolbarPlacement, clampRect, normalizeRect, resizeRectFromHandle, toolbarPosition } from "./geometry";
 
 describe("normalizeRect", () => {
   it("normalizes a reverse drag", () => {
@@ -64,5 +64,21 @@ describe("toolbarPosition", () => {
     const selection = { x: 100, y: 200, width: 300, height: 100 };
     expect(toolbarPosition(selection, viewport, "bottom", size)).toEqual({ x: 100, y: 310 });
     expect(toolbarPosition(selection, viewport, "top", size)).toEqual({ x: 100, y: 138 });
+  });
+});
+
+describe("resizeRectFromHandle", () => {
+  const initial = { x: 0, y: 0, width: 100, height: 100 };
+
+  it("moves both edges of a corner handle", () => {
+    expect(resizeRectFromHandle(initial, "nw", 10, 20, 8)).toEqual({ x: 10, y: 20, width: 90, height: 80 });
+  });
+
+  it("ignores the axis an edge handle does not own", () => {
+    expect(resizeRectFromHandle(initial, "e", 15, 40, 8)).toEqual({ x: 0, y: 0, width: 115, height: 100 });
+  });
+
+  it("clamps at the minimum size rather than flipping", () => {
+    expect(resizeRectFromHandle(initial, "s", 0, -400, 8)).toEqual({ x: 0, y: 0, width: 100, height: 8 });
   });
 });

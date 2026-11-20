@@ -4,12 +4,49 @@ import type {
   Annotation,
   AnnotationScene,
   AnnotationStyle,
+  CounterAnnotation,
   RegionAnnotation,
   ToolId,
 } from "../domain/annotations";
+import {
+  annotationBounds,
+  findAnnotationAtPoint,
+  isResizableAnnotation,
+  resizeAnnotation,
+  translateAnnotation,
+} from "../domain/annotationGeometry";
 import { Cancel } from "./icons";
 import type { Point, Rect as CaptureRect } from "../domain/capture";
-import { normalizeRect } from "../lib/geometry";
+import { normalizeRect, type ResizeHandle } from "../lib/geometry";
+
+const resizeHandles: readonly ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+const handleNames: Record<ResizeHandle, string> = {
+  nw: "top-left corner",
+  n: "top edge",
+  ne: "top-right corner",
+  e: "right edge",
+  se: "bottom-right corner",
+  s: "bottom edge",
+  sw: "bottom-left corner",
+  w: "left edge",
+};
+
+/** Arrow keys on a focused handle nudge that edge: 1px, or 10px with Shift. */
+function keyboardResizeDelta(key: string, step: number): Point | null {
+  switch (key) {
+    case "ArrowLeft":
+      return { x: -step, y: 0 };
+    case "ArrowRight":
+      return { x: step, y: 0 };
+    case "ArrowUp":
+      return { x: 0, y: -step };
+    case "ArrowDown":
+      return { x: 0, y: step };
+    default:
+      return null;
+  }
+}
 
 type AnnotationCanvasProps = {
   bounds: CaptureRect;
@@ -21,7 +58,18 @@ type AnnotationCanvasProps = {
   onCommit: (annotation: Annotation) => void;
   onUpdate: (annotation: Annotation) => void;
   onDelete: (annotationId: string) => void;
+  /** Pin colour for the Note tool (the accent colour). */
+  noteColor?: string;
+  /** A note was placed: its pin, and the dragged area (null for a point note). */
+  onNotePlace?: (pin: CounterAnnotation, area: CaptureRect | null) => void;
+  /** Select picked a counter pin; the app reopens its note when it has one. */
+  onPinSelect?: (annotationId: string) => void;
+  /** A pin's live position while Select drags it, then null on release, so its comment can follow. */
+  onPinDrag?: (annotationId: string, position: Point | null) => void;
 };
+
+/** A press that moves less than this (px) places a point note; further drags an area note. */
+const noteAreaThreshold = 6;
 
 type Draft = { id: string; start: Point; end: Point; points: readonly Point[] };
 
@@ -35,6 +83,10 @@ export function AnnotationCanvas({
   onCommit,
   onUpdate,
   onDelete,
+  noteColor = "#d9ff43",
+  onNotePlace,
+  onPinSelect,
+  onPinDrag,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -47,7 +99,8 @@ export function AnnotationCanvas({
   const editingValueRef = useRef("");
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
-  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point } | null>(null);
+  // `handle` is null while moving and names the dragged handle while resizing.
+  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null } | null>(null);
 
   const displayedElements = useMemo<readonly Annotation[]>(() => {
     if (movingAnnotation === null) return scene.elements;
@@ -56,8 +109,20 @@ export function AnnotationCanvas({
 
   const preview = useMemo<Annotation | null>(() => {
     if (draft === null) return null;
+    if (activeTool === "note") {
+      if (Math.hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) < noteAreaThreshold) return null;
+      return {
+        id: draft.id,
+        kind: "rectangle",
+        bounds: normalizeRect(draft.start, draft.end),
+        color: noteColor,
+        fill: "transparent",
+        strokeWidth: 2,
+        opacity: 1,
+      };
+    }
     return createAnnotation(activeTool, draft.start, draft.end, style, scene, draft.id, draft.points);
-  }, [activeTool, draft, scene, style]);
+  }, [activeTool, draft, noteColor, scene, style]);
 
   function relativePoint(event: React.PointerEvent<HTMLDivElement>): Point {
     const host = containerRef.current?.getBoundingClientRect();
@@ -86,6 +151,12 @@ export function AnnotationCanvas({
     if (activeTool === "select") {
       const hit = findAnnotationAtPoint(scene.elements, point);
       setSelectedAnnotationId(hit?.id ?? null);
+      if (hit?.kind === "counter" && onPinSelect !== undefined) {
+        // The pin's comment popover focuses its textarea; without this the press's
+        // default mousedown focus change would blur it, so typing would fire capture shortcuts.
+        event.preventDefault();
+        onPinSelect(hit.id);
+      }
       // Leave empty-space presses available to SelectionFrame so the capture
       // region itself can still be moved while Select is active.
       if (hit === undefined) return;
@@ -93,7 +164,7 @@ export function AnnotationCanvas({
       setSelectedTextId(hit.kind === "text" ? hit.id : null);
       finishActiveTextEdit();
       if ("setPointerCapture" in event.currentTarget) event.currentTarget.setPointerCapture(event.pointerId);
-      movingAnnotationRef.current = { initial: hit, current: hit, start: point };
+      movingAnnotationRef.current = { initial: hit, current: hit, start: point, handle: null };
       setMovingAnnotation({ initial: hit, current: hit });
       return;
     }
@@ -124,6 +195,20 @@ export function AnnotationCanvas({
     setDraft(nextDraft);
   }
 
+  function startResize(annotation: Annotation, handle: ResizeHandle, event: React.PointerEvent<HTMLButtonElement>): void {
+    if (event.button !== 0) return;
+    // Keep the press away from SelectionFrame, which would move the capture region.
+    event.stopPropagation();
+    event.preventDefault();
+    // Capture on the canvas so its move/up handlers keep receiving the drag.
+    const container = containerRef.current;
+    if (container !== null && "setPointerCapture" in container) container.setPointerCapture(event.pointerId);
+    const host = container?.getBoundingClientRect();
+    const start = host === undefined ? { x: 0, y: 0 } : { x: event.clientX - host.left, y: event.clientY - host.top };
+    movingAnnotationRef.current = { initial: annotation, current: annotation, start, handle };
+    setMovingAnnotation({ initial: annotation, current: annotation });
+  }
+
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     const moving = movingAnnotationRef.current;
     if (moving !== null) {
@@ -133,9 +218,14 @@ export function AnnotationCanvas({
       }
       event.stopPropagation();
       const point = relativePoint(event);
-      const current = translateAnnotation(moving.initial, point.x - moving.start.x, point.y - moving.start.y);
+      const dx = point.x - moving.start.x;
+      const dy = point.y - moving.start.y;
+      const current = moving.handle === null
+        ? translateAnnotation(moving.initial, dx, dy)
+        : resizeAnnotation(moving.initial, moving.handle, dx, dy);
       moving.current = current;
       setMovingAnnotation({ initial: moving.initial, current });
+      if (current.kind === "counter") onPinDrag?.(current.id, current.position);
       return;
     }
     const current = draftRef.current;
@@ -159,6 +249,7 @@ export function AnnotationCanvas({
     if (moving !== null) {
       event.stopPropagation();
       onUpdate(moving.current);
+      if (moving.current.kind === "counter") onPinDrag?.(moving.current.id, null);
       movingAnnotationRef.current = null;
       setMovingAnnotation(null);
       return;
@@ -167,6 +258,31 @@ export function AnnotationCanvas({
     const current = draftRef.current;
     if (current === null) return;
     clearDraftFrame();
+    if (activeTool === "note") {
+      const end = relativePoint(event);
+      draftRef.current = null;
+      setDraft(null);
+      const isArea = Math.hypot(end.x - current.start.x, end.y - current.start.y) >= noteAreaThreshold;
+      const area = isArea ? normalizeRect(current.start, end) : null;
+      const anchor = area === null ? current.start : { x: area.x, y: area.y };
+      const highest = scene.elements.reduce(
+        (value, element) => (element.kind === "counter" ? Math.max(value, element.value) : value),
+        0,
+      );
+      onNotePlace?.(
+        {
+          id: crypto.randomUUID(),
+          kind: "counter",
+          position: anchor,
+          value: highest + 1,
+          color: noteColor,
+          radius: Math.max(12, style.strokeWidth * 3),
+          opacity: 1,
+        },
+        area,
+      );
+      return;
+    }
     const annotation = createAnnotation(
       activeTool,
       current.start,
@@ -342,7 +458,25 @@ export function AnnotationCanvas({
         const selectedBounds = annotationBounds(selected);
         return (
           <div aria-label={`Selected ${selected.kind} annotation`} className="pointer-events-none absolute z-30 border border-dashed border-lime-300/90 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]" style={{ left: selectedBounds.x, top: selectedBounds.y, width: selectedBounds.width, height: selectedBounds.height }}>
-            <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-2.5 -top-2.5 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
+            {isResizableAnnotation(selected) ? resizeHandles.map((handle) => (
+              <button
+                aria-label={`Resize ${selected.kind} annotation from the ${handleNames[handle]}`}
+                className={`selection-handle selection-handle-${handle} pointer-events-auto touch-none`}
+                data-capture-interactive="true"
+                key={handle}
+                title="Drag to resize · arrow keys nudge (Shift for 10px)"
+                type="button"
+                onKeyDown={(event) => {
+                  const delta = keyboardResizeDelta(event.key, event.shiftKey ? 10 : 1);
+                  if (delta === null) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onUpdate(resizeAnnotation(selected, handle, delta.x, delta.y));
+                }}
+                onPointerDown={(event) => startResize(selected, handle, event)}
+              />
+            )) : null}
+            <button aria-label={`Delete ${selected.kind} annotation`} className="pointer-events-auto absolute -right-7 -top-7 z-30 grid size-5 place-items-center rounded-full border border-white/15 bg-[#171916] text-stone-200 shadow-lg outline-none transition-colors hover:bg-red-500 hover:text-white focus-visible:ring-2 focus-visible:ring-lime-300" type="button" onClick={() => { onDelete(selected.id); setSelectedAnnotationId(null); }} onPointerDown={(event) => event.stopPropagation()}>
               <Cancel aria-hidden="true" size={11} strokeWidth={2.4} />
             </button>
           </div>
@@ -585,35 +719,6 @@ function isTextAnnotation(
   return annotation.kind === "text";
 }
 
-function annotationBounds(annotation: Annotation): CaptureRect {
-  if ("bounds" in annotation) return annotation.bounds;
-  if (annotation.kind === "text") {
-    return { x: annotation.position.x, y: annotation.position.y, width: Math.max(92, annotation.text.length * annotation.fontSize * 0.54), height: annotation.fontSize * 1.35 };
-  }
-  if (annotation.kind === "counter") {
-    return { x: annotation.position.x - annotation.radius, y: annotation.position.y - annotation.radius, width: annotation.radius * 2, height: annotation.radius * 2 };
-  }
-  const xs = annotation.points.map((point) => point.x);
-  const ys = annotation.points.map((point) => point.y);
-  const minX = Math.min(...xs) - annotation.strokeWidth;
-  const minY = Math.min(...ys) - annotation.strokeWidth;
-  return { x: minX, y: minY, width: Math.max(1, Math.max(...xs) - minX + annotation.strokeWidth), height: Math.max(1, Math.max(...ys) - minY + annotation.strokeWidth) };
-}
-
-function findAnnotationAtPoint(elements: readonly Annotation[], point: Point): Annotation | undefined {
-  const tolerance = 10;
-  return [...elements].reverse().find((element) => {
-    const bounds = annotationBounds(element);
-    return point.x >= bounds.x - tolerance && point.x <= bounds.x + bounds.width + tolerance && point.y >= bounds.y - tolerance && point.y <= bounds.y + bounds.height + tolerance;
-  });
-}
-
-function translateAnnotation(annotation: Annotation, dx: number, dy: number): Annotation {
-  if ("bounds" in annotation) return { ...annotation, bounds: { ...annotation.bounds, x: annotation.bounds.x + dx, y: annotation.bounds.y + dy } };
-  if (annotation.kind === "text" || annotation.kind === "counter") return { ...annotation, position: { x: annotation.position.x + dx, y: annotation.position.y + dy } };
-  return { ...annotation, points: annotation.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
-}
-
 function createAnnotation(
   tool: ToolId,
   start: Point,
@@ -689,6 +794,7 @@ function createAnnotation(
         radius: Math.max(12, style.strokeWidth * 3),
         opacity,
       };
+    case "note":
     case "select":
       return null;
   }

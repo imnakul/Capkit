@@ -1,11 +1,11 @@
 import type { Rect } from "../domain/capture";
+import type { ResizeHandle } from "../lib/geometry";
 
-export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+export type { ResizeHandle };
 
 type SelectionFrameProps = {
   rect: Rect;
   children: React.ReactNode;
-  motionStyle?: React.CSSProperties;
   onMoveStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   onResizeStart: (handle: ResizeHandle, event: React.PointerEvent<HTMLButtonElement>) => void;
 };
@@ -15,7 +15,6 @@ const handles: readonly ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw",
 export function SelectionFrame({
   rect,
   children,
-  motionStyle,
   onMoveStart,
   onResizeStart,
 }: SelectionFrameProps): React.JSX.Element {
@@ -23,7 +22,7 @@ export function SelectionFrame({
     <div
       className="capture-selection-mask absolute z-10 cursor-grab border border-lime-300/90 active:cursor-grabbing"
       data-capture-interactive="true"
-      style={{ height: rect.height, left: rect.x, top: rect.y, width: rect.width, ...motionStyle }}
+      style={{ height: rect.height, left: rect.x, top: rect.y, width: rect.width }}
       onPointerDown={onMoveStart}
     >
       {children}

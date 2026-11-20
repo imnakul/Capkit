@@ -141,6 +141,22 @@ export const Grip = createCapkitIcon(GripVerticalIcon);
 export const Hand = createCapkitIcon(HandIcon);
 export const HardDrive = createCapkitIcon(HardDriveIcon);
 export const Hashtag = createCapkitIcon(HashtagIcon);
+
+/** A round pin with a speech-bubble tail, for the Note tool. */
+const notePinIcon: IconSvgElement = [
+  [
+    "path",
+    {
+      d: "M12 3a8 8 0 1 1-3.6 15.15L4 20l1.3-4.1A8 8 0 0 1 12 3Z",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      key: "0",
+    },
+  ],
+  ["path", { d: "M12 8v6M9 11h6", stroke: "currentColor", strokeLinecap: "round", key: "1" }],
+];
+export const NotePin = createCapkitIcon(notePinIcon);
 export const Highlighter = createCapkitIcon(HighlighterIcon);
 export const Image = createCapkitIcon(Image02Icon);
 export const ImageAdd = createCapkitIcon(ImageAdd02Icon);

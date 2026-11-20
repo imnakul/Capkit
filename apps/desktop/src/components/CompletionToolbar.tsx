@@ -1,51 +1,27 @@
 import { useEffect, useRef } from "react";
-import type { CompletionAction } from "../domain/capture";
-import {
-  Clipboard,
-  Copy,
-  Download,
-  Pin,
-  Presentation,
-  Refresh,
-  SecurityCheck,
-  TextSelection,
-  type CapkitIconProps,
-} from "./icons";
+import type { RailItem } from "./captureActions";
+import { Refresh } from "./icons";
 import { ToolButton } from "./ToolButton";
 
 export type CompletionToolbarState = "idle" | "working" | "save-pending";
 
 type CompletionToolbarProps = {
   state: CompletionToolbarState;
-  copyShortcut: string;
-  copyAndSaveShortcut: string;
-  saveShortcut: string;
+  /** Buttons placed in the vertical rail: finishing actions and any moved tools. */
+  items: readonly RailItem[];
   statusMessage: string;
   diagnostic: string | undefined;
   statusSide: "left" | "right";
-  onComplete: (action: CompletionAction) => void;
   onRetrySave: () => void;
-  /** Saves, then opens the capture in Showcase with the default style. */
-  onShowcase: () => void;
-  /** Present only when the OS can read text; the button is hidden otherwise. */
-  onCopyText?: () => void;
-  /** Present only when the OS can read text; opens redaction suggestions. */
-  onFindSensitive?: () => void;
 };
 
 export function CompletionToolbar({
   state,
-  copyShortcut,
-  copyAndSaveShortcut,
-  saveShortcut,
+  items,
   statusMessage,
   diagnostic,
   statusSide,
-  onComplete,
   onRetrySave,
-  onShowcase,
-  onCopyText,
-  onFindSensitive,
 }: CompletionToolbarProps): React.JSX.Element {
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const disabled = state !== "idle";
@@ -60,62 +36,26 @@ export function CompletionToolbar({
 
   return (
     <div className="relative" data-capture-interactive="true">
-      <div
-        aria-label="Capture actions"
-        aria-busy={state === "working"}
-        className="flex flex-col items-center gap-0.5 rounded-2xl border border-white/12 bg-[#161815]/96 p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl"
-        role="toolbar"
-      >
-        <ToolButton
-          disabled={disabled}
-          icon={Clipboard}
-          label="Copy"
-          shortcut={copyShortcut}
-          onClick={() => onComplete("copy")}
-        />
-        <ToolButton
-          disabled={disabled}
-          icon={CopyAndSaveIcon}
-          label="Copy & Save"
-          shortcut={copyAndSaveShortcut}
-          onClick={() => onComplete("copy-and-save")}
-        />
-        <ToolButton
-          disabled={disabled}
-          icon={Download}
-          label="Save"
-          shortcut={saveShortcut}
-          onClick={() => onComplete("save")}
-        />
-        <ToolButton
-          disabled={disabled}
-          icon={Pin}
-          label="Pin"
-          onClick={() => onComplete("pin")}
-        />
-        <ToolButton
-          disabled={disabled}
-          icon={Presentation}
-          label="Save & Showcase"
-          onClick={onShowcase}
-        />
-        {onCopyText === undefined ? null : (
-          <ToolButton
-            disabled={disabled}
-            icon={TextSelection}
-            label="Copy text"
-            onClick={onCopyText}
-          />
-        )}
-        {onFindSensitive === undefined ? null : (
-          <ToolButton
-            disabled={disabled}
-            icon={SecurityCheck}
-            label="Find sensitive text"
-            onClick={onFindSensitive}
-          />
-        )}
-      </div>
+      {items.length === 0 ? null : (
+        <div
+          aria-label="Capture actions"
+          aria-busy={state === "working"}
+          className="flex flex-col items-center gap-0.5 rounded-2xl border border-white/12 bg-[#161815]/96 p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+          role="toolbar"
+        >
+          {items.map((item) => (
+            <ToolButton
+              active={item.active ?? false}
+              disabled={disabled || (item.disabled ?? false)}
+              icon={item.icon}
+              key={item.id}
+              label={item.label}
+              onClick={item.onSelect}
+              {...(item.shortcut === undefined ? {} : { shortcut: item.shortcut })}
+            />
+          ))}
+        </div>
+      )}
 
       {state === "idle" && statusMessage === "" ? null : (
         <div
@@ -154,14 +94,5 @@ export function CompletionToolbar({
         </div>
       )}
     </div>
-  );
-}
-
-function CopyAndSaveIcon({ className }: CapkitIconProps): React.JSX.Element {
-  return (
-    <span className={`relative inline-flex size-[18px] items-center justify-center ${className ?? ""}`}>
-      <Copy aria-hidden="true" className="absolute left-0 top-0" size={14} strokeWidth={2} />
-      <Download aria-hidden="true" className="absolute bottom-0 right-0" size={14} strokeWidth={2} />
-    </span>
   );
 }

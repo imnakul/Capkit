@@ -153,6 +153,54 @@ describe("AnnotationCanvas effect previews", () => {
     expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "text", text: "Type something" }));
   });
 
+  it("opens a note pin from Select without moving focus off the comment", () => {
+    const pin = { id: "pin-1", kind: "counter" as const, position: { x: 40, y: 40 }, value: 1, color: "#d9ff43", radius: 12, opacity: 1 };
+    const onPinSelect = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [pin] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onPinSelect={onPinSelect}
+        onUpdate={() => undefined}
+      />,
+    );
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    const pressed = fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 40, clientY: 40, pointerId: 3 });
+    expect(onPinSelect).toHaveBeenCalledWith("pin-1");
+    expect(pressed).toBe(false);
+  });
+
+  it("reports a pin's live position while it is dragged, then null on release", () => {
+    const pin = { id: "pin-1", kind: "counter" as const, position: { x: 40, y: 40 }, value: 1, color: "#d9ff43", radius: 12, opacity: 1 };
+    const onPinDrag = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [pin] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onPinDrag={onPinDrag}
+        onUpdate={() => undefined}
+      />,
+    );
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 40, clientY: 40, pointerId: 4 });
+    fireEvent.pointerMove(canvas, { buttons: 1, clientX: 70, clientY: 55, pointerId: 4 });
+    expect(onPinDrag).toHaveBeenLastCalledWith("pin-1", { x: 70, y: 55 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 70, clientY: 55, pointerId: 4 });
+    expect(onPinDrag).toHaveBeenLastCalledWith("pin-1", null);
+  });
+
   it("selects, moves, and deletes an existing annotation", () => {
     const rectangle = {
       id: "rectangle-1",
@@ -187,5 +235,47 @@ describe("AnnotationCanvas effect previews", () => {
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: "rectangle-1", bounds: { x: 40, y: 50, width: 80, height: 50 } }));
     fireEvent.keyDown(window, { key: "Delete" });
     expect(onDelete).toHaveBeenCalledWith("rectangle-1");
+  });
+
+  it("resizes a selected annotation by dragging or nudging a handle", () => {
+    const rectangle = {
+      id: "rectangle-1",
+      kind: "rectangle" as const,
+      bounds: { x: 20, y: 30, width: 80, height: 50 },
+      color: "#d9ff43",
+      fill: "transparent",
+      strokeWidth: 4,
+      opacity: 1,
+    };
+    const onUpdate = vi.fn();
+    render(
+      <AnnotationCanvas
+        activeTool="select"
+        bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+        cursor="crosshair"
+        scene={{ version: 1, elements: [rectangle] }}
+        snapshotUrl="asset://capture.png"
+        style={defaultAnnotationStyle}
+        onCommit={() => undefined}
+        onDelete={() => undefined}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const canvas = screen.getByRole("application", { name: "Screenshot annotation canvas" });
+    expect(screen.queryByRole("button", { name: /Resize rectangle annotation/ })).toBeNull();
+    fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 30, clientY: 40, pointerId: 5 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 30, clientY: 40, pointerId: 5 });
+    onUpdate.mockClear();
+
+    expect(screen.getAllByRole("button", { name: /Resize rectangle annotation/ })).toHaveLength(8);
+    const corner = screen.getByRole("button", { name: "Resize rectangle annotation from the bottom-right corner" });
+    fireEvent.pointerDown(corner, { button: 0, buttons: 1, clientX: 100, clientY: 80, pointerId: 6 });
+    fireEvent.pointerMove(canvas, { buttons: 1, clientX: 130, clientY: 100, pointerId: 6 });
+    fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 130, clientY: 100, pointerId: 6 });
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "rectangle-1", bounds: { x: 20, y: 30, width: 110, height: 70 } }));
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Resize rectangle annotation from the right edge" }), { key: "ArrowRight", shiftKey: true });
+    expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ bounds: { x: 20, y: 30, width: 90, height: 50 } }));
   });
 });

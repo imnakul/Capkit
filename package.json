@@ -1,15 +1,15 @@
 {
   "name": "snaphub",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "packageManager": "pnpm@11.14.0",
   "scripts": {
     "dev": "pnpm --filter @snaphub/desktop dev",
     "build": "pnpm --filter @snaphub/desktop build",
-    "typecheck": "pnpm --filter @snaphub/desktop typecheck",
-    "lint": "pnpm --filter @snaphub/desktop lint",
-    "lint:fix": "pnpm --filter @snaphub/desktop lint:fix",
-    "test": "pnpm --filter @snaphub/desktop test",
+    "typecheck": "pnpm --filter @snaphub/desktop --filter @snaphub/devtools-protocol --filter @snaphub/browser-extension typecheck",
+    "lint": "pnpm --filter @snaphub/desktop --filter @snaphub/devtools-protocol --filter @snaphub/browser-extension lint",
+    "lint:fix": "pnpm --filter @snaphub/desktop --filter @snaphub/devtools-protocol --filter @snaphub/browser-extension lint:fix",
+    "test": "pnpm --filter @snaphub/desktop --filter @snaphub/devtools-protocol --filter @snaphub/browser-extension test",
     "tauri": "pnpm --filter @snaphub/desktop tauri",
     "bundle": "pnpm --filter @snaphub/desktop bundle",
     "bundle:windows": "pnpm --filter @snaphub/desktop bundle:windows",
@@ -17,6 +17,8 @@
     "test:store": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-msix.ps1",
     "version:bump": "node scripts/bump-version.ts",
     "version:check": "node scripts/check-version.ts",
-    "notices": "node scripts/third-party-notices.ts"
+    "notices": "node scripts/third-party-notices.ts",
+    "ext:build": "pnpm --filter @snaphub/browser-extension build",
+    "ext:dev": "pnpm --filter @snaphub/browser-extension dev"
   }
 }

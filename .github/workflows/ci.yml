@@ -56,6 +56,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Build browser extension
+        run: pnpm ext:build
+
       - name: Verify native application
         run: |
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check

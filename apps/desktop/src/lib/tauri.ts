@@ -2,8 +2,9 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
+import { cssViewportSchema, elementDetailsSchema } from "@snaphub/devtools-protocol/protocol";
 import type { AnnotationScene } from "../domain/annotations";
-import type { OverlayMotion, SnaphubSettings } from "../domain/settings";
+import type { SnaphubSettings } from "../domain/settings";
 import { updateStatusSchema, type UpdateStatus } from "../domain/updates";
 import {
   mediaFileSchema,
@@ -118,12 +119,9 @@ export async function requestCapture(): Promise<CaptureSession> {
   };
 }
 
-export async function showCaptureSurface(
-  motion: OverlayMotion = "fade-in",
-  reducedMotion = false,
-): Promise<void> {
+export async function showCaptureSurface(reducedMotion = false): Promise<void> {
   if (!isTauri()) return;
-  await invoke("show_capture_surface", { motion, reducedMotion });
+  await invoke("show_capture_surface", { reducedMotion });
 }
 
 export async function requestOnScreenSession(): Promise<OnScreenSession> {
@@ -171,13 +169,14 @@ export async function completeCapture(
   sessionId: string,
   selection: Rect,
   scene: AnnotationScene,
+  noteId?: string,
 ): Promise<CompletionResult> {
   if (!isTauri()) {
     return createDemoCompletionResult(action);
   }
 
   const raw: unknown = await invoke("complete_capture", {
-    request: { action, sessionId, selection, scene },
+    request: { action, sessionId, selection, scene, noteId },
   });
   return completionResultSchema.parse(raw);
 }
@@ -233,11 +232,10 @@ export async function retryCaptureSave(sessionId: string): Promise<CompletionRes
 
 export async function cancelCapture(
   sessionId: string,
-  motion: OverlayMotion = "fade-in",
   reducedMotion = false,
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("cancel_capture", { sessionId, motion, reducedMotion });
+  await invoke("cancel_capture", { sessionId, reducedMotion });
 }
 
 type ScrollingMode = "automatic" | "manual-start" | "manual-add";
@@ -587,4 +585,250 @@ export async function listenForUpdateStatus(handler: (status: UpdateStatus) => v
 
 export function validateSelection(value: unknown): Rect {
   return rectSchema.parse(value);
+}
+
+// ---------------------------------------------------------------------------
+// Browser link (CapKit Inspector extension)
+// ---------------------------------------------------------------------------
+
+const browserNameSchema = z.object({ name: z.string(), version: z.string() });
+
+export const browserLinkStatusSchema = z.object({
+  enabled: z.boolean(),
+  state: z.enum(["off", "listening", "error"]),
+  port: z.number().int().nullable(),
+  error: z.string().nullable(),
+  pairingLocked: z.boolean(),
+  connected: z.array(browserNameSchema),
+  paired: z.array(
+    z.object({ origin: z.string(), browser: browserNameSchema, pairedAt: z.string() }),
+  ),
+});
+export type BrowserLinkStatus = z.infer<typeof browserLinkStatusSchema>;
+
+const pairingCodeSchema = z.object({ code: z.string().regex(/^\d{6}$/), expiresAt: z.string() });
+export type PairingCode = z.infer<typeof pairingCodeSchema>;
+
+const webSensitiveMatchSchema = z.object({
+  kind: z.enum(["token", "card", "email", "phone", "secret", "password"]),
+  preview: z.string(),
+  rects: z.array(rectSchema),
+});
+
+/** Sensitive text the extension found in the page, in display-local logical pixels. */
+export type WebSensitiveMatch = z.infer<typeof webSensitiveMatchSchema>;
+
+const offlineLinkStatus: BrowserLinkStatus = {
+  enabled: false,
+  state: "off",
+  port: null,
+  pairingLocked: false,
+  error: null,
+  connected: [],
+  paired: [],
+};
+
+export async function getBrowserLinkStatus(): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return offlineLinkStatus;
+  return browserLinkStatusSchema.parse(await invoke("browser_link_status"));
+}
+
+export async function setBrowserLinkEnabled(enabled: boolean): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return { ...offlineLinkStatus, enabled };
+  return browserLinkStatusSchema.parse(await invoke("browser_link_set_enabled", { enabled }));
+}
+
+export async function startBrowserPairing(): Promise<PairingCode> {
+  const raw: unknown = await invoke("browser_link_start_pairing");
+  return pairingCodeSchema.parse(raw);
+}
+
+export async function cancelBrowserPairing(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("browser_link_cancel_pairing");
+}
+
+/** Tells the browser link CapKit's accent colour so the extension can match it. */
+export async function setBrowserLinkAccent(accent: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("browser_link_set_accent", { accent });
+}
+
+export async function forgetBrowser(origin: string): Promise<BrowserLinkStatus> {
+  if (!isTauri()) return offlineLinkStatus;
+  return browserLinkStatusSchema.parse(await invoke("browser_link_forget", { origin }));
+}
+
+export async function listenForBrowserLinkStatus(
+  callback: (status: BrowserLinkStatus) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => undefined;
+  return listen("browser-link://status", (event) => {
+    const parsed = browserLinkStatusSchema.safeParse(event.payload);
+    if (parsed.success) callback(parsed.data);
+  });
+}
+
+/**
+ * Sensitive text in the browser page behind `area` (display-local logical
+ * pixels), or null when no connected extension can answer.
+ */
+export async function findSensitiveWeb(
+  area: Rect,
+  display: Display,
+): Promise<readonly WebSensitiveMatch[] | null> {
+  if (!isTauri()) return null;
+  const scale = display.scaleFactor;
+  const raw: unknown = await invoke("find_sensitive_web", {
+    area: {
+      x: (display.bounds.x + area.x) * scale,
+      y: (display.bounds.y + area.y) * scale,
+      width: area.width * scale,
+      height: area.height * scale,
+    },
+  });
+  if (raw === null) return null;
+  return z
+    .array(webSensitiveMatchSchema)
+    .parse(raw)
+    .map((match) => ({
+      ...match,
+      rects: match.rects.map((rect) => ({
+        x: rect.x / scale - display.bounds.x,
+        y: rect.y / scale - display.bounds.y,
+        width: rect.width / scale,
+        height: rect.height / scale,
+      })),
+    }));
+}
+
+const inspectResultSchema = z.object({
+  tab: z.object({ url: z.string(), title: z.string() }).nullable(),
+  cssViewport: cssViewportSchema.nullable(),
+  elements: z.array(elementDetailsSchema),
+});
+
+/** Element details from the connected browser extension for a point or area. */
+export type InspectResult = z.infer<typeof inspectResultSchema>;
+
+/**
+ * Asks the connected extension about the page behind a display-local point or
+ * area (logical pixels). Null when no extension can answer.
+ */
+export async function inspectWebTarget(
+  target: { point: Point } | { area: Rect },
+  display: Display,
+): Promise<InspectResult | null> {
+  if (!isTauri()) return null;
+  const scale = display.scaleFactor;
+  const toPhysicalPoint = (point: Point): Point => ({
+    x: (display.bounds.x + point.x) * scale,
+    y: (display.bounds.y + point.y) * scale,
+  });
+  const raw: unknown = await invoke(
+    "inspect_web_target",
+    "point" in target
+      ? { point: toPhysicalPoint(target.point), area: null }
+      : {
+          point: null,
+          area: {
+            ...toPhysicalPoint(target.area),
+            width: target.area.width * scale,
+            height: target.area.height * scale,
+          },
+        },
+  );
+  if (raw === null) return null;
+  return inspectResultSchema.parse(raw);
+}
+
+const noteDetailSchema = z.enum(["extension", "accessibility", "none"]);
+
+export const noteSummarySchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  pageUrl: z.string().nullable(),
+  pageTitle: z.string().nullable(),
+  imagePath: z.string(),
+  pinCount: z.number().int(),
+  detail: noteDetailSchema,
+  firstComment: z.string().nullable(),
+});
+export type NoteSummary = z.infer<typeof noteSummarySchema> & { imageUrl: string };
+
+export type NoteDeliveryMode = "copy" | "save" | "copy-and-save";
+
+export type NoteDeliveryRequest = {
+  noteId: string;
+  markdown: string;
+  pageUrl: string | null;
+  pageTitle: string | null;
+  pinCount: number;
+  detail: z.infer<typeof noteDetailSchema>;
+  mode: NoteDeliveryMode;
+};
+
+const deliverySchema = z.object({
+  copied: z.boolean(),
+  saved: noteSummarySchema.nullable(),
+  diagnostic: z.string().nullable(),
+});
+export type NoteDelivery = z.infer<typeof deliverySchema>;
+
+const withImageUrl = (note: z.infer<typeof noteSummarySchema>): NoteSummary => ({
+  ...note,
+  imageUrl: convertFileSrc(note.imagePath),
+});
+
+export async function deliverNote(request: NoteDeliveryRequest): Promise<NoteDelivery> {
+  if (!isTauri()) return { copied: true, saved: null, diagnostic: null };
+  const raw: unknown = await invoke("deliver_note", { request });
+  return deliverySchema.parse(raw);
+}
+
+export async function listNotes(
+  query: string,
+  limit: number,
+  offset: number,
+): Promise<readonly NoteSummary[]> {
+  if (!isTauri()) return [];
+  const raw: unknown = await invoke("notes_list", {
+    query: query === "" ? null : query,
+    limit,
+    offset,
+  });
+  return z.array(noteSummarySchema).parse(raw).map(withImageUrl);
+}
+
+export async function copyNote(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_copy", { id });
+}
+
+/** The note's full Markdown, as copied by `copyNote`. */
+export async function readNote(id: string): Promise<string> {
+  if (!isTauri()) return "";
+  const raw: unknown = await invoke("notes_read", { id });
+  return z.string().parse(raw);
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_delete", { id });
+}
+
+export async function cleanupUnsavedNotes(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_cleanup_unsaved");
+}
+
+export async function openNoteUrl(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_open_url", { id });
+}
+
+/** Starts a native file drag of the note's Markdown; call synchronously from a pointer move. */
+export async function startNoteDrag(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("notes_start_drag", { id });
 }

@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 /** The four groups Settings is split into, by the task someone is doing. */
-export type SettingsTabId = "general" | "screenshots" | "screen-draw" | "shortcuts";
+export type SettingsTabId = "general" | "screenshots" | "screen-draw" | "shortcuts" | "developer";
 
 export type SettingsTabDefinition = {
   id: SettingsTabId;

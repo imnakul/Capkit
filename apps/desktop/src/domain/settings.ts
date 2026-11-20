@@ -80,6 +80,7 @@ export const captureToolbarToolIds = [
   "pixelate",
   "blackout",
   "counter",
+  "note",
   "scrolling-capture",
   "undo",
   "redo",
@@ -102,6 +103,7 @@ export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
   pixelate: true,
   blackout: true,
   counter: true,
+  note: true,
   "scrolling-capture": true,
   undo: true,
   redo: true,
@@ -111,7 +113,7 @@ export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
   ["rectangle", "ellipse", "line", "arrow", "curved-arrow"],
   ["highlighter", "pencil", "text"],
   ["blur", "spotlight", "pixelate", "blackout"],
-  ["counter", "scrolling-capture"],
+  ["counter", "note", "scrolling-capture"],
   ["undo", "redo"],
 ];
 
@@ -129,13 +131,54 @@ const toolbarIndividualSchema = z.object({
   pixelate: z.boolean(),
   blackout: z.boolean(),
   counter: z.boolean(),
+  note: z.boolean().default(true),
   "scrolling-capture": z.boolean(),
   undo: z.boolean(),
   redo: z.boolean(),
 });
 
-export const overlayMotionValues = ["dim-rise", "fade-in", "fade-both"] as const;
-export type OverlayMotion = (typeof overlayMotionValues)[number];
+/** Buttons that finish a capture; by default they sit in the vertical rail. */
+export const completionActionIds = [
+  "copy",
+  "copy-and-save",
+  "save",
+  "pin",
+  "showcase",
+  "copy-text",
+  "find-sensitive",
+] as const;
+export type CompletionActionId = (typeof completionActionIds)[number];
+
+export const toolbarPlacementValues = ["horizontal", "vertical"] as const;
+export type ToolbarPlacement = (typeof toolbarPlacementValues)[number];
+
+const completionActionSettingSchema = z.object({
+  enabled: z.boolean(),
+  placement: z.enum(toolbarPlacementValues),
+});
+export type CompletionActionSetting = z.infer<typeof completionActionSettingSchema>;
+
+const defaultActionSetting: CompletionActionSetting = { enabled: true, placement: "vertical" };
+
+export const defaultToolbarActions: Record<CompletionActionId, CompletionActionSetting> = {
+  copy: defaultActionSetting,
+  "copy-and-save": defaultActionSetting,
+  save: defaultActionSetting,
+  pin: defaultActionSetting,
+  showcase: defaultActionSetting,
+  "copy-text": defaultActionSetting,
+  "find-sensitive": defaultActionSetting,
+};
+
+const toolbarActionsSchema = z.object({
+  copy: completionActionSettingSchema.default(defaultActionSetting),
+  "copy-and-save": completionActionSettingSchema.default(defaultActionSetting),
+  save: completionActionSettingSchema.default(defaultActionSetting),
+  pin: completionActionSettingSchema.default(defaultActionSetting),
+  showcase: completionActionSettingSchema.default(defaultActionSetting),
+  "copy-text": completionActionSettingSchema.default(defaultActionSetting),
+  "find-sensitive": completionActionSettingSchema.default(defaultActionSetting),
+});
 
 export const snaphubSettingsSchema = z.object({
   version: z.literal(1),
@@ -158,6 +201,10 @@ export const snaphubSettingsSchema = z.object({
     mode: z.enum(["individual", "group"]).default("group"),
     individual: toolbarIndividualSchema.default(defaultToolbarIndividual),
     groups: z.array(z.array(captureToolbarToolIdSchema).max(16)).max(8).default(defaultToolbarGroups),
+    /** Finishing actions: shown or hidden, and which toolbar holds them. */
+    actions: toolbarActionsSchema.default(defaultToolbarActions),
+    /** Individual-mode editing tools moved into the vertical rail. */
+    verticalTools: z.array(captureToolbarToolIdSchema).max(16).default([]),
   }),
   shortcuts: z.object({
     capture: z.string().min(1).max(64),
@@ -191,7 +238,6 @@ export const snaphubSettingsSchema = z.object({
   overlay: z.object({
     color: hexColorSchema,
     opacity: z.number().min(0.15).max(0.85),
-    motion: z.enum(overlayMotionValues).default("dim-rise"),
   }),
   openAtStartup: z.boolean(),
   updates: z.object({ autoCheck: z.boolean() }).default({ autoCheck: true }),
@@ -256,6 +302,8 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     mode: "group",
     individual: defaultToolbarIndividual,
     groups: defaultToolbarGroups,
+    actions: defaultToolbarActions,
+    verticalTools: [],
   },
   shortcuts: {
     capture: "Alt+Shift+S",
@@ -270,7 +318,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   onScreen: defaultOnScreenSettings,
   detection: { windows: true, uiRegions: false },
   scrolling: { defaultMode: "automatic" },
-  overlay: { color: "#070807", opacity: 0.64, motion: "dim-rise" },
+  overlay: { color: "#070807", opacity: 0.64 },
   openAtStartup: false,
   updates: { autoCheck: true },
   cursor: { enabled: true, style: "crosshair", size: "medium" },
@@ -322,7 +370,7 @@ export function captureModeShortcutConflict(
 }
 
 export function parsePersistedSnaphubSettings(value: unknown): SnaphubSettings | null {
-  const migrated = migratePersistedCaptureModeShortcuts(value);
+  const migrated = migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value));
   const parsed = snaphubSettingsSchema.safeParse(migrated);
   return parsed.success ? parsed.data : null;
 }
@@ -335,6 +383,40 @@ function readSettings(): SnaphubSettings {
   } catch {
     return defaultSnaphubSettings;
   }
+}
+
+/**
+ * Toolbars saved before the Note tool existed never list it, so it would stay hidden.
+ * A saved `toolbar.individual` without a `note` key marks such a toolbar: Note is added once,
+ * right after Counter (or at the end). Later saves include the key, so removing Note sticks.
+ */
+export function migratePersistedNoteTool(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.toolbar)) return value;
+  const toolbar = value.toolbar;
+  if (!isRecord(toolbar.individual) || "note" in toolbar.individual) return value;
+  const insertNote = (tools: unknown[]): unknown[] => {
+    if (tools.includes("note")) return tools;
+    const counter = tools.indexOf("counter");
+    return counter === -1 ? [...tools, "note"] : [...tools.slice(0, counter + 1), "note", ...tools.slice(counter + 1)];
+  };
+  const groups: unknown[] | undefined = Array.isArray(toolbar.groups) ? toolbar.groups : undefined;
+  let nextGroups: unknown = groups;
+  if (groups !== undefined && !groups.some((group) => Array.isArray(group) && group.includes("note"))) {
+    const withCounter = groups.findIndex((group) => Array.isArray(group) && group.includes("counter"));
+    const target = withCounter === -1 ? groups.length - 1 : withCounter;
+    nextGroups = groups.map((group: unknown, index): unknown => (index === target && Array.isArray(group) && group.length < 16 ? insertNote(group) : group));
+  }
+  const vertical: unknown[] | undefined = Array.isArray(toolbar.verticalTools) ? toolbar.verticalTools : undefined;
+  const nextVertical = vertical !== undefined && vertical.includes("counter") && vertical.length < 16 ? insertNote(vertical) : vertical;
+  return {
+    ...value,
+    toolbar: {
+      ...toolbar,
+      individual: { ...toolbar.individual, note: true },
+      ...(nextGroups === undefined ? {} : { groups: nextGroups }),
+      ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
+    },
+  };
 }
 
 function migratePersistedCaptureModeShortcuts(value: unknown): unknown {

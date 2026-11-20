@@ -6,6 +6,8 @@
   --capture-overlay: rgb(7 8 7 / 64%);
   --color-lime-300: var(--snaphub-accent);
   --font-mono: "JetBrains Mono Variable", "Cascadia Mono", monospace;
+  /* Shortcut badges use Geist Mono when the system has it; it is not bundled, so others get the app mono. */
+  --font-keycap: "Geist Mono", var(--font-mono);
   --font-sans: "Plus Jakarta Sans Variable", "Segoe UI Variable", system-ui, sans-serif;
   color: #f3f4ef;
   background: #111310;

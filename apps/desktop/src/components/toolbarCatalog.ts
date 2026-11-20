@@ -7,6 +7,7 @@ import {
   Hashtag,
   Highlighter,
   Minus,
+  NotePin,
   Pencil,
   Pixelate,
   Redo,
@@ -43,6 +44,7 @@ export const toolbarCatalog: readonly ToolbarToolDefinition[] = [
   { id: "pixelate", label: "Pixelate", icon: Pixelate, annotationTool: "pixelate", supportsStyle: true },
   { id: "blackout", label: "Blackout", icon: Blackout, annotationTool: "blackout", supportsStyle: true },
   { id: "counter", label: "Counter", icon: Hashtag, annotationTool: "counter", supportsStyle: true },
+  { id: "note", label: "Note", icon: NotePin, annotationTool: "note", shortcut: "N", supportsStyle: false },
   { id: "scrolling-capture", label: "Scrolling capture", icon: VerticalScroll, shortcut: "G", supportsStyle: false },
   { id: "undo", label: "Undo", icon: Undo, shortcut: "Ctrl Z", supportsStyle: false },
   { id: "redo", label: "Redo", icon: Redo, supportsStyle: false },
@@ -54,4 +56,20 @@ export function getToolbarTool(id: CaptureToolbarToolId): ToolbarToolDefinition 
   const tool = catalogById.get(id);
   if (tool === undefined) throw new Error(`Unknown capture toolbar tool: ${id}`);
   return tool;
+}
+
+export type ToolbarToolHandlers = {
+  onToolChange: (tool: ToolId) => void;
+  onScrollCapture: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+};
+
+/** Runs a toolbar tool the same way from either capture toolbar. */
+export function runToolbarTool(toolId: CaptureToolbarToolId, handlers: ToolbarToolHandlers): void {
+  const tool = getToolbarTool(toolId);
+  if (tool.annotationTool !== undefined) handlers.onToolChange(tool.annotationTool);
+  else if (toolId === "scrolling-capture") handlers.onScrollCapture();
+  else if (toolId === "undo") handlers.onUndo();
+  else handlers.onRedo();
 }

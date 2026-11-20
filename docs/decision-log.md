@@ -350,3 +350,13 @@
 - Final font licenses and brand identity.
 - Windows Store versus direct installer launch order.
 - Supported Linux distribution versions and compositor test matrix.
+
+## 2026-11-19: Developer tools behind an off-by-default switch, Phase 2
+
+- **Confirmed:** the browser link is a localhost WebSocket with one-time pairing. There is no native messaging.
+- **Confirmed:** the feature sits behind a "Developer tools" switch in Settings → Developer, off by default. With it off CapKit opens no socket and the notes commands refuse to run. It belongs to Phase 2.
+- **Confirmed:** notes live in SQLite with a Notes tab (copy and drag-out like Screenshots).
+- **Confirmed:** while connected, a browser tab the extension can answer for uses the extension only. If it cannot answer, CapKit falls back to accessibility for that lookup.
+- **Confirmed:** extension features are inspect mode, exact redaction, and note capture through CapKit's screenshot flow (Copy, Save, Copy & save).
+- **Provisional:** Rust owns the switch and pairing secrets in `browser-link.json`, not `localStorage`. Sensitive-text patterns mask secrets in note Markdown before it is copied or saved.
+- **Provisional:** the extension is "CapKit Inspector", loaded unpacked for now. It has site access to localhost and 127.0.0.1 by default, with per-site and all-sites opt-ins.

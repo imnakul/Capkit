@@ -3,6 +3,7 @@ import {
   defaultSnaphubSettings,
   parsePersistedSnaphubSettings,
   snaphubSettingsSchema,
+  migratePersistedNoteTool,
 } from "./settings";
 
 describe("Snaphub settings", () => {
@@ -185,20 +186,76 @@ describe("Snaphub settings", () => {
 });
 
 describe("overlay motion", () => {
-  it("defaults older saved overlay settings to dim-rise", () => {
+  it("drops the motion choice saved by older versions", () => {
     const parsed = snaphubSettingsSchema.parse({
       ...defaultSnaphubSettings,
-      overlay: { color: "#070807", opacity: 0.5 },
+      overlay: { color: "#070807", opacity: 0.5, motion: "dim-rise" },
     });
-    expect(parsed.overlay.motion).toBe("dim-rise");
+    expect(parsed.overlay).toEqual({ color: "#070807", opacity: 0.5 });
+  });
+});
+
+describe("toolbar placement", () => {
+  it("gives older settings every finishing action, enabled in the vertical toolbar", () => {
+    const olderToolbar = Object.fromEntries(
+      Object.entries(defaultSnaphubSettings.toolbar).filter(([key]) => key !== "actions" && key !== "verticalTools"),
+    );
+    const parsed = snaphubSettingsSchema.parse({ ...defaultSnaphubSettings, toolbar: olderToolbar });
+    expect(parsed.toolbar.verticalTools).toEqual([]);
+    expect(Object.values(parsed.toolbar.actions)).toHaveLength(7);
+    expect(Object.values(parsed.toolbar.actions).every((action) => action.enabled && action.placement === "vertical")).toBe(true);
   });
 
-  it("rejects unknown motion values", () => {
-    expect(() =>
-      snaphubSettingsSchema.parse({
-        ...defaultSnaphubSettings,
-        overlay: { ...defaultSnaphubSettings.overlay, motion: "bounce" },
-      }),
-    ).toThrow();
+  it("drops the retired note buttons from settings saved before C, S and A delivered notes", () => {
+    const parsed = snaphubSettingsSchema.parse({
+      ...defaultSnaphubSettings,
+      toolbar: {
+        ...defaultSnaphubSettings.toolbar,
+        actions: { ...defaultSnaphubSettings.toolbar.actions, "note-copy": { enabled: true, placement: "horizontal" } },
+      },
+    });
+    expect(Object.keys(parsed.toolbar.actions)).not.toContain("note-copy");
+  });
+
+  it("fills in an action added after the settings were saved", () => {
+    const withoutPin = Object.fromEntries(Object.entries(defaultSnaphubSettings.toolbar.actions).filter(([key]) => key !== "pin"));
+    const parsed = snaphubSettingsSchema.parse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, actions: { ...withoutPin, save: { enabled: false, placement: "horizontal" } } },
+    });
+    expect(parsed.toolbar.actions.pin).toEqual({ enabled: true, placement: "vertical" });
+    expect(parsed.toolbar.actions.save).toEqual({ enabled: false, placement: "horizontal" });
+  });
+
+  it("rejects an unknown placement or tool", () => {
+    expect(snaphubSettingsSchema.safeParse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, actions: { ...defaultSnaphubSettings.toolbar.actions, copy: { enabled: true, placement: "diagonal" } } },
+    }).success).toBe(false);
+    expect(snaphubSettingsSchema.safeParse({
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, verticalTools: ["laser"] },
+    }).success).toBe(false);
+  });
+
+  it("adds Note once after Counter to toolbars saved before Note existed", () => {
+    const individual = Object.fromEntries(Object.entries(defaultSnaphubSettings.toolbar.individual).filter(([id]) => id !== "note"));
+    const old = {
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, individual, groups: [["text", "counter", "blur"], ["undo"]], verticalTools: ["counter"] },
+    };
+    const parsed = parsePersistedSnaphubSettings(old);
+    expect(parsed?.toolbar.groups).toEqual([["text", "counter", "note", "blur"], ["undo"]]);
+    expect(parsed?.toolbar.verticalTools).toEqual(["counter", "note"]);
+    expect(parsed?.toolbar.individual.note).toBe(true);
+  });
+
+  it("leaves a toolbar alone once it has saved a Note choice", () => {
+    const saved = {
+      ...defaultSnaphubSettings,
+      toolbar: { ...defaultSnaphubSettings.toolbar, individual: { ...defaultSnaphubSettings.toolbar.individual, note: false }, groups: [["text", "counter"]] },
+    };
+    expect(migratePersistedNoteTool(saved)).toBe(saved);
+    expect(parsePersistedSnaphubSettings(saved)?.toolbar.groups).toEqual([["text", "counter"]]);
   });
 });

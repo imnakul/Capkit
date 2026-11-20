@@ -24,6 +24,12 @@ The 30.36 MB figure above is the **debug** executable and was being read as the 
 - **Distribution note:** The current local installer is unsigned and may trigger Windows SmartScreen. Public distribution requires signing.
 - **Superseded:** The 11.01 MiB figure predates the `[profile.release]` size work recorded below; the same tree now builds to 10.25 MB before the recorder and 10.48 MB with it.
 
+## Browser devtools impact (Provisional)
+
+- **Idle cost:** with the switch off there is no listener, socket or timer. With it on, the listener is async on Tauri's existing tokio runtime and has no polling loop. The extension pings every 20 s while connected.
+- **SQLite:** the notes database opens lazily on the first notes command, so it costs nothing until used.
+- **Not yet measured:** the release binary size before and after `rusqlite` (bundled) and `tokio-tungstenite`, against the budget of under 60 MB. Measure it before release.
+
 ## Recording budgets
 
 **Targets for the recorder and Studio, to be measured per milestone:**

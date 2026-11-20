@@ -43,10 +43,20 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** One CapKit process. A second launch focuses the dashboard instead of starting another (release builds; `tauri-plugin-single-instance` pinned to 2.4.5 for the same `webview2-com` reason as the updater).
 - **Implemented:** Folder paths shown in Settings drop the Windows `\\?\` prefix.
 - **Implemented:** Screenshots page: a Copy button on every card, Copy in the context menu, Ctrl+C on a focused card, and drag a card out to another app (native file drag after 5 px of movement).
-- **Implemented:** Overlay motion setting: Dim and rise (default), Fade in, or Fade in and out. Reduced motion skips every animation.
+- **Implemented:** The capture overlay fades in and out; reduced motion skips it. The earlier overlay motion setting was removed.
+- **Implemented:** Settings → Screenshots shows or hides each finishing action and places each Individual-mode tool and each action in the horizontal or vertical toolbar. Group mode keeps groups horizontal.
+- **Implemented:** Annotations stay fixed on screen when the selection is moved or resized.
 - **Implemented:** Capture toolbar is one card. Individual mode shows a style row only for tools that have style. Group mode opens on click, remembers the last tool per group, and Escape closes the open row before it cancels the capture. The toolbar is positioned from its measured size.
-- **Implemented, signing key pending:** In-app updates. Launch check, sidebar notice, tray item, Settings → General → Updates. The release workflow publishes the signed installer, its `.sig` and `latest.json`. Until the updater key pair exists, `tauri.conf.json` holds a placeholder public key and `release.yml` stops early.
+- **Implemented:** In-app updates. Launch check, sidebar notice, tray item, Settings → General → Updates. The release workflow publishes the signed installer, its `.sig` and `latest.json`. The updater key pair exists (public key in `tauri.conf.json`, private key and password in GitHub secrets). 0.4.0 is the first signed release; 0.3.0 and earlier carry a placeholder key and must be updated by hand once.
 - **Investigated, not fixed:** The pointer that sometimes does not move over the overlay. See the implementation report in `docs/specs/enhancements-and-fixes.md`.
+
+### Browser devtools (Provisional, Phase 2)
+
+- **Implemented, awaiting manual checks:** Settings → Developer holds the "Developer tools" switch, pairing code, paired browsers and the "Get the extension" steps. The listener opens only while the switch is on.
+- **Implemented:** the extension answers hover and Find sensitive text for the window under the pointer. If it cannot answer, CapKit falls back to Windows accessibility for that one lookup, and `ui_region_at` is not called when the extension returned elements (counted in a test).
+- **Implemented:** the Note tool (shortcut N, shown only with Developer tools on) pins numbered notes; in Select, clicking a pin reopens its comment. Once a capture has a pin, Copy, Save and Copy & Save (C, S, A, and Enter) write the note's Markdown plus a screenshot instead of a plain image, and the Notes tab lists them. Clicking a note opens it in full (screenshot and complete Markdown). Notes commands return "Developer tools is off" when the switch is off.
+- **Implemented:** when the extension has no details, a note falls back to the hovered element's role, name and screen-pixel box.
+- **Pending:** manual checks in Aside and Chrome, and the release binary size measurement for the SQLite dependency.
 
 ### In-place annotation and completion
 

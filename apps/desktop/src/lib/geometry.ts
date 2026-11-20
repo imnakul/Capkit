@@ -75,3 +75,28 @@ export function toolbarPosition(
       : Math.max(10, selection.y - size.height - 10);
   return { x, y: Math.max(0, y) };
 }
+
+export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+/**
+ * Moves the edges named by `handle` by (dx, dy). Edges stop `minSize` short of
+ * the opposite edge instead of flipping past it, so a drag never mirrors the
+ * content it frames.
+ */
+export function resizeRectFromHandle(
+  initial: Rect,
+  handle: ResizeHandle,
+  dx: number,
+  dy: number,
+  minSize: number,
+): Rect {
+  let left = initial.x;
+  let top = initial.y;
+  let right = initial.x + initial.width;
+  let bottom = initial.y + initial.height;
+  if (handle.includes("w")) left = Math.min(left + dx, right - minSize);
+  if (handle.includes("e")) right = Math.max(right + dx, left + minSize);
+  if (handle.includes("n")) top = Math.min(top + dy, bottom - minSize);
+  if (handle.includes("s")) bottom = Math.max(bottom + dy, top + minSize);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}

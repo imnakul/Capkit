@@ -8,13 +8,41 @@ use crate::{
     error::SnaphubError,
     platform::{
         CaptureBackend, CapturedDisplay, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend, WebViewport,
     },
 };
 
 #[derive(Default)]
 pub struct XcapPlatformBackend {
-    ui_regions: Mutex<HashMap<u32, Vec<DetectedTargetDto>>>,
+    ui_regions: Mutex<HashMap<u32, CachedUiRegions>>,
+}
+
+/// After this long, a thin browser scan is worth repeating: the browser has had
+/// time to build the accessibility tree our first query asked for.
+const PROVISIONAL_RESCAN_AFTER: std::time::Duration = std::time::Duration::from_millis(350);
+/// Stop rescanning a window that keeps coming back thin (it may truly be empty).
+const MAX_SCAN_ATTEMPTS: u8 = 5;
+
+/// UI regions found in one window during the current capture session.
+struct CachedUiRegions {
+    regions: Vec<DetectedTargetDto>,
+    provisional: bool,
+    scanned_at: std::time::Instant,
+    attempts: u8,
+}
+
+/// A web page's accessibility tree fills in after we ask for it. Keep
+/// rescanning while each scan finds more than the last; stop once it settles.
+fn still_filling(provisional: bool, previous_count: Option<usize>, count: usize) -> bool {
+    provisional && previous_count.is_none_or(|previous| count > previous)
+}
+
+impl CachedUiRegions {
+    fn needs_rescan(&self, now: std::time::Instant) -> bool {
+        self.provisional
+            && self.attempts < MAX_SCAN_ATTEMPTS
+            && now.saturating_duration_since(self.scanned_at) >= PROVISIONAL_RESCAN_AFTER
+    }
 }
 
 impl CaptureBackend for XcapPlatformBackend {
@@ -126,6 +154,13 @@ impl TargetDetectionBackend for XcapPlatformBackend {
             if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
                 continue;
             }
+            #[cfg(target_os = "windows")]
+            if window
+                .id()
+                .is_ok_and(super::windows_ui::is_pass_through_overlay)
+            {
+                continue;
+            }
             let x = f64::from(window.x().map_err(SnaphubError::capture)?);
             let y = f64::from(window.y().map_err(SnaphubError::capture)?);
             let width = f64::from(window.width().map_err(SnaphubError::capture)?);
@@ -160,11 +195,30 @@ impl TargetDetectionBackend for XcapPlatformBackend {
                 .ui_regions
                 .lock()
                 .map_err(|_| SnaphubError::Capture("UI-region cache is unavailable".into()))?;
-            if let std::collections::hash_map::Entry::Vacant(entry) = cache.entry(window_id) {
-                entry.insert(super::windows_ui::regions_for_window(window_id)?);
+            let now = std::time::Instant::now();
+            let stale = cache
+                .get(&window_id)
+                .is_none_or(|cached| cached.needs_rescan(now));
+            if stale {
+                let previous = cache.get(&window_id);
+                let attempts = previous.map_or(0, |cached| cached.attempts);
+                let previous_count = previous.map(|cached| cached.regions.len());
+                let scan = super::windows_ui::scan_window(window_id)?;
+                let provisional =
+                    still_filling(scan.provisional, previous_count, scan.regions.len());
+                cache.insert(
+                    window_id,
+                    CachedUiRegions {
+                        regions: scan.regions,
+                        provisional,
+                        scanned_at: now,
+                        attempts: attempts + 1,
+                    },
+                );
             }
-            Ok(cache.get(&window_id).and_then(|regions| {
-                regions
+            Ok(cache.get(&window_id).and_then(|cached| {
+                cached
+                    .regions
                     .iter()
                     .find(|target| physical_rect_contains(target.bounds, point))
                     .cloned()
@@ -177,10 +231,39 @@ impl TargetDetectionBackend for XcapPlatformBackend {
             Ok(None)
         }
     }
+
+    fn web_viewport_at(&self, point: Point) -> Result<Option<WebViewport>, SnaphubError> {
+        #[cfg(target_os = "windows")]
+        {
+            let Some((window_id, window_title)) = underlying_window_with_title_at(point)? else {
+                return Ok(None);
+            };
+            Ok(
+                super::windows_ui::web_viewport_rect(window_id, point).map(|viewport| {
+                    WebViewport {
+                        window_id,
+                        window_title,
+                        viewport,
+                    }
+                }),
+            )
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = point;
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
 fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
+    Ok(underlying_window_with_title_at(point)?.map(|(id, _)| id))
+}
+
+#[cfg(target_os = "windows")]
+fn underlying_window_with_title_at(point: Point) -> Result<Option<(u32, String)>, SnaphubError> {
     // Xcap returns windows in z-order. The first visible match is the actual surface beneath
     // Snaphub; ranking by area could incorrectly select a smaller window hidden behind it.
     for window in Window::all().map_err(SnaphubError::capture)? {
@@ -189,6 +272,12 @@ fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
         }
         let title = window.title().unwrap_or_default();
         if title.starts_with("CapKit Capture") || title.starts_with("CapKit Pin") {
+            continue;
+        }
+        if window
+            .id()
+            .is_ok_and(super::windows_ui::is_pass_through_overlay)
+        {
             continue;
         }
         let bounds = Rect {
@@ -200,7 +289,10 @@ fn underlying_window_at(point: Point) -> Result<Option<u32>, SnaphubError> {
         if !physical_rect_contains(bounds, point) {
             continue;
         }
-        return window.id().map(Some).map_err(SnaphubError::capture);
+        return window
+            .id()
+            .map(|id| Some((id, title)))
+            .map_err(SnaphubError::capture);
     }
     Ok(None)
 }
@@ -307,6 +399,33 @@ impl PinnedWindowBackend for XcapPlatformBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cached(provisional: bool, attempts: u8, scanned_at: std::time::Instant) -> CachedUiRegions {
+        CachedUiRegions {
+            regions: Vec::new(),
+            provisional,
+            scanned_at,
+            attempts,
+        }
+    }
+
+    #[test]
+    fn keeps_rescanning_a_web_page_only_while_it_grows() {
+        assert!(still_filling(true, None, 66));
+        assert!(still_filling(true, Some(66), 250));
+        assert!(!still_filling(true, Some(250), 250));
+        assert!(!still_filling(false, None, 300));
+    }
+
+    #[test]
+    fn rescans_a_thin_browser_scan_only_after_a_pause_and_a_few_times() {
+        let start = std::time::Instant::now();
+        let later = start + PROVISIONAL_RESCAN_AFTER;
+        assert!(!cached(true, 1, start).needs_rescan(start));
+        assert!(cached(true, 1, start).needs_rescan(later));
+        assert!(!cached(true, MAX_SCAN_ATTEMPTS, start).needs_rescan(later));
+        assert!(!cached(false, 1, start).needs_rescan(later));
+    }
 
     #[test]
     fn locates_points_on_negative_origin_monitors() {

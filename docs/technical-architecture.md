@@ -88,6 +88,14 @@ Dashboard shell actions canonicalize every requested image against the configure
 
 Scrolling overlap detection uses a bounded coarse search followed by single-pixel refinement around the best candidate. Each score samples at most a fixed row/column grid, avoiding the previous quadratic work as selection height increases.
 
+## Browser link and notes (Provisional, Phase 2)
+
+- `BrowserLinkService` (Rust, `tokio-tungstenite`) listens on 127.0.0.1 only while "Developer tools" is on. Pairing uses a one-time 6-digit code (2 minutes, 5 guesses) and returns a token stored in `browser-link.json`. The webview never sees tokens.
+- The protocol is versioned and mirrored in `packages/devtools-protocol` (Zod) and Serde. Requests are `hitTest`, `inspect` and `findSensitive`, each with a timeout and a size-mismatch guard.
+- `CaptureService` asks the extension first for a hovered browser viewport and falls back to Windows accessibility for that lookup only.
+- `services/notes.rs` stores notes in SQLite (WAL, opened lazily on the first notes command). Every notes command first checks that Developer tools is on.
+- Status reaches the UI through the `browser-link://status` event, which includes `pairingLocked` after five wrong codes.
+
 ## Security and privacy
 
 - No capture pixels leave the device in Phase 1.

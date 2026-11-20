@@ -2,8 +2,12 @@ import { Fragment, useState } from "react";
 import {
   captureToolbarToolIds,
   type CaptureToolbarToolId,
+  type CompletionActionId,
+  type CompletionActionSetting,
   type SnaphubSettings,
+  type ToolbarPlacement,
 } from "../../domain/settings";
+import { completionActionCatalog } from "../captureActions";
 import { getToolbarTool, toolbarCatalog } from "../toolbarCatalog";
 import {
   Add as Plus,
@@ -11,6 +15,7 @@ import {
   Grip as GripVertical,
   List,
   Rows as Rows3,
+  type CapkitIconComponent,
 } from "../icons";
 
 type ToolbarConfigurationProps = {
@@ -39,6 +44,15 @@ export function ToolbarConfiguration({
 
   function setMode(mode: "individual" | "group"): void {
     onChange({ ...toolbar, mode });
+  }
+
+  function setToolPlacement(toolId: CaptureToolbarToolId, placement: ToolbarPlacement): void {
+    const others = toolbar.verticalTools.filter((id) => id !== toolId);
+    onChange({ ...toolbar, verticalTools: placement === "vertical" ? [...others, toolId] : others });
+  }
+
+  function setAction(actionId: CompletionActionId, next: CompletionActionSetting): void {
+    onChange({ ...toolbar, actions: { ...toolbar.actions, [actionId]: next } });
   }
 
   function moveTool(toolId: CaptureToolbarToolId, rowIndex: number, targetIndex: number): void {
@@ -184,7 +198,7 @@ export function ToolbarConfiguration({
     <div>
       <div className="mb-5 flex items-center justify-between gap-4">
         <p className="max-w-lg text-[12px] leading-4 text-stone-500 dark:text-stone-400">
-          Select stays fixed as the first recovery tool. Configure everything that follows it.
+          Select stays fixed as the first recovery tool. Configure everything that follows it. In Group mode, groups always sit in the horizontal toolbar.
         </p>
         <div aria-label="Toolbar organization" className="grid grid-cols-2 rounded-md border border-stone-300 bg-stone-100 p-1 dark:border-white/10 dark:bg-[#20211f]" role="radiogroup">
           <ModeButton active={toolbar.mode === "individual"} icon={List} label="Individual" onClick={() => setMode("individual")} />
@@ -193,18 +207,18 @@ export function ToolbarConfiguration({
       </div>
 
       {toolbar.mode === "individual" ? (
-        <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-          {toolbarCatalog.map((tool) => {
-            const Icon = tool.icon;
-            const enabled = toolbar.individual[tool.id];
-            return (
-              <label className="flex min-h-10 cursor-pointer items-center gap-2.5 border-b border-stone-200/80 py-2 dark:border-white/7" key={tool.id}>
-                <Icon aria-hidden="true" className={enabled ? "text-[var(--snaphub-accent)]" : "text-stone-400 dark:text-stone-600"} size={14} />
-                <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-stone-700 dark:text-stone-300">{tool.label}</span>
-                <CompactToggle checked={enabled} label={`Show ${tool.label}`} onChange={(checked) => onChange({ ...toolbar, individual: { ...toolbar.individual, [tool.id]: checked } })} />
-              </label>
-            );
-          })}
+        <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          {toolbarCatalog.map((tool) => (
+            <ItemRow
+              enabled={toolbar.individual[tool.id]}
+              icon={tool.icon}
+              key={tool.id}
+              label={tool.label}
+              placement={toolbar.verticalTools.includes(tool.id) ? "vertical" : "horizontal"}
+              onEnabledChange={(checked) => onChange({ ...toolbar, individual: { ...toolbar.individual, [tool.id]: checked } })}
+              onPlacementChange={(placement) => setToolPlacement(tool.id, placement)}
+            />
+          ))}
         </div>
       ) : (
         <div>
@@ -283,6 +297,88 @@ export function ToolbarConfiguration({
           {dragging?.active === true ? <DragPreview toolId={dragging.toolId} x={dragging.x} y={dragging.y} /> : null}
         </div>
       )}
+
+      <div className="mt-6 border-t border-stone-200 pt-4 dark:border-white/8">
+        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-stone-400">Finishing actions</p>
+        <p className="mt-1 max-w-lg text-[12px] leading-4 text-stone-500 dark:text-stone-400">
+          Choose which actions appear and which toolbar holds them. Copy, Save and Copy &amp; Save keep their keyboard shortcuts even when hidden.
+        </p>
+        <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          {completionActionCatalog.map((action) => {
+            const setting = toolbar.actions[action.id];
+            return (
+              <ItemRow
+                enabled={setting.enabled}
+                icon={action.icon}
+                key={action.id}
+                label={action.label}
+                note={action.needsTextRecognition ? "Only where Windows can read text" : undefined}
+                placement={setting.placement}
+                onEnabledChange={(enabled) => setAction(action.id, { ...setting, enabled })}
+                onPlacementChange={(placement) => setAction(action.id, { ...setting, placement })}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type ItemRowProps = {
+  label: string;
+  icon: CapkitIconComponent;
+  enabled: boolean;
+  placement: ToolbarPlacement;
+  note?: string | undefined;
+  onEnabledChange: (enabled: boolean) => void;
+  onPlacementChange: (placement: ToolbarPlacement) => void;
+};
+function ItemRow({ label, icon: Icon, enabled, placement, note, onEnabledChange, onPlacementChange }: ItemRowProps): React.JSX.Element {
+  return (
+    <div className="flex min-h-10 items-center gap-2.5 border-b border-stone-200/80 py-2 dark:border-white/7">
+      <Icon aria-hidden="true" className={enabled ? "text-[var(--snaphub-accent)]" : "text-stone-400 dark:text-stone-600"} size={14} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] font-semibold text-stone-700 dark:text-stone-300">{label}</span>
+        {note === undefined ? null : <span className="block truncate text-[11px] text-stone-400">{note}</span>}
+      </span>
+      <PlacementSwitch disabled={!enabled} label={label} value={placement} onChange={onPlacementChange} />
+      <CompactToggle checked={enabled} label={`Show ${label}`} onChange={onEnabledChange} />
+    </div>
+  );
+}
+
+const placementLabels: Record<ToolbarPlacement, string> = { horizontal: "Horizontal", vertical: "Vertical" };
+const placementKeys: ReadonlySet<string> = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+type PlacementSwitchProps = { label: string; value: ToolbarPlacement; disabled: boolean; onChange: (placement: ToolbarPlacement) => void };
+/** Two-option radio group; arrow keys switch sides like a native radio group. */
+function PlacementSwitch({ label, value, disabled, onChange }: PlacementSwitchProps): React.JSX.Element {
+  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
+    if (!placementKeys.has(event.key)) return;
+    event.preventDefault();
+    const next: ToolbarPlacement = value === "horizontal" ? "vertical" : "horizontal";
+    onChange(next);
+    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-placement="${next}"]`)?.focus();
+  }
+  return (
+    <div aria-label={`${label} toolbar`} className="grid shrink-0 grid-cols-2 rounded-md border border-stone-300 bg-stone-100 p-0.5 dark:border-white/10 dark:bg-[#20211f]" role="radiogroup">
+      {(["horizontal", "vertical"] as const).map((option) => (
+        <button
+          aria-checked={value === option}
+          className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-stone-500 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-40 aria-checked:bg-white aria-checked:text-stone-900 dark:text-stone-400 dark:aria-checked:bg-white/9 dark:aria-checked:text-white"
+          data-placement={option}
+          disabled={disabled}
+          key={option}
+          role="radio"
+          tabIndex={value === option ? 0 : -1}
+          type="button"
+          onClick={() => onChange(option)}
+          onKeyDown={onKeyDown}
+        >
+          {placementLabels[option]}
+        </button>
+      ))}
     </div>
   );
 }
@@ -323,5 +419,6 @@ function DragPreview({ toolId, x, y }: { toolId: CaptureToolbarToolId; x: number
 
 type CompactToggleProps = { checked: boolean; label: string; onChange: (checked: boolean) => void };
 function CompactToggle({ checked, label, onChange }: CompactToggleProps): React.JSX.Element {
-  return <span className="relative shrink-0"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-4 w-7 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-3 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-3 peer-checked:bg-[#171815]" /></span>;
+  // The input is visually hidden, so the label carries clicks on the drawn switch to it.
+  return <label className="relative shrink-0 cursor-pointer"><input aria-label={label} checked={checked} className="peer sr-only" role="switch" type="checkbox" onChange={(event) => onChange(event.currentTarget.checked)} /><span className="block h-4 w-7 rounded-full bg-stone-300 transition peer-checked:bg-[var(--snaphub-accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-stone-900 peer-focus-visible:ring-offset-2 dark:bg-stone-700 dark:peer-focus-visible:ring-white" /><span className="absolute left-0.5 top-0.5 size-3 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-3 peer-checked:bg-[#171815]" /></label>;
 }

@@ -38,7 +38,10 @@ use crate::{
     error::SnaphubError,
     platform::{
         CaptureBackend, ClipboardBackend, PermissionBackend, PinnedWindowBackend,
-        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend,
+        ScrollingCaptureBackend, TargetDetectionBackend, TextRecognitionBackend, WebViewport,
+    },
+    services::browser_link::{
+        BrowserElementSource, InspectResultDto, InspectTarget, SensitiveMatchDto,
     },
 };
 
@@ -86,6 +89,9 @@ struct CompletionWork {
     pending_image: bool,
 }
 
+/// A connected browser source and the page area it should answer for.
+type WebPage<'a> = (&'a Arc<dyn BrowserElementSource>, WebViewport);
+
 pub struct CaptureService {
     capture: Arc<dyn CaptureBackend>,
     clipboard: Arc<dyn ClipboardBackend>,
@@ -94,6 +100,8 @@ pub struct CaptureService {
     scrolling: Arc<dyn ScrollingCaptureBackend>,
     pinning: Arc<dyn PinnedWindowBackend>,
     text_recognition: Arc<dyn TextRecognitionBackend>,
+    browser: OnceLock<Arc<dyn BrowserElementSource>>,
+    notes_images: OnceLock<PathBuf>,
     sessions: Mutex<HashMap<Uuid, CaptureAsset>>,
     manual_scrolling: Mutex<HashMap<Uuid, ManualScrollingAsset>>,
     save_directory: Mutex<PathBuf>,
@@ -139,6 +147,8 @@ impl CaptureService {
             scrolling: backend.clone(),
             text_recognition: backend.clone(),
             pinning: backend,
+            browser: OnceLock::new(),
+            notes_images: OnceLock::new(),
             sessions: Mutex::new(HashMap::new()),
             manual_scrolling: Mutex::new(HashMap::new()),
             save_directory: Mutex::new(save_directory),
@@ -148,6 +158,61 @@ impl CaptureService {
             #[cfg(test)]
             operation_log: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Lets detection, inspection and redaction ask a connected browser extension.
+    /// Set once, after the app handle exists. Later calls are ignored.
+    pub fn set_browser_source(&self, source: Arc<dyn BrowserElementSource>) {
+        let _ = self.browser.set(source);
+    }
+
+    /// Where `note-image` completions write their screenshots (`<notes>/images`).
+    /// Set once; later calls are ignored.
+    pub fn set_notes_images_directory(&self, directory: PathBuf) {
+        let _ = self.notes_images.set(directory);
+    }
+
+    /// The browser page under `point` and the connected source, when both exist.
+    fn web_page_at(&self, point: Point) -> Result<Option<WebPage<'_>>, SnaphubError> {
+        let Some(source) = self.browser.get().filter(|source| source.is_connected()) else {
+            return Ok(None);
+        };
+        Ok(self
+            .targets
+            .web_viewport_at(point)?
+            .map(|viewport| (source, viewport)))
+    }
+
+    /// Element details for a point or area over a browser page, or `None` when the extension
+    /// is not connected, the pointer is not over a page, or the page cannot answer.
+    pub fn inspect_web_target(
+        &self,
+        target: InspectTarget,
+    ) -> Result<Option<InspectResultDto>, SnaphubError> {
+        let anchor = match &target {
+            InspectTarget::Point(point) => *point,
+            InspectTarget::Area(area) => Point {
+                x: area.x + area.width / 2.0,
+                y: area.y + area.height / 2.0,
+            },
+        };
+        Ok(self
+            .web_page_at(anchor)?
+            .and_then(|(source, viewport)| source.inspect(&viewport, target)))
+    }
+
+    /// Sensitive text found in the page behind `area`, with screen-pixel rectangles.
+    pub fn find_sensitive_web(
+        &self,
+        area: Rect,
+    ) -> Result<Option<Vec<SensitiveMatchDto>>, SnaphubError> {
+        let anchor = Point {
+            x: area.x + area.width / 2.0,
+            y: area.y + area.height / 2.0,
+        };
+        Ok(self
+            .web_page_at(anchor)?
+            .and_then(|(source, viewport)| source.find_sensitive(&viewport, area)))
     }
 
     pub fn begin(&self, cursor: Point) -> Result<CaptureSessionDto, SnaphubError> {
@@ -231,11 +296,12 @@ impl CaptureService {
                 Ok(None)
             }
             CompletionAction::Save => Ok(Some(self.save_new_image(&captured.image)?)),
-            CompletionAction::CopyAndSave | CompletionAction::SaveAs | CompletionAction::Pin => {
-                Err(SnaphubError::Capture(
-                    "This completion action requires the capture surface".into(),
-                ))
-            }
+            CompletionAction::CopyAndSave
+            | CompletionAction::SaveAs
+            | CompletionAction::Pin
+            | CompletionAction::NoteImage => Err(SnaphubError::Capture(
+                "This completion action requires the capture surface".into(),
+            )),
         }
     }
 
@@ -304,6 +370,19 @@ impl CaptureService {
                     }
                 }
             }
+            CompletionAction::NoteImage => {
+                // The session stays open so the note can still be retried or
+                // the capture finished another way.
+                let result = self.write_note_image(request, &output);
+                self.finish_operation(&work.output, SessionOutputState::Idle);
+                return result.map(|path| CompletionResult {
+                    action: request.action,
+                    output_path: Some(path.to_string_lossy().into_owned()),
+                    status: CompletionStatus::Completed,
+                    diagnostic: None,
+                    cleanup_warning: None,
+                });
+            }
             CompletionAction::Pin => {
                 if !self.pinning.is_supported() {
                     self.finish_operation(&work.output, SessionOutputState::Idle);
@@ -333,6 +412,37 @@ impl CaptureService {
             diagnostic: None,
             cleanup_warning: None,
         })
+    }
+
+    /// Writes `<notes>/images/<note id>.png` via a temporary file so a crash never
+    /// leaves a half-written screenshot under a note's name.
+    fn write_note_image(
+        &self,
+        request: &CompletionRequest,
+        output: &RgbaImage,
+    ) -> Result<PathBuf, SnaphubError> {
+        let note_id = request
+            .note_id
+            .as_deref()
+            .filter(|id| {
+                Uuid::parse_str(id).is_ok_and(|parsed| parsed.hyphenated().to_string() == *id)
+            })
+            .ok_or_else(|| SnaphubError::Notes("A note needs a valid id".into()))?;
+        let directory = self
+            .notes_images
+            .get()
+            .ok_or_else(|| SnaphubError::Notes("The notes folder is not ready".into()))?;
+        fs::create_dir_all(directory).map_err(SnaphubError::export)?;
+        let path = directory.join(format!("{note_id}.png"));
+        let temporary = directory.join(format!("{note_id}.png.tmp"));
+        output
+            .save_with_format(&temporary, image::ImageFormat::Png)
+            .map_err(SnaphubError::export)?;
+        fs::rename(&temporary, &path).map_err(|error| {
+            let _ = fs::remove_file(&temporary);
+            SnaphubError::export(error)
+        })?;
+        Ok(path)
     }
 
     pub fn retry_save(&self, session_id: &str) -> Result<CompletionResult, SnaphubError> {
@@ -526,8 +636,21 @@ impl CaptureService {
                     && point.y <= target.bounds.y + target.bounds.height
             })
             .collect();
-        if include_ui_regions && let Some(region) = self.targets.ui_region_at(point)? {
-            targets.push(region);
+        if include_ui_regions {
+            // Over a browser page the extension knows the real elements; otherwise (or when it
+            // has nothing for this point) fall back to UI Automation.
+            let from_page = match self.web_page_at(point)? {
+                Some((source, viewport)) => source.element_at(&viewport, point),
+                None => None,
+            };
+            match from_page {
+                Some(elements) if !elements.is_empty() => targets.extend(elements),
+                _ => {
+                    if let Some(region) = self.targets.ui_region_at(point)? {
+                        targets.push(region);
+                    }
+                }
+            }
         }
         targets.sort_by(|left, right| target_area(left).total_cmp(&target_area(right)));
         Ok(targets)
@@ -633,6 +756,11 @@ impl CaptureService {
             let _ = fs::remove_file(path);
         }
         Ok(())
+    }
+
+    /// Puts plain text on the clipboard (a note's Markdown).
+    pub fn copy_plain_text(&self, text: &str) -> Result<(), SnaphubError> {
+        self.clipboard.copy_text(text)
     }
 
     pub fn copy_image_path(&self, path: &Path) -> Result<(), SnaphubError> {
@@ -1678,9 +1806,11 @@ mod tests {
         recognized_text: Mutex<String>,
         recognized_size: Mutex<Option<(u32, u32)>>,
         clipboard_calls: AtomicUsize,
+        ui_region_calls: AtomicUsize,
         fail_clipboard: AtomicBool,
         clipboard_entered: Mutex<Option<mpsc::Sender<()>>>,
         clipboard_release: Mutex<Option<mpsc::Receiver<()>>>,
+        web_viewport: Mutex<Option<WebViewport>>,
     }
 
     impl FakeBackend {
@@ -1692,9 +1822,11 @@ mod tests {
                 recognized_text: Mutex::new(String::new()),
                 recognized_size: Mutex::new(None),
                 clipboard_calls: AtomicUsize::new(0),
+                ui_region_calls: AtomicUsize::new(0),
                 fail_clipboard: AtomicBool::new(false),
                 clipboard_entered: Mutex::new(None),
                 clipboard_release: Mutex::new(None),
+                web_viewport: Mutex::new(None),
             }
         }
 
@@ -1760,7 +1892,12 @@ mod tests {
         }
 
         fn ui_region_at(&self, _point: Point) -> Result<Option<DetectedTargetDto>, SnaphubError> {
+            self.ui_region_calls.fetch_add(1, Ordering::SeqCst);
             Ok(None)
+        }
+
+        fn web_viewport_at(&self, _point: Point) -> Result<Option<WebViewport>, SnaphubError> {
+            Ok(self.web_viewport.lock().unwrap().clone())
         }
     }
 
@@ -1842,6 +1979,7 @@ mod tests {
                     intensity: 1.0,
                 }],
             },
+            note_id: None,
         }
     }
 
@@ -1942,6 +2080,166 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    struct FakeBrowser {
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+    }
+
+    impl BrowserElementSource for FakeBrowser {
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+
+        fn element_at(
+            &self,
+            _viewport: &WebViewport,
+            _point: Point,
+        ) -> Option<Vec<DetectedTargetDto>> {
+            self.elements.clone()
+        }
+
+        fn inspect(
+            &self,
+            _viewport: &WebViewport,
+            _target: InspectTarget,
+        ) -> Option<InspectResultDto> {
+            None
+        }
+
+        fn find_sensitive(
+            &self,
+            _viewport: &WebViewport,
+            _area: Rect,
+        ) -> Option<Vec<SensitiveMatchDto>> {
+            Some(Vec::new())
+        }
+    }
+
+    fn page_element() -> DetectedTargetDto {
+        DetectedTargetDto {
+            id: "ext-k1".into(),
+            title: "button".into(),
+            kind: "ui-region",
+            bounds: Rect {
+                x: 10.0,
+                y: 10.0,
+                width: 40.0,
+                height: 20.0,
+            },
+        }
+    }
+
+    fn browser_service(
+        name: &str,
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+        over_page: bool,
+    ) -> (CaptureService, TestDirectory) {
+        let (service, directory, _backend) =
+            counted_browser_service(name, connected, elements, over_page);
+        (service, directory)
+    }
+
+    fn counted_browser_service(
+        name: &str,
+        connected: bool,
+        elements: Option<Vec<DetectedTargetDto>>,
+        over_page: bool,
+    ) -> (CaptureService, TestDirectory, Arc<FakeBackend>) {
+        let directory = TestDirectory::new(name);
+        let backend = FakeBackend::new();
+        if over_page {
+            *backend.web_viewport.lock().unwrap() = Some(WebViewport {
+                window_id: 1,
+                window_title: "Page".into(),
+                viewport: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+            });
+        }
+        let backend = Arc::new(backend);
+        let service = CaptureService::with_save_directory(backend.clone(), directory.0.clone());
+        service.set_browser_source(Arc::new(FakeBrowser {
+            connected,
+            elements,
+        }));
+        (service, directory, backend)
+    }
+
+    #[test]
+    fn hover_over_a_browser_page_uses_the_extension_elements() {
+        let (service, _directory) =
+            browser_service("web-hover", true, Some(vec![page_element()]), true);
+        let targets = service
+            .detect_targets(Point { x: 20.0, y: 20.0 }, true)
+            .expect("targets");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "ext-k1");
+    }
+
+    #[test]
+    fn ui_automation_runs_only_when_the_extension_has_no_elements() {
+        let point = Point { x: 20.0, y: 20.0 };
+        let (service, _directory, backend) =
+            counted_browser_service("web-calls-hit", true, Some(vec![page_element()]), true);
+        service.detect_targets(point, true).expect("targets");
+        assert_eq!(backend.ui_region_calls.load(Ordering::SeqCst), 0);
+        let (service, _directory, backend) =
+            counted_browser_service("web-calls-none", true, None, true);
+        service.detect_targets(point, true).expect("targets");
+        assert_eq!(backend.ui_region_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn hover_falls_back_when_the_extension_has_nothing_or_is_not_connected_or_not_a_page() {
+        for (name, connected, elements, over_page) in [
+            ("web-none", true, None, true),
+            ("web-empty", true, Some(Vec::new()), true),
+            ("web-off", false, Some(vec![page_element()]), true),
+            ("web-not-page", true, Some(vec![page_element()]), false),
+        ] {
+            let (service, _directory) = browser_service(name, connected, elements, over_page);
+            let targets = service
+                .detect_targets(Point { x: 20.0, y: 20.0 }, true)
+                .expect("targets");
+            assert!(targets.is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn hover_ignores_the_extension_when_ui_regions_are_not_requested() {
+        let (service, _directory) =
+            browser_service("web-skip", true, Some(vec![page_element()]), true);
+        assert!(
+            service
+                .detect_targets(Point { x: 20.0, y: 20.0 }, false)
+                .expect("targets")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn web_inspection_and_redaction_need_a_connected_page() {
+        let (service, _directory) = browser_service("web-redact", true, None, true);
+        let area = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 50.0,
+            height: 50.0,
+        };
+        assert_eq!(
+            service.find_sensitive_web(area).expect("ok"),
+            Some(Vec::new())
+        );
+        let (offline, _directory) = browser_service("web-redact-off", false, None, true);
+        assert_eq!(offline.find_sensitive_web(area).expect("ok"), None);
+        let (no_page, _directory) = browser_service("web-redact-nopage", true, None, false);
+        assert_eq!(no_page.find_sensitive_web(area).expect("ok"), None);
     }
 
     #[test]
@@ -2151,6 +2449,60 @@ mod tests {
         assert_eq!(operation_log(&service), ["render", "clipboard", "save"]);
         assert!(!has_partial_file(&directory.0));
         service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn note_image_renders_into_the_notes_folder_and_keeps_the_session_open() {
+        let directory = TestDirectory::new("note-image");
+        let images = directory.0.join("notes").join("images");
+        let backend = Arc::new(FakeBackend::new());
+        let service =
+            CaptureService::with_save_directory(backend.clone(), directory.0.join("saves"));
+        service.set_notes_images_directory(images.clone());
+        let session_id = begin_session(&service);
+        let note_id = Uuid::new_v4().to_string();
+        let mut request = request_for(&session_id);
+        request.action = CompletionAction::NoteImage;
+        request.note_id = Some(note_id.clone());
+
+        let result = service
+            .complete(&request)
+            .expect("note image should render");
+
+        assert!(matches!(result.action, CompletionAction::NoteImage));
+        assert!(matches!(result.status, CompletionStatus::Completed));
+        let path = images.join(format!("{note_id}.png"));
+        assert_eq!(result.output_path.as_deref(), path.to_str());
+        let saved = image::open(&path).expect("PNG should decode").into_rgba8();
+        assert_eq!(saved.dimensions(), (10, 10));
+        assert_eq!(saved.get_pixel(4, 4), &Rgba([8, 9, 8, 255]));
+        assert_eq!(backend.clipboard_calls.load(Ordering::SeqCst), 0);
+        assert!(!images.join(format!("{note_id}.png.tmp")).exists());
+        assert!(png_files(&directory.0.join("saves")).is_empty());
+
+        // The session is still open, so the same capture can be completed again.
+        request.action = CompletionAction::Copy;
+        service
+            .complete(&request)
+            .expect("session stays open after a note image");
+        service.finalize_committed(&session_id).unwrap();
+    }
+
+    #[test]
+    fn note_image_rejects_a_missing_or_malformed_note_id() {
+        let directory = TestDirectory::new("note-image-bad");
+        let backend = Arc::new(FakeBackend::new());
+        let service = CaptureService::with_save_directory(backend, directory.0.join("saves"));
+        service.set_notes_images_directory(directory.0.join("images"));
+        let session_id = begin_session(&service);
+        let mut request = request_for(&session_id);
+        request.action = CompletionAction::NoteImage;
+
+        assert!(service.complete(&request).is_err());
+        request.note_id = Some("../escape".into());
+        assert!(service.complete(&request).is_err());
+        assert!(!directory.0.join("images").exists());
+        service.cancel(&session_id).unwrap();
     }
 
     #[test]

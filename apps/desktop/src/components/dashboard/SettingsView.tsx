@@ -47,6 +47,7 @@ import {
   setStartupEnabled,
   type StartupState,
 } from "../../lib/startup";
+import { BrowserExtensionSettings } from "./BrowserExtensionSettings";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
 import { useUpdateStatus } from "./useUpdateStatus";
@@ -84,6 +85,7 @@ const settingsTabs = [
   { id: "screenshots", label: "Screenshots" },
   { id: "screen-draw", label: "Screen Draw" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "developer", label: "Developer" },
 ] as const satisfies readonly { id: SettingsTabId; label: string }[];
 
 type SettingsSectionId =
@@ -98,13 +100,15 @@ type SettingsSectionId =
   | "capture-cursor"
   | "scrolling"
   | "on-screen-toolbar"
-  | "shortcuts";
+  | "shortcuts"
+  | "browser-extension";
 
 const settingsSections: Record<SettingsTabId, readonly SettingsSectionId[]> = {
   general: ["startup", "updates", "save-location", "save-recordings", "theme-accent"],
   screenshots: ["capture-toolbar", "colors", "detection", "capture-cursor", "scrolling"],
   "screen-draw": ["on-screen-toolbar"],
   shortcuts: ["shortcuts"],
+  developer: ["browser-extension"],
 };
 
 /** Sections whose body holds a shortcut row that can be mid-recording. */
@@ -128,6 +132,7 @@ function defaultOpenSections(): Record<SettingsSectionId, boolean> {
     scrolling: false,
     "on-screen-toolbar": false,
     shortcuts: false,
+    "browser-extension": false,
   };
   for (const sections of Object.values(settingsSections)) {
     const first = sections[0];
@@ -631,11 +636,6 @@ export function SettingsView(): React.JSX.Element {
               <ToggleField label="Detect windows" description="Highlight app windows as you hover" checked={settings.detection.windows} onChange={(windows) => update({ ...settings, detection: { ...settings.detection, windows } })} />
               <ToggleField label="Detect controls inside windows" description="Use Windows accessibility metadata in supported apps; custom canvas regions are ignored" checked={settings.detection.uiRegions} onChange={(uiRegions) => update({ ...settings, detection: { ...settings.detection, uiRegions } })} />
               <div><FieldLabel>Overlay tint</FieldLabel><div className="mt-1.5 flex items-center gap-2.5"><input aria-label="Overlay tint color" className="size-9 cursor-pointer rounded-md border border-stone-300 bg-white p-1 dark:border-white/10 dark:bg-[#30312e]" type="color" value={settings.overlay.color} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, color: event.currentTarget.value } })} /><input aria-label="Overlay tint strength" className="min-w-0 flex-1 accent-[var(--snaphub-accent)]" max="85" min="15" type="range" value={Math.round(settings.overlay.opacity * 100)} onChange={(event) => update({ ...settings, overlay: { ...settings.overlay, opacity: Number(event.currentTarget.value) / 100 } })} /><span className="w-8 font-mono text-[12px] text-stone-500 dark:text-stone-400">{Math.round(settings.overlay.opacity * 100)}%</span><InlineResetButton label="Reset overlay tint" disabled={settings.overlay.color === defaultSnaphubSettings.overlay.color && settings.overlay.opacity === defaultSnaphubSettings.overlay.opacity} onClick={() => update({ ...settings, overlay: defaultSnaphubSettings.overlay })} /></div></div>
-              <div className="lg:col-span-2"><FieldLabel>Overlay motion</FieldLabel><div className="mt-1.5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Overlay motion">{([
-                ["dim-rise", "Dim fades in", "The screen dims gently and the hint rises. Leaving fades out quickly."],
-                ["fade-in", "Fade in", "The overlay fades in. Escape closes it instantly."],
-                ["fade-both", "Fade in and out", "The whole overlay fades in and fades out."],
-              ] as const).map(([value, label, description]) => <button aria-checked={settings.overlay.motion === value} className="rounded-lg border border-stone-200 bg-white p-3 text-left outline-none transition hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] aria-checked:border-stone-700 aria-checked:bg-stone-50 dark:border-white/10 dark:bg-[#2b2c29] dark:hover:border-white/20 dark:aria-checked:border-[var(--snaphub-accent)]/55 dark:aria-checked:bg-white/5" key={value} role="radio" type="button" onClick={() => update({ ...settings, overlay: { ...settings.overlay, motion: value } })}><span className="block text-[13px] font-semibold text-stone-800 dark:text-stone-200">{label}</span><span className="mt-1 block text-[11px] leading-4 text-stone-500 dark:text-stone-400">{description}</span></button>)}</div></div>
             </div>
             <SectionReset onClick={resetDetection} />
           </SettingsSection>
@@ -658,6 +658,10 @@ export function SettingsView(): React.JSX.Element {
             <SectionReset onClick={() => update({ ...settings, scrolling: defaultSnaphubSettings.scrolling })} />
           </SettingsSection>
           </>
+        ) : activeTab === "developer" ? (
+          <SettingsSection id="browser-extension" onToggle={toggleSection} open={openSections["browser-extension"]} icon={ScanSearch} eyebrow="Developer tools" title="Browser extension" description="Pair the CapKit Inspector extension to inspect page elements and redact sensitive text exactly.">
+            <BrowserExtensionSettings />
+          </SettingsSection>
         ) : activeTab === "screen-draw" ? (
           <SettingsSection id="on-screen-toolbar" onToggle={toggleSection} open={openSections["on-screen-toolbar"]} icon={Presentation} eyebrow="Presentation" title="On-screen toolbar" description="Toggle a temporary drawing layer over the monitor under your pointer. Press the same global shortcut or Escape to leave instantly.">
             <div className="divide-y divide-stone-200 rounded-lg border border-stone-200 bg-white dark:divide-white/8 dark:border-white/10 dark:bg-[#2b2c29]">

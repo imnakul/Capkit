@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CaptureSession, CompletionAction } from "./domain/capture";
-import { defaultSnaphubSettings, saveSnaphubSettings, type OverlayMotion } from "./domain/settings";
+import { defaultSnaphubSettings } from "./domain/settings";
 import type { CompletionResult } from "./lib/tauri";
 
 const captureMocks = vi.hoisted(() => ({
@@ -19,6 +19,10 @@ const captureMocks = vi.hoisted(() => ({
   requestCapture: vi.fn(),
   retryCaptureSave: vi.fn(),
   showCaptureSurface: vi.fn(),
+  deliverNote: vi.fn(),
+  inspectWebTarget: vi.fn(),
+  getBrowserLinkStatus: vi.fn(),
+  canvasProps: { current: null as null | Record<string, (...args: never[]) => void> },
 }));
 
 vi.mock("./lib/tauri", async (importOriginal) => {
@@ -43,6 +47,9 @@ vi.mock("./lib/tauri", async (importOriginal) => {
     requestCapture: captureMocks.requestCapture,
     retryCaptureSave: captureMocks.retryCaptureSave,
     showCaptureSurface: captureMocks.showCaptureSurface,
+    deliverNote: captureMocks.deliverNote,
+    inspectWebTarget: captureMocks.inspectWebTarget,
+    getBrowserLinkStatus: captureMocks.getBrowserLinkStatus,
   };
 });
 
@@ -164,7 +171,8 @@ async function selectRegion(): Promise<HTMLElement> {
 }
 
 vi.mock("./components/AnnotationCanvas", () => ({
-  AnnotationCanvas: function MockAnnotationCanvas(): React.JSX.Element {
+  AnnotationCanvas: function MockAnnotationCanvas(props: Record<string, (...args: never[]) => void>): React.JSX.Element {
+    captureMocks.canvasProps.current = props;
     return <div aria-label="Screenshot annotation canvas" role="application" />;
   },
 }));
@@ -176,6 +184,7 @@ describe("App", () => {
     captureMocks.listeners.length = 0;
     captureMocks.cancelCapture.mockResolvedValue(undefined);
     captureMocks.cancelManualScrolling.mockResolvedValue(undefined);
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: false, state: "off", port: null, error: null, connected: [], paired: [] });
     captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
     captureMocks.showCaptureSurface.mockResolvedValue(undefined);
     captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
@@ -691,8 +700,7 @@ describe("App", () => {
 });
 
 describe("App overlay motion", () => {
-  function useMotion(motion: OverlayMotion, reduced = false): void {
-    saveSnaphubSettings({ ...defaultSnaphubSettings, overlay: { ...defaultSnaphubSettings.overlay, motion } });
+  function useReducedMotion(reduced: boolean): void {
     vi.stubGlobal("matchMedia", (media: string) => ({
       matches: reduced,
       media,
@@ -715,85 +723,191 @@ describe("App overlay motion", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-    vi.useRealTimers();
     window.localStorage.clear();
   });
 
-  it("dim-rise: scrim and hint start hidden, then transition in after two frames", async () => {
-    useMotion("dim-rise");
-    const frames = createAnimationFrameQueue();
+  it("fades the overlay in and out natively, with no scrim animation in the page", async () => {
+    useReducedMotion(false);
     render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", false));
-    const scrim = screen.getByTestId("capture-scrim");
-    const hint = screen.getByTestId("capture-hint");
-    expect(scrim).toHaveStyle({ opacity: "0" });
-    expect(hint.style.transform).toBe("translateY(6px)");
-    frames.flushNext();
-    frames.flushNext();
-    expect(scrim).toHaveStyle({ opacity: "1" });
-    expect(scrim.style.transition).toBe("opacity 160ms cubic-bezier(0.22, 1, 0.36, 1)");
-    expect(hint.style.transform).toBe("translateY(0px)");
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(false));
+    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), false);
   });
 
-  it("dim-rise: Escape fades out and cancels only after 120 ms, once for a double Escape", async () => {
-    useMotion("dim-rise");
+  it("skips both fades under reduced motion", async () => {
+    useReducedMotion(true);
     render(<App />);
-    await screen.findByTestId("capture-scrim");
-    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(true));
     fireEvent.keyDown(window, { key: "Escape" });
-    fireEvent.keyDown(window, { key: "Escape" });
-    const scrim = screen.getByTestId("capture-scrim");
-    expect(scrim).toHaveStyle({ opacity: "0" });
-    expect(scrim.style.transition).toBe("opacity 120ms cubic-bezier(0.4, 0, 1, 1)");
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), true));
+  });
+
+  it("ignores a saved motion choice from an older version", async () => {
+    window.localStorage.setItem("snaphub.settings.v1", JSON.stringify({
+      ...defaultSnaphubSettings,
+      overlay: { ...defaultSnaphubSettings.overlay, motion: "dim-rise" },
+    }));
+    useReducedMotion(false);
+    render(<App />);
+    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith(false));
+  });
+});
+
+describe("App notes", () => {
+  function pin(id: string, value: number): { id: string; kind: "counter"; opacity: number; position: { x: number; y: number }; value: number; color: string; radius: number } {
+    return { id, kind: "counter", opacity: 1, position: { x: 20 * value, y: 30 }, value, color: "#d9ff43", radius: 12 };
+  }
+  function place(id: string, value: number, area: { x: number; y: number; width: number; height: number } | null = null): void {
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onNotePlace as unknown as (p: unknown, a: unknown) => void)(pin(id, value), area));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    captureMocks.listeners.length = 0;
+    captureMocks.cancelCapture.mockResolvedValue(undefined);
+    captureMocks.requestCapture.mockImplementation(() => Promise.resolve(createCaptureSession()));
+    captureMocks.showCaptureSurface.mockResolvedValue(undefined);
+    captureMocks.isTextRecognitionSupported.mockResolvedValue(false);
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: true, state: "listening", port: 47811, error: null, connected: [], paired: [] });
+    captureMocks.inspectWebTarget.mockResolvedValue(null);
+    captureMocks.completeCapture.mockImplementation((action: CompletionAction) =>
+      Promise.resolve({ ...completedResult(action), outputPath: "C:/notes/shot.png" }),
+    );
+    captureMocks.deliverNote.mockResolvedValue({ copied: true, saved: "C:/notes/x", diagnostic: null });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  async function openWithNotes(): Promise<void> {
+    render(<App />);
+    await selectRegion();
+    await waitFor(() => expect(captureMocks.getBrowserLinkStatus).toHaveBeenCalled());
+  }
+
+  it("keeps a comment typed on a pin, without separate note buttons", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    place("c2", 2, { x: 10, y: 10, width: 50, height: 50 });
+    expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy note" })).not.toBeInTheDocument();
+  });
+
+  it("reopens a pin's comment for editing when the pin is clicked", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onPinSelect as unknown as (id: string) => void)("c1"));
+    expect(await screen.findByRole("textbox", { name: "Comment for this spot" })).toHaveValue("Too tight");
+  });
+
+  it("moves a pin's comment with the pin", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const before = (await screen.findByRole("dialog", { name: "Note 1" })).style.left;
+    const props = captureMocks.canvasProps.current;
+    if (props === null) throw new Error("canvas not rendered");
+    act(() => (props.onPinDrag as unknown as (id: string, p: { x: number; y: number } | null) => void)("c1", { x: 120, y: 60 }));
+    const during = screen.getByRole("dialog", { name: "Note 1" }).style.left;
+    expect(during).not.toBe(before);
+    expect(during).toBe("136px");
+  });
+
+  it("renders the note image, then delivers the Markdown", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    const field = await screen.findByRole("textbox", { name: "Comment for this spot" });
+    fireEvent.change(field, { target: { value: "Too tight" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect(captureMocks.completeCapture.mock.calls.at(-1)?.[0]).toBe("note-image");
+    const request = captureMocks.deliverNote.mock.calls[0]?.[0] as { markdown: string; mode: string };
+    expect(request.mode).toBe("copy");
+    expect(request.markdown).toContain("Too tight");
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalled());
+  });
+
+  it("stays open when the note cannot be copied", async () => {
+    captureMocks.deliverNote.mockResolvedValue({ copied: false, saved: null, diagnostic: "clipboard busy" });
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "c" });
+    expect((await screen.findAllByText(/Couldn.t copy the note. clipboard busy/)).length).toBeGreaterThan(0);
     expect(captureMocks.cancelCapture).not.toHaveBeenCalled();
-    await act(async () => {
-      vi.advanceTimersByTime(120);
-      await Promise.resolve();
-    });
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
   });
 
-  it("fade-both: Escape cancels immediately with the fade-both motion", async () => {
-    useMotion("fade-both");
-    render(<App />);
-    await screen.findByRole("main");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "fade-both", false);
+  it("offers Retry save when the note was copied but not saved", async () => {
+    captureMocks.deliverNote
+      .mockResolvedValueOnce({ copied: true, saved: null, diagnostic: "disk full" })
+      .mockResolvedValueOnce({ copied: true, saved: "C:/notes/x", diagnostic: null });
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "a" });
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect((captureMocks.deliverNote.mock.calls[0]?.[0] as { mode: string }).mode).toBe("copy-and-save");
+    fireEvent.click(await screen.findByRole("button", { name: "Retry save" }));
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(2));
+    const retry = captureMocks.deliverNote.mock.calls[1]?.[0] as { mode: string; noteId: string };
+    const first = captureMocks.deliverNote.mock.calls[0]?.[0] as { noteId: string };
+    expect(retry.mode).toBe("save");
+    expect(retry.noteId).toBe(first.noteId);
+    expect(captureMocks.retryCaptureSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalled());
   });
 
-  it("fade-in: reveals without scrim animation and cancels immediately", async () => {
-    useMotion("fade-in");
-    render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("fade-in", false));
-    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
+  it("applies lookups to the right note when they finish out of order", async () => {
+    const first = deferred<null>();
+    const second = deferred<null>();
+    captureMocks.inspectWebTarget.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    place("c2", 2);
+    await act(() => { second.resolve(null); first.resolve(null); return Promise.resolve(); });
+    expect(await screen.findByText("element: Product workspace")).toBeInTheDocument();
   });
 
-  it("reduced motion: no scrim animation and Escape cancels immediately in every mode", async () => {
-    useMotion("dim-rise", true);
-    render(<App />);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledWith("dim-rise", true));
-    expect(screen.getByTestId("capture-scrim").style.transition).toBe("");
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledWith(expect.any(String), "dim-rise", true);
+  it("saves the note with S", async () => {
+    await openWithNotes();
+    place("c1", 1);
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Comment for this spot" }), { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment for this spot" })).not.toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "s" });
+    await waitFor(() => expect(captureMocks.deliverNote).toHaveBeenCalledTimes(1));
+    expect((captureMocks.deliverNote.mock.calls[0]?.[0] as { mode: string }).mode).toBe("save");
   });
 
-  it("a new capture during the exit fade cancels the old session once and reveals the new one", async () => {
-    useMotion("dim-rise");
-    render(<App />);
-    await waitFor(() => expect(screen.getByTestId("capture-scrim")).toHaveStyle({ opacity: "1" }));
-    fireEvent.keyDown(window, { key: "Escape" });
-    act(() => {
-      captureMocks.listeners.forEach((listener) => listener());
-    });
-    await waitFor(() => expect(captureMocks.requestCapture).toHaveBeenCalledTimes(2));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(captureMocks.showCaptureSurface).toHaveBeenCalledTimes(2));
-    await new Promise((resolve) => window.setTimeout(resolve, 200));
-    expect(captureMocks.cancelCapture).toHaveBeenCalledTimes(1);
+  it("copies the plain image with C while the capture has no notes", async () => {
+    await openWithNotes();
+    fireEvent.keyDown(window, { key: "c" });
+    await waitFor(() => expect(captureMocks.completeCapture).toHaveBeenCalledWith("copy", expect.any(String), expect.anything(), expect.anything()));
+    expect(captureMocks.deliverNote).not.toHaveBeenCalled();
+  });
+
+  it("hides the Note tool when Developer tools is off", async () => {
+    captureMocks.getBrowserLinkStatus.mockResolvedValue({ enabled: false, state: "off", port: null, error: null, connected: [], paired: [] });
+    await openWithNotes();
+    expect(screen.queryByRole("button", { name: "Note" })).not.toBeInTheDocument();
   });
 });
