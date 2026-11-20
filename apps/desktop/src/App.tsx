@@ -55,6 +55,7 @@ import { captureCursor } from "./lib/cursor";
 import { prefersReducedMotion } from "./lib/motion";
 import { eyedropperFormat } from "./lib/eyedropper";
 import { suggestRedactions, suggestRedactionsFromWeb } from "./lib/redactionPatterns";
+import { useSmartSelect } from "./lib/useSmartSelect";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
@@ -142,6 +143,13 @@ export function App(): React.JSX.Element {
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
   const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle / I copies a colour");
+  const smartSelect = useSmartSelect({
+    session,
+    selection,
+    active: activeTool === "smart",
+    uiRegions: settings.detection.uiRegions,
+    windows: settings.detection.windows,
+  });
   const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
   // The swatch shows only while its message is still the current one.
   const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
@@ -1398,6 +1406,10 @@ export function App(): React.JSX.Element {
         >
           <AnnotationCanvas
             deselectToken={deselectToken}
+            smartTarget={smartSelect.target}
+            smartTargetId={smartSelect.targetId}
+            onSmartHover={smartSelect.hover}
+            onSmartMiss={() => setMessage("Nothing to snap to here. Drag to draw a box instead.")}
             onSelectionActiveChange={(active) => {
               annotationSelectedRef.current = active;
             }}

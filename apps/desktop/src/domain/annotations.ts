@@ -8,6 +8,7 @@ export type ToolId =
   | "curved-arrow"
   | "line"
   | "rectangle"
+  | "smart"
   | "ellipse"
   | "highlighter"
   | "pencil"

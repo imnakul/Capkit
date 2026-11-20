@@ -4,7 +4,7 @@ import type { CaptureToolbarToolId } from "../domain/settings";
 import { LineStyleControl } from "./LineStyleControl";
 import type { ToolbarToolDefinition } from "./toolbarCatalog";
 
-const LINE_STYLE_TOOLS: readonly ToolId[] = ["rectangle", "ellipse", "line", "arrow", "curved-arrow"];
+const LINE_STYLE_TOOLS: readonly ToolId[] = ["rectangle", "smart", "ellipse", "line", "arrow", "curved-arrow"];
 
 type ContextControlsProps = {
   activeTool: ToolId;
@@ -108,7 +108,7 @@ export function ContextControls({
             />
           ) : null}
 
-          {activeTool === "rectangle" ? (
+          {activeTool === "rectangle" || activeTool === "smart" ? (
             <label className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">
               Corners
               <input

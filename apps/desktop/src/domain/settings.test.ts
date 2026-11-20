@@ -4,6 +4,7 @@ import {
   parsePersistedSnaphubSettings,
   snaphubSettingsSchema,
   migratePersistedNoteTool,
+  migratePersistedSmartTool,
 } from "./settings";
 
 describe("Snaphub settings", () => {
@@ -257,5 +258,25 @@ describe("toolbar placement", () => {
     };
     expect(migratePersistedNoteTool(saved)).toBe(saved);
     expect(parsePersistedSnaphubSettings(saved)?.toolbar.groups).toEqual([["text", "counter"]]);
+  });
+});
+
+describe("Smart select toolbar migration", () => {
+  it("adds Smart select after Rectangle in toolbars saved without it", () => {
+    const migrated = migratePersistedSmartTool({
+      toolbar: { individual: { rectangle: true }, groups: [["rectangle", "ellipse"], ["pencil"]], verticalTools: ["rectangle"] },
+    });
+    expect(migrated).toEqual({
+      toolbar: {
+        individual: { rectangle: true, smart: true },
+        groups: [["rectangle", "smart", "ellipse"], ["pencil"]],
+        verticalTools: ["rectangle", "smart"],
+      },
+    });
+  });
+
+  it("leaves toolbars that already know the tool alone", () => {
+    const saved = { toolbar: { individual: { rectangle: true, smart: false }, groups: [["rectangle"]] } };
+    expect(migratePersistedSmartTool(saved)).toBe(saved);
   });
 });

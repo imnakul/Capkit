@@ -206,3 +206,19 @@ body.dashboard-surface ::-webkit-scrollbar-thumb:hover {
 body.dashboard-surface ::-webkit-scrollbar-thumb:active {
   background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
 }
+
+/* Smart select ghost outline: fades in once per new candidate, never on every pointer move. */
+@keyframes smart-ghost-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smart-ghost {
+    animation: none !important;
+  }
+}

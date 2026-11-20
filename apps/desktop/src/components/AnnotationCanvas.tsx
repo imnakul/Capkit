@@ -17,6 +17,7 @@ import {
   resizeAnnotation,
   translateAnnotation,
 } from "../domain/annotationGeometry";
+import { smartAnnotationBounds } from "../domain/smartSelect";
 import { Cancel } from "./icons";
 import {
   needsStrokeGeometry,
@@ -78,6 +79,13 @@ type AnnotationCanvasProps = {
   onSelectionActiveChange?: (active: boolean) => void;
   /** Bump to deselect the current annotation (the app's Escape handler). */
   deselectToken?: number;
+  /** Smart select: the detected box under the pointer, in canvas coordinates. */
+  smartTarget?: CaptureRect | null;
+  /** Changes only when the Smart select candidate does; restarts the ghost fade-in. */
+  smartTargetId?: string | null;
+  onSmartHover?: (point: Point | null) => void;
+  /** A Smart select click found nothing to snap to. */
+  onSmartMiss?: () => void;
 };
 
 /** Drawing tools that still let a press on an existing annotation select and move it. */
@@ -86,6 +94,7 @@ const EDIT_IN_TOOL_TOOLS: readonly ToolId[] = [
   "curved-arrow",
   "line",
   "rectangle",
+  "smart",
   "ellipse",
   "highlighter",
   "pencil",
@@ -120,6 +129,10 @@ export function AnnotationCanvas({
   onPinDrag,
   onSelectionActiveChange,
   deselectToken = 0,
+  smartTarget = null,
+  smartTargetId = null,
+  onSmartHover,
+  onSmartMiss,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -142,6 +155,8 @@ export function AnnotationCanvas({
   const hoverFrameRequest = useRef<number | null>(null);
   const hoverPointRef = useRef<Point | null>(null);
   const editInTool = EDIT_IN_TOOL_TOOLS.includes(activeTool);
+  // Smart select draws a plain rectangle when dragged; a click snaps to the detected box instead.
+  const drawTool: ToolId = activeTool === "smart" ? "rectangle" : activeTool;
 
   const displayedElements = useMemo<readonly Annotation[]>(() => {
     if (movingAnnotation === null) return scene.elements;
@@ -162,8 +177,8 @@ export function AnnotationCanvas({
         opacity: 1,
       };
     }
-    return createAnnotation(activeTool, draft.start, draft.end, style, scene, draft.id, draft.points);
-  }, [activeTool, draft, noteColor, scene, style]);
+    return createAnnotation(drawTool, draft.start, draft.end, style, scene, draft.id, draft.points);
+  }, [drawTool, activeTool, draft, noteColor, scene, style]);
 
   function relativePoint(event: React.PointerEvent<HTMLDivElement>): Point {
     const host = containerRef.current?.getBoundingClientRect();
@@ -306,6 +321,7 @@ export function AnnotationCanvas({
     const current = draftRef.current;
     if (current === null) {
       if (editInTool && event.buttons === 0) scheduleHover(relativePoint(event), event.altKey);
+      if (activeTool === "smart" && event.buttons === 0) onSmartHover?.(relativePoint(event));
       return;
     }
     if ((event.buttons & 1) === 0) {
@@ -363,8 +379,27 @@ export function AnnotationCanvas({
       );
       return;
     }
+    const releasePoint = relativePoint(event);
+    if (activeTool === "smart" && Math.hypot(releasePoint.x - current.start.x, releasePoint.y - current.start.y) <= DRAG_SLOP) {
+      draftRef.current = null;
+      setDraft(null);
+      if (smartTarget === null) {
+        onSmartMiss?.();
+        return;
+      }
+      const box = smartAnnotationBounds(smartTarget, { width: bounds.width, height: bounds.height }, event.altKey);
+      const snapped = createAnnotation(
+        event.altKey ? "ellipse" : "rectangle",
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y + box.height },
+        style,
+        scene,
+      );
+      if (snapped !== null) onCommit(snapped);
+      return;
+    }
     const annotation = createAnnotation(
-      activeTool,
+      drawTool,
       current.start,
       relativePoint(event),
       style,
@@ -485,6 +520,9 @@ export function AnnotationCanvas({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerCancel={handlePointerUp}
+      onPointerLeave={() => {
+        if (activeTool === "smart") onSmartHover?.(null);
+      }}
       onPointerUp={handlePointerUp}
     >
       <EffectPreviewLayer
@@ -583,6 +621,15 @@ export function AnnotationCanvas({
           </div>
         );
       })}
+      {activeTool === "smart" && smartTarget !== null && draft === null && movingAnnotation === null ? (
+        <div
+          aria-hidden="true"
+          className="smart-ghost pointer-events-none absolute z-20 border border-dashed border-lime-300 opacity-50"
+          data-testid="smart-ghost"
+          key={smartTargetId}
+          style={{ left: smartTarget.x, top: smartTarget.y, width: smartTarget.width, height: smartTarget.height, animation: "smart-ghost-in 90ms ease-out" }}
+        />
+      ) : null}
       {((): React.JSX.Element | null => {
         if (hoveredAnnotationId === null || hoveredAnnotationId === selectedAnnotationId || draft !== null) return null;
         const hovered = displayedElements.find((element) => element.id === hoveredAnnotationId);
@@ -1043,6 +1090,7 @@ function createAnnotation(
       };
     case "note":
     case "select":
+    case "smart":
       return null;
   }
 }

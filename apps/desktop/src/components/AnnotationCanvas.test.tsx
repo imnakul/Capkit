@@ -410,4 +410,74 @@ describe("AnnotationCanvas effect previews", () => {
       expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "rectangle" }));
     });
   });
+
+  describe("smart select", () => {
+    function renderSmart(smartTarget: { x: number; y: number; width: number; height: number } | null): {
+      onCommit: ReturnType<typeof vi.fn>;
+      onSmartMiss: ReturnType<typeof vi.fn>;
+      onSmartHover: ReturnType<typeof vi.fn>;
+      canvas: HTMLElement;
+    } {
+      const onCommit = vi.fn();
+      const onSmartMiss = vi.fn();
+      const onSmartHover = vi.fn();
+      render(
+        <AnnotationCanvas
+          activeTool="smart"
+          bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+          cursor="crosshair"
+          scene={{ version: 1, elements: [] }}
+          smartTarget={smartTarget}
+          smartTargetId="t1"
+          snapshotUrl="asset://capture.png"
+          style={defaultAnnotationStyle}
+          onCommit={onCommit}
+          onDelete={() => undefined}
+          onSmartHover={onSmartHover}
+          onSmartMiss={onSmartMiss}
+          onUpdate={() => undefined}
+        />,
+      );
+      return { onCommit, onSmartMiss, onSmartHover, canvas: screen.getByRole("application", { name: "Screenshot annotation canvas" }) };
+    }
+
+    const target = { x: 50, y: 60, width: 100, height: 40 };
+
+    it("shows a ghost outline and reports the hovered point", () => {
+      const { canvas, onSmartHover } = renderSmart(target);
+      expect(screen.getByTestId("smart-ghost")).toBeInTheDocument();
+      fireEvent.pointerMove(canvas, { buttons: 0, clientX: 70, clientY: 70, pointerId: 1 });
+      expect(onSmartHover).toHaveBeenCalledWith({ x: 70, y: 70 });
+    });
+
+    it("a click adds a padded rectangle around the target", () => {
+      const { canvas, onCommit } = renderSmart(target);
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 70, clientY: 70, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 70, clientY: 70, pointerId: 1 });
+      expect(onCommit).toHaveBeenCalledTimes(1);
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "rectangle", bounds: { x: 46, y: 56, width: 108, height: 48 } }));
+    });
+
+    it("Alt+click adds an ellipse that circumscribes the target", () => {
+      const { canvas, onCommit } = renderSmart(target);
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, altKey: true, clientX: 70, clientY: 70, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, altKey: true, clientX: 70, clientY: 70, pointerId: 1 });
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "ellipse" }));
+    });
+
+    it("a drag draws a plain rectangle instead of snapping", () => {
+      const { canvas, onCommit } = renderSmart(target);
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 200, clientY: 150, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 260, clientY: 200, pointerId: 1 });
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "rectangle", bounds: { x: 200, y: 150, width: 60, height: 50 } }));
+    });
+
+    it("reports a miss when there is nothing to snap to", () => {
+      const { canvas, onCommit, onSmartMiss } = renderSmart(null);
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 70, clientY: 70, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 70, clientY: 70, pointerId: 1 });
+      expect(onCommit).not.toHaveBeenCalled();
+      expect(onSmartMiss).toHaveBeenCalledTimes(1);
+    });
+  });
 });

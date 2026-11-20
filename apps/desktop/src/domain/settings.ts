@@ -69,6 +69,7 @@ export const defaultOnScreenSettings = {
 
 export const captureToolbarToolIds = [
   "rectangle",
+  "smart",
   "ellipse",
   "line",
   "arrow",
@@ -92,6 +93,7 @@ export type CaptureToolbarToolId = z.infer<typeof captureToolbarToolIdSchema>;
 
 export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
   rectangle: true,
+  smart: true,
   ellipse: true,
   line: true,
   arrow: true,
@@ -111,7 +113,7 @@ export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
 };
 
 export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
-  ["rectangle", "ellipse", "line", "arrow", "curved-arrow"],
+  ["rectangle", "smart", "ellipse", "line", "arrow", "curved-arrow"],
   ["highlighter", "pencil", "text"],
   ["blur", "spotlight", "pixelate", "blackout"],
   ["counter", "note", "scrolling-capture"],
@@ -120,6 +122,7 @@ export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
 
 const toolbarIndividualSchema = z.object({
   rectangle: z.boolean(),
+  smart: z.boolean().default(true),
   ellipse: z.boolean(),
   line: z.boolean(),
   arrow: z.boolean(),
@@ -378,7 +381,7 @@ export function captureModeShortcutConflict(
 }
 
 export function parsePersistedSnaphubSettings(value: unknown): SnaphubSettings | null {
-  const migrated = migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value));
+  const migrated = migratePersistedSmartTool(migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value)));
   const parsed = snaphubSettingsSchema.safeParse(migrated);
   return parsed.success ? parsed.data : null;
 }
@@ -421,6 +424,34 @@ export function migratePersistedNoteTool(value: unknown): unknown {
     toolbar: {
       ...toolbar,
       individual: { ...toolbar.individual, note: true },
+      ...(nextGroups === undefined ? {} : { groups: nextGroups }),
+      ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
+    },
+  };
+}
+
+/**
+ * Toolbars saved before Smart select existed never list it. A saved `toolbar.individual` without a
+ * `smart` key marks such a toolbar: Smart select is added once, right after Rectangle.
+ */
+export function migratePersistedSmartTool(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.toolbar)) return value;
+  const toolbar = value.toolbar;
+  if (!isRecord(toolbar.individual) || "smart" in toolbar.individual) return value;
+  const insertSmart = (tools: unknown[]): unknown[] => {
+    if (tools.includes("smart")) return tools;
+    const rectangle = tools.indexOf("rectangle");
+    return rectangle === -1 ? tools : [...tools.slice(0, rectangle + 1), "smart", ...tools.slice(rectangle + 1)];
+  };
+  const groups: unknown[] | undefined = Array.isArray(toolbar.groups) ? toolbar.groups : undefined;
+  const nextGroups = groups?.map((group: unknown): unknown => (Array.isArray(group) && group.length < 16 ? insertSmart(group) : group));
+  const vertical: unknown[] | undefined = Array.isArray(toolbar.verticalTools) ? toolbar.verticalTools : undefined;
+  const nextVertical = vertical !== undefined && vertical.length < 16 ? insertSmart(vertical) : vertical;
+  return {
+    ...value,
+    toolbar: {
+      ...toolbar,
+      individual: { ...toolbar.individual, smart: true },
       ...(nextGroups === undefined ? {} : { groups: nextGroups }),
       ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
     },
