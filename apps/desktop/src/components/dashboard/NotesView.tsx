@@ -17,11 +17,11 @@ import {
   Magnifier,
   StickyNote,
   Refresh as RefreshCw,
-  Tick as Check,
   View as Eye,
 } from "../icons";
 import { LAYER } from "../layers";
 import { Button } from "../ui/Button";
+import { CopyButton } from "../ui/CopyButton";
 import { PageHeader } from "../ui/PageHeader";
 import { NoteDialog } from "./NoteDialog";
 
@@ -362,15 +362,7 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
           </div>
         </div>
       </button>
-      <button
-        aria-label={`Copy Markdown for ${title}`}
-        className="absolute right-2 top-2 flex h-7 items-center gap-1 rounded-md bg-black/60 px-2 text-[11px] font-medium text-white opacity-0 outline-none backdrop-blur transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none group-focus-within:opacity-100 group-hover:opacity-100"
-        type="button"
-        onClick={() => void copy()}
-      >
-        {copied ? <Check aria-hidden="true" size={12} /> : <Copy aria-hidden="true" size={12} />}
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <CopyButton copied={copied} label={`Copy Markdown for ${title}`} onCopy={() => void copy()} />
     </div>
   );
 }
