@@ -219,7 +219,7 @@ export function NotesView(): React.JSX.Element {
       {actionError === null ? null : <div className="mt-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger" role="alert">{actionError}</div>}
 
       {loading && state.notes.length === 0 ? (
-        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3" role="status">
+        <div aria-label="Loading notes" className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3" role="status">
           {Array.from({ length: 8 }, (_, index) => <div className="aspect-[4/3] animate-pulse rounded-lg border border-content/8 bg-content/6 motion-reduce:animate-none" key={index} />)}
         </div>
       ) : null}
@@ -236,7 +236,7 @@ export function NotesView(): React.JSX.Element {
       ) : null}
 
       {state.notes.length > 0 ? (
-        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3">
+        <div className="mt-5 grid grid-cols-[repeat(auto-fill,minmax(18rem,22rem))] gap-3">
           {state.notes.map((note) => (
             <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} onOpen={showNote} />
           ))}
@@ -347,7 +347,7 @@ function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): Reac
         onPointerMove={onPointerMove}
         onPointerUp={() => { pressStart.current = null; }}
       >
-        <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
+        <div className="grid aspect-[16/10] place-items-center overflow-hidden bg-content/6 outline outline-1 -outline-offset-1 outline-content/10">
           <img alt="" className="h-full w-full object-contain" draggable={false} loading="lazy" src={note.imageUrl} />
         </div>
         <div className="border-t border-content/8 px-3 py-2.5">
