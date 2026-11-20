@@ -2,13 +2,13 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
-## Unreleased — 2026-11-19
+## 0.4.0 — 2026-11-20
 
 ### Added
 
 - The CapKit Inspector extension now uses the accent colour you chose in CapKit.
 - Developer tools (off by default): link the CapKit Inspector browser extension to see exact page elements, find sensitive text precisely, and pin numbered notes on a page. Notes copy as Markdown with a screenshot and are kept in a new Notes tab.
-- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General.
+- CapKit can update itself. It checks GitHub once when it starts, tells you when a new version is ready, and installs only when you click Install and restart. You can turn the check off in Settings → General. Install 0.4.0 by hand once; later versions arrive through the app.
 - Copy any capture from the Screenshots page, and drag it straight into another app.
 - Capture toolbar groups open when you click them and remember the last tool you used in each group.
 - Settings → Screenshots lets you show or hide each finishing action (Copy, Save, Pin, Showcase and more) and choose whether each tool and action sits in the horizontal or the vertical toolbar.

@@ -47,7 +47,7 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** Settings → Screenshots shows or hides each finishing action and places each Individual-mode tool and each action in the horizontal or vertical toolbar. Group mode keeps groups horizontal.
 - **Implemented:** Annotations stay fixed on screen when the selection is moved or resized.
 - **Implemented:** Capture toolbar is one card. Individual mode shows a style row only for tools that have style. Group mode opens on click, remembers the last tool per group, and Escape closes the open row before it cancels the capture. The toolbar is positioned from its measured size.
-- **Implemented, signing key pending:** In-app updates. Launch check, sidebar notice, tray item, Settings → General → Updates. The release workflow publishes the signed installer, its `.sig` and `latest.json`. Until the updater key pair exists, `tauri.conf.json` holds a placeholder public key and `release.yml` stops early.
+- **Implemented:** In-app updates. Launch check, sidebar notice, tray item, Settings → General → Updates. The release workflow publishes the signed installer, its `.sig` and `latest.json`. The updater key pair exists (public key in `tauri.conf.json`, private key and password in GitHub secrets). 0.4.0 is the first signed release; 0.3.0 and earlier carry a placeholder key and must be updated by hand once.
 - **Investigated, not fixed:** The pointer that sometimes does not move over the overlay. See the implementation report in `docs/specs/enhancements-and-fixes.md`.
 
 ### Browser devtools (Provisional, Phase 2)
