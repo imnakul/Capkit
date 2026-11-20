@@ -35,6 +35,7 @@ import {
 import {
   initialOnScreenHistory,
   LEGACY_ON_SCREEN_CORNER_RADIUS,
+  findEditableObjectAt,
   moveArrowEndpoint,
   normalizedObjectRect,
   objectAtPoint,
@@ -229,6 +230,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectCursor, setSelectCursor] = useState<string>("default");
   const selectDrag = useRef<SelectDrag>(null);
+  const dragSlopPending = useRef(false);
   const selectPreviewRef = useRef<OnScreenObject | null>(null);
   const [fadingTrails, setFadingTrails] = useState<{ id: string; d: string }[]>([]);
   const [saveState, setSaveState] = useState<SaveState>({ phase: "idle" });
@@ -794,6 +796,27 @@ export function OnScreenOverlay(): React.JSX.Element {
       openTextEditor(point);
       return;
     }
+    if (isDrawingTool(activeTool) && !event.altKey) {
+      // Edit without switching tools: a press on an existing object selects it (Alt draws instead).
+      const selected = selectedId !== null
+        ? (history.present.find((object) => object.id === selectedId) ?? null)
+        : null;
+      const handle = selected === null ? null : handleAtPoint(selected, point);
+      const hit = selected !== null && handle !== null ? selected : findEditableObjectAt(history.present, point);
+      if (hit !== null) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drawingPointer.current = event.pointerId;
+        // The release path treats this as a Select drag, so it commits one undo step.
+        drawingTool.current = "select";
+        selectDrag.current = handle !== null && selected !== null
+          ? { kind: "resize", handle, origin: point, initial: selected }
+          : { kind: "move", origin: point, initial: hit };
+        dragSlopPending.current = handle === null;
+        setSelectedId(hit.id);
+        return;
+      }
+      setSelectedId(null);
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     drawingPointer.current = event.pointerId;
     drawingTool.current = activeTool;
@@ -829,9 +852,15 @@ export function OnScreenOverlay(): React.JSX.Element {
       schedulePointerRender(points);
       return;
     }
-    if (activeTool === "select") {
+    const activeDrag = selectDrag.current;
+    if (activeTool === "select" || (activeDrag !== null && drawingPointer.current === event.pointerId)) {
       const drag = selectDrag.current;
       if (drag !== null && drawingPointer.current === event.pointerId) {
+        if (dragSlopPending.current) {
+          // A press that has not travelled past the slop only selects.
+          if (Math.hypot(point.x - drag.origin.x, point.y - drag.origin.y) <= 3) return;
+          dragSlopPending.current = false;
+        }
         const preview = previewSelectObject(drag.initial, drag, point);
         selectPreviewRef.current = preview;
         scheduleDraftRender(preview);

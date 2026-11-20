@@ -120,6 +120,9 @@ export function App(): React.JSX.Element {
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [notes, dispatchNotes] = useReducer(notesReducer, []);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  /** Escape deselects a selected annotation before it exits the capture. */
+  const annotationSelectedRef = useRef(false);
+  const [deselectToken, setDeselectToken] = useState(0);
   const [pinDrag, setPinDrag] = useState<{ counterId: string; position: Point } | null>(null);
   const [lookups, setLookups] = useState<Readonly<Record<string, NoteLookupStatus>>>({});
   const [developerTools, setDeveloperTools] = useState(false);
@@ -1162,8 +1165,14 @@ export function App(): React.JSX.Element {
       if (event.key === "Escape") {
         // The note popover owns Esc while it is open.
         if (editingNoteId !== null) return;
+        // The canvas text editor owns Esc while it is open: it commits and keeps the tool active.
+        if (event.target instanceof Element && event.target.closest("[data-text-editor]") !== null) return;
         event.preventDefault();
         event.stopPropagation();
+        if (annotationSelectedRef.current) {
+          setDeselectToken((token) => token + 1);
+          return;
+        }
         if (scrollingCapture !== null) {
           void closeScrollingCapture();
           return;
@@ -1388,6 +1397,10 @@ export function App(): React.JSX.Element {
           onResizeStart={handleResizeStart}
         >
           <AnnotationCanvas
+            deselectToken={deselectToken}
+            onSelectionActiveChange={(active) => {
+              annotationSelectedRef.current = active;
+            }}
             activeTool={activeTool}
             bounds={selection}
             cursor={activeCaptureCursor}

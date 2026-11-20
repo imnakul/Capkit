@@ -116,3 +116,91 @@ function mapAxis(value: number, sourceStart: number, sourceSize: number, targetS
   if (sourceSize < 1) return value + targetStart + targetSize / 2 - (sourceStart + sourceSize / 2);
   return targetStart + ((value - sourceStart) * targetSize) / sourceSize;
 }
+
+/** Distance from `point` to the segment `a`–`b`. */
+function distanceToSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
+
+function insideRect(point: Point, rect: Rect, margin: number): boolean {
+  return (
+    point.x >= rect.x - margin &&
+    point.x <= rect.x + rect.width + margin &&
+    point.y >= rect.y - margin &&
+    point.y <= rect.y + rect.height + margin
+  );
+}
+
+/** Slack added around a filled or solid-bodied annotation's bounds. */
+const BODY_HIT_MARGIN = 4;
+
+/**
+ * The topmost annotation a pointer press should edit while a drawing tool is active.
+ *
+ * Unfilled rectangles and ellipses match on their outline only, so a user can still draw
+ * inside them. Filled shapes, regions, text and counters match on their bounds (+4 px).
+ * Lines, arrows, pencil and highlighter strokes match on polyline distance.
+ *
+ * @param tolerance Minimum outline reach in px; each stroke widens it to `strokeWidth / 2 + 4`.
+ */
+export function findEditableAnnotationAt(
+  elements: readonly Annotation[],
+  point: Point,
+  tolerance = 8,
+): Annotation | undefined {
+  for (let index = elements.length - 1; index >= 0; index -= 1) {
+    const element = elements[index];
+    if (element !== undefined && hitsEditableArea(element, point, tolerance)) return element;
+  }
+  return undefined;
+}
+
+function hitsEditableArea(annotation: Annotation, point: Point, tolerance: number): boolean {
+  switch (annotation.kind) {
+    case "rectangle":
+    case "ellipse": {
+      const reach = Math.max(tolerance, annotation.strokeWidth / 2 + BODY_HIT_MARGIN);
+      const filled = annotation.fill !== "transparent";
+      if (filled) return insideRect(point, annotation.bounds, BODY_HIT_MARGIN);
+      const { bounds } = annotation;
+      if (annotation.kind === "rectangle") {
+        return insideRect(point, bounds, reach) && !insideRect(point, shrink(bounds, reach), 0);
+      }
+      const radiusX = bounds.width / 2;
+      const radiusY = bounds.height / 2;
+      if (radiusX <= 0 || radiusY <= 0) return insideRect(point, bounds, reach);
+      const normalized = Math.hypot((point.x - (bounds.x + radiusX)) / radiusX, (point.y - (bounds.y + radiusY)) / radiusY);
+      return Math.abs(normalized - 1) * Math.min(radiusX, radiusY) <= reach;
+    }
+    case "line":
+    case "arrow":
+    case "curved-arrow":
+    case "pencil":
+    case "highlighter": {
+      const reach = Math.max(tolerance, annotation.strokeWidth / 2 + BODY_HIT_MARGIN);
+      const { points } = annotation;
+      const [first] = points;
+      if (first === undefined) return false;
+      if (points.length === 1) return Math.hypot(point.x - first.x, point.y - first.y) <= reach;
+      return points.some((current, i) => {
+        const next = points[i + 1];
+        return next !== undefined && distanceToSegment(point, current, next) <= reach;
+      });
+    }
+    case "spotlight":
+    case "blur":
+    case "pixelate":
+    case "blackout":
+    case "text":
+    case "counter":
+      return insideRect(point, annotationBounds(annotation), BODY_HIT_MARGIN);
+  }
+}
+
+function shrink(rect: Rect, amount: number): Rect {
+  return { x: rect.x + amount, y: rect.y + amount, width: rect.width - amount * 2, height: rect.height - amount * 2 };
+}

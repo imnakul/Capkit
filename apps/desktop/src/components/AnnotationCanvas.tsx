@@ -12,6 +12,7 @@ import type {
 import {
   annotationBounds,
   findAnnotationAtPoint,
+  findEditableAnnotationAt,
   isResizableAnnotation,
   resizeAnnotation,
   translateAnnotation,
@@ -73,7 +74,30 @@ type AnnotationCanvasProps = {
   onPinSelect?: (annotationId: string) => void;
   /** A pin's live position while Select drags it, then null on release, so its comment can follow. */
   onPinDrag?: (annotationId: string, position: Point | null) => void;
+  /** Reports whether an annotation is selected, so Escape can deselect before it exits the capture. */
+  onSelectionActiveChange?: (active: boolean) => void;
+  /** Bump to deselect the current annotation (the app's Escape handler). */
+  deselectToken?: number;
 };
+
+/** Drawing tools that still let a press on an existing annotation select and move it. */
+const EDIT_IN_TOOL_TOOLS: readonly ToolId[] = [
+  "arrow",
+  "curved-arrow",
+  "line",
+  "rectangle",
+  "ellipse",
+  "highlighter",
+  "pencil",
+  "spotlight",
+  "counter",
+  "blur",
+  "pixelate",
+  "blackout",
+];
+
+/** A press must travel further than this (px) before it moves the annotation instead of just selecting it. */
+const DRAG_SLOP = 3;
 
 /** A press that moves less than this (px) places a point note; further drags an area note. */
 const noteAreaThreshold = 6;
@@ -94,6 +118,8 @@ export function AnnotationCanvas({
   onNotePlace,
   onPinSelect,
   onPinDrag,
+  onSelectionActiveChange,
+  deselectToken = 0,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -110,7 +136,12 @@ export function AnnotationCanvas({
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
   // `handle` is null while moving and names the dragged handle while resizing.
-  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null } | null>(null);
+  // `slop` is set when a drawing tool picked the annotation up: nothing moves until the press travels past it.
+  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null; slop?: number; engaged?: boolean } | null>(null);
+  const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
+  const hoverFrameRequest = useRef<number | null>(null);
+  const hoverPointRef = useRef<Point | null>(null);
+  const editInTool = EDIT_IN_TOOL_TOOLS.includes(activeTool);
 
   const displayedElements = useMemo<readonly Annotation[]>(() => {
     if (movingAnnotation === null) return scene.elements;
@@ -149,6 +180,18 @@ export function AnnotationCanvas({
     });
   }
 
+  /** Hit-tests at most once per animation frame while the pointer hovers with a drawing tool active. */
+  function scheduleHover(point: Point, altHeld: boolean): void {
+    hoverPointRef.current = altHeld ? null : point;
+    if (hoverFrameRequest.current !== null) return;
+    hoverFrameRequest.current = window.requestAnimationFrame((): void => {
+      hoverFrameRequest.current = null;
+      const target = hoverPointRef.current;
+      const hit = target === null ? undefined : findEditableAnnotationAt(scene.elements, target);
+      setHoveredAnnotationId(hit?.id ?? null);
+    });
+  }
+
   function clearDraftFrame(): void {
     if (draftFrameRequest.current !== null) {
       window.cancelAnimationFrame(draftFrameRequest.current);
@@ -181,6 +224,22 @@ export function AnnotationCanvas({
     event.stopPropagation();
     if ("setPointerCapture" in event.currentTarget) {
       event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    if (editInTool && !event.altKey) {
+      const hit = findEditableAnnotationAt(scene.elements, point);
+      if (hit !== undefined) {
+        finishActiveTextEdit();
+        setHoveredAnnotationId(null);
+        setSelectedAnnotationId(hit.id);
+        setSelectedTextId(hit.kind === "text" ? hit.id : null);
+        if (hit.kind === "counter" && onPinSelect !== undefined) {
+          event.preventDefault();
+          onPinSelect(hit.id);
+        }
+        movingAnnotationRef.current = { initial: hit, current: hit, start: point, handle: null, slop: DRAG_SLOP, engaged: false };
+        setMovingAnnotation({ initial: hit, current: hit });
+        return;
+      }
     }
     if (activeTool === "text" && editingTextIdRef.current !== null) {
       // Clicking away only commits; it never starts a second box.
@@ -232,6 +291,10 @@ export function AnnotationCanvas({
       const point = relativePoint(event);
       const dx = point.x - moving.start.x;
       const dy = point.y - moving.start.y;
+      if (moving.slop !== undefined && moving.engaged !== true) {
+        if (Math.hypot(dx, dy) <= moving.slop) return;
+        moving.engaged = true;
+      }
       const current = moving.handle === null
         ? translateAnnotation(moving.initial, dx, dy)
         : resizeAnnotation(moving.initial, moving.handle, dx, dy);
@@ -241,7 +304,10 @@ export function AnnotationCanvas({
       return;
     }
     const current = draftRef.current;
-    if (current === null) return;
+    if (current === null) {
+      if (editInTool && event.buttons === 0) scheduleHover(relativePoint(event), event.altKey);
+      return;
+    }
     if ((event.buttons & 1) === 0) {
       handlePointerUp(event);
       return;
@@ -260,7 +326,9 @@ export function AnnotationCanvas({
     const moving = movingAnnotationRef.current;
     if (moving !== null) {
       event.stopPropagation();
-      onUpdate(moving.current);
+      // A drawing-tool press that never left the slop only selected the annotation.
+      const wasClick = moving.slop !== undefined && moving.engaged !== true;
+      if (!wasClick) onUpdate(moving.current);
       if (moving.current.kind === "counter") onPinDrag?.(moving.current.id, null);
       movingAnnotationRef.current = null;
       setMovingAnnotation(null);
@@ -309,7 +377,27 @@ export function AnnotationCanvas({
     if (annotation !== null) onCommit(annotation);
   }
 
-  useEffect(() => (): void => clearDraftFrame(), []);
+  useEffect(
+    () => (): void => {
+      clearDraftFrame();
+      if (hoverFrameRequest.current !== null) window.cancelAnimationFrame(hoverFrameRequest.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setHoveredAnnotationId(null);
+  }, [activeTool]);
+
+  useEffect(() => {
+    onSelectionActiveChange?.(selectedAnnotationId !== null);
+  }, [onSelectionActiveChange, selectedAnnotationId]);
+
+  useEffect(() => {
+    if (deselectToken === 0) return;
+    setSelectedAnnotationId(null);
+    setSelectedTextId(null);
+  }, [deselectToken]);
 
   useEffect(() => {
     if (activeTool !== "text") {
@@ -393,7 +481,7 @@ export function AnnotationCanvas({
       role="application"
       tabIndex={-1}
       aria-label="Screenshot annotation canvas"
-      style={{ cursor }}
+      style={{ cursor: hoveredAnnotationId === null ? cursor : "move" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerCancel={handlePointerUp}
@@ -436,6 +524,7 @@ export function AnnotationCanvas({
               <textarea
                 aria-label="Edit annotation text"
                 autoFocus
+                data-text-editor="true"
                 className="h-full w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-left outline-none ring-1 ring-lime-300/75 placeholder:text-current placeholder:opacity-45"
                 placeholder={TEXT_PLACEHOLDER}
                 rows={1}
@@ -494,6 +583,20 @@ export function AnnotationCanvas({
           </div>
         );
       })}
+      {((): React.JSX.Element | null => {
+        if (hoveredAnnotationId === null || hoveredAnnotationId === selectedAnnotationId || draft !== null) return null;
+        const hovered = displayedElements.find((element) => element.id === hoveredAnnotationId);
+        if (hovered === undefined) return null;
+        const hoverBounds = annotationBounds(hovered);
+        return (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute z-20 border border-lime-300/60"
+            data-testid="annotation-hover-outline"
+            style={{ left: hoverBounds.x, top: hoverBounds.y, width: hoverBounds.width, height: hoverBounds.height }}
+          />
+        );
+      })()}
       {selectedAnnotationId === null || draft !== null ? null : ((): React.JSX.Element | null => {
         const selected = displayedElements.find((element) => element.id === selectedAnnotationId);
         if (selected === undefined || selected.kind === "text") return null;

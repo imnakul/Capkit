@@ -345,4 +345,69 @@ describe("AnnotationCanvas effect previews", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Resize rectangle annotation from the right edge" }), { key: "ArrowRight", shiftKey: true });
     expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ bounds: { x: 20, y: 30, width: 90, height: 50 } }));
   });
+  describe("editing without switching tools", () => {
+    const frame = {
+      id: "frame-1",
+      kind: "rectangle" as const,
+      bounds: { x: 20, y: 30, width: 200, height: 120 },
+      color: "#d9ff43",
+      fill: "transparent",
+      strokeWidth: 4,
+      opacity: 1,
+    };
+
+    function renderRectangleTool(): { onCommit: ReturnType<typeof vi.fn>; onUpdate: ReturnType<typeof vi.fn>; canvas: HTMLElement } {
+      const onCommit = vi.fn();
+      const onUpdate = vi.fn();
+      render(
+        <AnnotationCanvas
+          activeTool="rectangle"
+          bounds={{ x: 0, y: 0, width: 420, height: 300 }}
+          cursor="crosshair"
+          scene={{ version: 1, elements: [frame] }}
+          snapshotUrl="asset://capture.png"
+          style={defaultAnnotationStyle}
+          onCommit={onCommit}
+          onDelete={() => undefined}
+          onUpdate={onUpdate}
+        />,
+      );
+      return { onCommit, onUpdate, canvas: screen.getByRole("application", { name: "Screenshot annotation canvas" }) };
+    }
+
+    it("moves a rectangle grabbed by its border in one update", () => {
+      const { onCommit, onUpdate, canvas } = renderRectangleTool();
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 20, clientY: 90, pointerId: 1 });
+      fireEvent.pointerMove(canvas, { buttons: 1, clientX: 40, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 40, clientY: 90, pointerId: 1 });
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+      expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: "frame-1", bounds: { x: 40, y: 30, width: 200, height: 120 } }));
+      expect(onCommit).not.toHaveBeenCalled();
+    });
+
+    it("selects without an update when the press never leaves the 3 px slop", () => {
+      const { onUpdate, canvas } = renderRectangleTool();
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 20, clientY: 90, pointerId: 1 });
+      fireEvent.pointerMove(canvas, { buttons: 1, clientX: 22, clientY: 91, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 22, clientY: 91, pointerId: 1 });
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Selected rectangle annotation")).toBeInTheDocument();
+    });
+
+    it("draws a new rectangle when Alt is held over the border", () => {
+      const { onCommit, onUpdate, canvas } = renderRectangleTool();
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, altKey: true, clientX: 20, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, altKey: true, clientX: 80, clientY: 130, pointerId: 1 });
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "rectangle" }));
+    });
+
+    it("draws inside an unfilled rectangle instead of selecting it", () => {
+      const { onCommit, onUpdate, canvas } = renderRectangleTool();
+      fireEvent.pointerDown(canvas, { button: 0, buttons: 1, clientX: 100, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, buttons: 0, clientX: 160, clientY: 130, pointerId: 1 });
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ kind: "rectangle" }));
+    });
+  });
 });

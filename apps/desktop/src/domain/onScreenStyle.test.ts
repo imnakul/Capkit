@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findEditableObjectAt,
   LEGACY_ON_SCREEN_CORNER_RADIUS,
   onScreenGeometryInput,
   onScreenObjectSchema,
@@ -56,5 +57,12 @@ describe("Screen Draw line styles", () => {
 
   it("blur has no outline geometry", () => {
     expect(onScreenGeometryInput({ ...legacyRectangle, kind: "blur" })).toBeNull();
+  });
+
+  it("finds a shape by its outline only, so drawing inside it still works", () => {
+    const shape = onScreenObjectSchema.parse(legacyRectangle);
+    expect(findEditableObjectAt([shape], { x: 10, y: 40 })?.id).toBe("r1");
+    expect(findEditableObjectAt([shape], { x: 60, y: 40 })).toBeNull();
+    expect(findEditableObjectAt([shape], { x: -500, y: -500 })).toBeNull();
   });
 });

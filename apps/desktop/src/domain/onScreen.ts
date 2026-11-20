@@ -236,6 +236,73 @@ export function objectAtPoint(
   return null;
 }
 
+/**
+ * The topmost Screen Draw object a press should edit while a drawing tool is active.
+ * Shapes match on their outline only (they are never filled), so drawing inside one still works;
+ * pencil and arrows match on polyline distance; text and blur regions on their bounds (+4 px).
+ */
+export function findEditableObjectAt(
+  objects: readonly OnScreenObject[],
+  point: Point,
+  tolerance = 8,
+): OnScreenObject | null {
+  for (const object of [...objects].reverse()) {
+    if (object.kind === "text") {
+      const width = Math.max(48, object.text.length * object.size * 0.58);
+      if (
+        point.x >= object.position.x - 4 &&
+        point.x <= object.position.x + width + 4 &&
+        point.y >= object.position.y - object.size - 4 &&
+        point.y <= object.position.y + 4
+      ) {
+        return object;
+      }
+      continue;
+    }
+    const reach = Math.max(tolerance, object.size / 2 + 4);
+    if (object.kind === "pencil") {
+      const { points } = object;
+      const hit = points.length === 1
+        ? points.some((sample) => distance(sample, point) <= reach)
+        : points.some((sample, index) => {
+            const next = points[index + 1];
+            return next !== undefined && distancePointToSegment(point, sample, next) <= reach;
+          });
+      if (hit) return object;
+      continue;
+    }
+    if (object.kind === "arrow") {
+      if (distancePointToSegment(point, object.start, object.end) <= reach) return object;
+      continue;
+    }
+    const rect = normalizedObjectRect(object);
+    const inside = (margin: number): boolean =>
+      point.x >= rect.x - margin &&
+      point.x <= rect.x + rect.width + margin &&
+      point.y >= rect.y - margin &&
+      point.y <= rect.y + rect.height + margin;
+    if (object.kind === "blur") {
+      if (inside(4)) return object;
+      continue;
+    }
+    if (object.kind === "rectangle") {
+      if (inside(reach) && !(point.x > rect.x + reach && point.x < rect.x + rect.width - reach && point.y > rect.y + reach && point.y < rect.y + rect.height - reach)) {
+        return object;
+      }
+      continue;
+    }
+    const radiusX = rect.width / 2;
+    const radiusY = rect.height / 2;
+    if (radiusX <= 0 || radiusY <= 0) {
+      if (inside(reach)) return object;
+      continue;
+    }
+    const normalized = Math.hypot((point.x - (rect.x + radiusX)) / radiusX, (point.y - (rect.y + radiusY)) / radiusY);
+    if (Math.abs(normalized - 1) * Math.min(radiusX, radiusY) <= reach) return object;
+  }
+  return null;
+}
+
 export function translateObject(object: OnScreenObject, dx: number, dy: number): OnScreenObject {
   if (object.kind === "pencil") {
     return {
