@@ -188,7 +188,7 @@ export function NotesView(): React.JSX.Element {
   const searching = debouncedQuery !== "";
 
   return (
-    <section aria-labelledby="notes-title" className="px-7 pb-12 pt-7">
+    <section aria-labelledby="notes-title" className="px-7 pb-8 pt-4">
       <PageHeader
         title="Notes"
         trailing={

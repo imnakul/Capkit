@@ -23,7 +23,6 @@
         "center": true,
         "decorations": true,
         "transparent": true,
-        "windowEffects": { "effects": ["mica"] },
         "resizable": true,
         "skipTaskbar": false,
         "focus": true

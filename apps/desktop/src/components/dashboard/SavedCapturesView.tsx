@@ -162,7 +162,7 @@ export function SavedCapturesView({ onShowcase }: SavedCapturesViewProps): React
   }
 
   return (
-    <section aria-labelledby="saved-captures-title" className="px-7 pb-12 pt-7">
+    <section aria-labelledby="saved-captures-title" className="px-7 pb-8 pt-4">
       <PageHeader
         title="Screenshots"
         trailing={

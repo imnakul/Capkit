@@ -131,7 +131,7 @@ export function DashboardPanel(): React.JSX.Element {
     settings.shortcuts.onScreenToggle,
   ]);
 
-  // Mica needs Windows 11; elsewhere the page keeps its opaque base colour.
+  // Glass needs the Windows compositor blur; elsewhere the page keeps its opaque base colour.
   useEffect(() => {
     document.body.classList.add("dashboard-surface");
     let cancelled = false;

@@ -80,7 +80,7 @@ export function RecordView(): React.JSX.Element {
 
   if (editing !== null) {
     return (
-      <section aria-label="Edit recording" className="flex h-full min-h-full flex-col px-6 py-5">
+      <section aria-label="Edit recording" className="flex h-full min-h-full flex-col px-6 py-4">
         <div className="flex shrink-0 items-center gap-3 border-b border-content/10 pb-3">
           <Button aria-label="Back to recordings" variant="ghost" onClick={() => setEditing(null)}>
             <ChevronDown aria-hidden="true" className="-rotate-90" size={14} />
@@ -97,7 +97,7 @@ export function RecordView(): React.JSX.Element {
   }
 
   return (
-    <section aria-label="Record" className="flex min-h-full flex-col px-6 py-5">
+    <section aria-label="Record" className="flex min-h-full flex-col px-6 py-4">
       <PageHeader
         title="Record"
         trailing={

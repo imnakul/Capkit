@@ -245,7 +245,7 @@ fn launched_in_background() -> bool {
     })
 }
 
-/// Whether the dashboard's Mica backdrop exists on this OS (Windows 11, build
+/// Whether the dashboard's blurred backdrop exists on this OS (Windows 11, build
 /// 22000 or later). Elsewhere the page keeps an opaque background, because a
 /// transparent window without a backdrop would show the desktop through it.
 #[tauri::command]
@@ -3030,6 +3030,15 @@ pub fn run() {
             app.state::<CaptureService>()
                 .set_notes_images_directory(notes.images_directory());
             app.manage(notes);
+
+            // Frosted glass behind the dashboard. The page asks `dashboard_supports_glass`
+            // and stays opaque where the blur is unavailable.
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("dashboard")
+                && let Ok(hwnd) = window.hwnd()
+            {
+                platform::windows_glass::apply_blur(hwnd.0);
+            }
 
             if launched_in_background()
                 && let Some(window) = app.get_webview_window("dashboard")

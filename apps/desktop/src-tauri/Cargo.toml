@@ -50,7 +50,7 @@ windows = { version = "0.62.2", features = [
   "Media_Ocr",
   # Package identity and the MSIX startup task (Store build only).
   "ApplicationModel", "ApplicationModel_Activation",
-  "Win32_Foundation", "Win32_System_Com", "Win32_UI_Accessibility",
+  "Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_Accessibility",
   "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging",
   # Recording: a Windows Graphics Capture frame pool onto our own D3D11 device.
   "Graphics_Capture", "Graphics_DirectX_Direct3D11",

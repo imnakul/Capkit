@@ -6,8 +6,8 @@
   --theme-saturation: 4%;
   --background-lightness: 97%;
   --content-lightness: 13%;
-  --glass-tint: 6%;
-  --glass-base: 88%;
+  --glass-tint: 10%;
+  --glass-base: 74%;
   --snaphub-accent: #d9ff43;
   --capture-overlay: rgb(7 8 7 / 64%);
   --color-lime-300: var(--snaphub-accent);
@@ -25,8 +25,8 @@
 .dark {
   --background-lightness: 10%;
   --content-lightness: 93%;
-  --glass-tint: 8%;
-  --glass-base: 52%;
+  --glass-tint: 12%;
+  --glass-base: 58%;
 }
 
 @theme {
