@@ -1,10 +1,11 @@
 import { PROTOCOL_VERSION, type AppMessage, type ExtensionMessage } from "@snaphub/devtools-protocol/protocol";
 import { ACCENT_KEY } from "./accent";
-import { Link, type SocketLike, type TokenStore } from "./link";
+import { Link, WAKE_ALARM_MINUTES, wakeAlarmFor, type SocketLike, type TokenStore } from "./link";
 import { backgroundRequestSchema, type LinkStatus, type PageRequest } from "./messages";
 import { activeTabs, askTab, injectMainWorld, matchTab, originPattern, siteAccessFor, type TabRef } from "./tabs";
 
 const TOKEN_KEY = "capkitToken";
+const WAKE_ALARM = "capkit-reconnect";
 const MAX_HIT_ELEMENTS = 12;
 const MAX_INSPECT_ELEMENTS = 20;
 
@@ -95,6 +96,11 @@ const link = new Link({
   browser: browserInfo(),
   extensionVersion: chrome.runtime.getManifest().version,
   handleRequest: answer,
+  onStatus: (status): void => {
+    const action = wakeAlarmFor(status);
+    if (action === "schedule") void chrome.alarms.create(WAKE_ALARM, { periodInMinutes: WAKE_ALARM_MINUTES });
+    if (action === "cancel") void chrome.alarms.clear(WAKE_ALARM);
+  },
   onAccent: (accent): void => {
     void chrome.storage.local.set({ [ACCENT_KEY]: accent });
   },
@@ -158,6 +164,10 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === "toggle-inspector") void inspectActiveTab();
 });
 
+// A fresh worker already connects at the bottom of this file; the alarm only nudges a live one.
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === WAKE_ALARM && link.status.state === "unreachable") link.retry();
+});
 chrome.runtime.onStartup.addListener(() => {
   void link.connect();
 });

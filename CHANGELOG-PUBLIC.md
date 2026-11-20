@@ -28,6 +28,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Fixed
 
+- The CapKit Inspector extension reconnects by itself after CapKit restarts, instead of staying disconnected until you open its popup.
 - The show/hide switches in Settings → Screenshots (tools and finishing actions) respond to clicks again.
 - Saved notes show their screenshot again in the Notes tab.
 - Click a saved note to read all of it: the full screenshot and every pin's comment and details.

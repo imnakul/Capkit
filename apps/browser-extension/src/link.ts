@@ -10,6 +10,26 @@ import type { LinkStatus } from "./messages";
 
 export const PING_INTERVAL_MS = 20_000;
 export const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
+/** Chrome's minimum alarm period (Chrome 120+; older builds round up to one minute). */
+export const WAKE_ALARM_MINUTES = 0.5;
+
+/**
+ * What the background worker's wake-up alarm should do for a link state.
+ * Chrome suspends an idle MV3 worker after about 30 seconds and drops its timers with it,
+ * so the backoff `setTimeout` alone can't outlive a CapKit restart. While CapKit is
+ * unreachable an alarm wakes the worker to try again; once connected, or when only the
+ * user can move things on (no token, rejected), it is cleared.
+ */
+export function wakeAlarmFor(status: LinkStatus): "schedule" | "cancel" | "keep" {
+  switch (status.state) {
+    case "unreachable":
+      return "schedule";
+    case "connecting":
+      return "keep";
+    default:
+      return "cancel";
+  }
+}
 
 export type SocketLike = {
   onopen: ((event: Event) => void) | null;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BACKOFF_MS, Link, PING_INTERVAL_MS, type SocketLike, type TokenStore } from "./link";
+import { BACKOFF_MS, Link, PING_INTERVAL_MS, wakeAlarmFor, type SocketLike, type TokenStore } from "./link";
 
 class FakeSocket implements SocketLike {
   static instances: FakeSocket[] = [];
@@ -197,5 +197,15 @@ describe("Link", () => {
     last().open();
     last().receive({ type: "ready", extra: true });
     expect(link.status.state).toBe("connecting");
+  });
+});
+
+describe("wakeAlarmFor", () => {
+  it("schedules a wake-up only while CapKit is unreachable", () => {
+    expect(wakeAlarmFor({ state: "unreachable" })).toBe("schedule");
+    expect(wakeAlarmFor({ state: "connecting" })).toBe("keep");
+    expect(wakeAlarmFor({ state: "connected" })).toBe("cancel");
+    expect(wakeAlarmFor({ state: "no-token" })).toBe("cancel");
+    expect(wakeAlarmFor({ state: "rejected", reason: "Pair again." })).toBe("cancel");
   });
 });
