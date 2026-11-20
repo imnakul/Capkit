@@ -168,3 +168,34 @@ button {
   99% { overflow: hidden; }
   100% { grid-template-rows: 1fr; opacity: 1; }
 }
+
+/* Dashboard scrollbars: slim, rounded, tinted from the content colour, and the
+   gutter is always reserved so content never shifts when a scrollbar appears. */
+body.dashboard-surface :is(.overflow-y-auto, .overflow-auto) {
+  scrollbar-gutter: stable;
+}
+
+body.dashboard-surface ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-track,
+body.dashboard-surface ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--color-content) 18%, transparent);
+  background-clip: padding-box;
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-content) 32%, transparent);
+}
+
+body.dashboard-surface ::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
+}
