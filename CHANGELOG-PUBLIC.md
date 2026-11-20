@@ -14,6 +14,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Improved
 
+- Changing colour, size, line style, fill, corners or font now updates the shape you have selected. Smart select's outline is solid and glides from one element to the next.
 - Text appears on the first click, shows a faint "Type something" hint, and clicking away leaves no empty box. Shift+Enter adds a new line, and it matches in the saved image.
 
 ## 0.5.1 — 2026-11-20

@@ -207,18 +207,16 @@ body.dashboard-surface ::-webkit-scrollbar-thumb:active {
   background-color: color-mix(in oklab, var(--color-content) 45%, transparent);
 }
 
-/* Smart select ghost outline: fades in once per new candidate, never on every pointer move. */
-@keyframes smart-ghost-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 0.5;
-  }
+/* Smart select outline: one element that glides to each new candidate instead of jumping. */
+.smart-ghost {
+  transition:
+    transform 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    width 150ms cubic-bezier(0.23, 1, 0.32, 1),
+    height 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .smart-ghost {
-    animation: none !important;
+    transition: none;
   }
 }

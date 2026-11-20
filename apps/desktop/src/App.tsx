@@ -1431,6 +1431,7 @@ export function App(): React.JSX.Element {
             }}
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
+            onRestyle={(annotation, coalesceKey) => dispatchScene({ type: "update", annotation, coalesceKey })}
           />
           {activeNotes.filter((note) => note.id === editingNoteId).map((note) => (
             <NotePopover

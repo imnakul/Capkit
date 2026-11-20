@@ -128,11 +128,13 @@ export type SceneHistory = {
   past: readonly AnnotationScene[];
   present: AnnotationScene;
   future: readonly AnnotationScene[];
+  /** Set by a style edit so a slider drag on the same field stays one undo step. Cleared by any other action. */
+  lastEditKey?: string;
 };
 
 export type SceneAction =
   | { type: "add"; annotation: Annotation }
-  | { type: "update"; annotation: Annotation }
+  | { type: "update"; annotation: Annotation; coalesceKey?: string }
   | { type: "delete"; annotationId: string }
   | { type: "replace"; scene: AnnotationScene }
   | { type: "undo" }
@@ -164,10 +166,15 @@ export function sceneHistoryReducer(state: SceneHistory, action: SceneAction): S
       if (nextElements.every((element, index) => element === state.present.elements[index])) {
         return state;
       }
+      const present: AnnotationScene = { version: 1, elements: nextElements };
+      if (action.coalesceKey !== undefined && state.lastEditKey === action.coalesceKey) {
+        return { past: state.past, present, future: [], lastEditKey: action.coalesceKey };
+      }
       return {
         past: [...state.past, state.present],
-        present: { version: 1, elements: nextElements },
+        present,
         future: [],
+        ...(action.coalesceKey === undefined ? {} : { lastEditKey: action.coalesceKey }),
       };
     }
     case "delete": {

@@ -1,3 +1,4 @@
+import { changedStyleKeys, restyleAnnotation } from "../domain/restyle";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { measureTextBlock, TEXT_LINE_HEIGHT } from "../domain/textMetrics";
 import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
@@ -69,6 +70,8 @@ type AnnotationCanvasProps = {
   cursor: string;
   onCommit: (annotation: Annotation) => void;
   onUpdate: (annotation: Annotation) => void;
+  /** A strip change restyled the selected annotation; the key lets a slider drag collapse into one undo step. */
+  onRestyle?: (annotation: Annotation, coalesceKey: string) => void;
   onDelete: (annotationId: string) => void;
   /** Pin colour for the Note tool (the accent colour). */
   noteColor?: string;
@@ -125,6 +128,7 @@ export function AnnotationCanvas({
   cursor,
   onCommit,
   onUpdate,
+  onRestyle,
   onDelete,
   noteColor = "#d9ff43",
   onNotePlace,
@@ -157,6 +161,26 @@ export function AnnotationCanvas({
   const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
   const hoverFrameRequest = useRef<number | null>(null);
   const hoverPointRef = useRef<Point | null>(null);
+  const previousStyleRef = useRef(style);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const selectedAnnotationIdRef = useRef(selectedAnnotationId);
+  selectedAnnotationIdRef.current = selectedAnnotationId;
+  const onRestyleRef = useRef(onRestyle ?? ((annotation: Annotation): void => onUpdate(annotation)));
+  onRestyleRef.current = onRestyle ?? ((annotation: Annotation): void => onUpdate(annotation));
+
+  // Changing the strip while a drawn annotation is selected restyles it, not just the next one drawn.
+  useEffect(() => {
+    const keys = changedStyleKeys(previousStyleRef.current, style);
+    previousStyleRef.current = style;
+    const selectedId = selectedAnnotationIdRef.current;
+    if (keys.length === 0 || selectedId === null) return;
+    const target = sceneRef.current.elements.find((element) => element.id === selectedId);
+    if (target === undefined) return;
+    const restyled = restyleAnnotation(target, style, keys);
+    if (restyled !== null) onRestyleRef.current(restyled, `${selectedId}:${keys.join(",")}`);
+  }, [style]);
+
   const editInTool = EDIT_IN_TOOL_TOOLS.includes(activeTool);
   // Smart select draws a plain rectangle when dragged; a click snaps to the detected box instead.
   const drawTool: ToolId = activeTool === "smart" ? "rectangle" : activeTool;
@@ -627,10 +651,10 @@ export function AnnotationCanvas({
       {activeTool === "smart" && smartTarget !== null && draft === null && movingAnnotation === null ? (
         <div
           aria-hidden="true"
-          className="smart-ghost pointer-events-none absolute z-20 border border-dashed border-lime-300 opacity-50"
+          className="smart-ghost pointer-events-none absolute left-0 top-0 z-20 border-2 border-lime-300 shadow-[0_0_0_1px_rgba(0,0,0,0.55)]"
+          data-smart-target={smartTargetId ?? undefined}
           data-testid="smart-ghost"
-          key={smartTargetId}
-          style={{ left: smartTarget.x, top: smartTarget.y, width: smartTarget.width, height: smartTarget.height, animation: "smart-ghost-in 90ms ease-out" }}
+          style={{ transform: `translate(${String(smartTarget.x)}px, ${String(smartTarget.y)}px)`, width: smartTarget.width, height: smartTarget.height }}
         />
       ) : null}
       {((): React.JSX.Element | null => {
