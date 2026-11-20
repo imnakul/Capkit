@@ -23,7 +23,7 @@ type SettingsTabsProps = {
 /**
  * The Settings tab bar and the single panel it controls.
  *
- * The bar is sticky because a tab such as Screenshots scrolls far past the
+ * The bar stays put because a tab such as Screenshots scrolls far past the
  * header, and the two pills are measured from the tabs themselves rather than
  * animated with a shared layout library, because the desktop app ships no
  * animation runtime: the only motion here is a CSS transition on `transform`
@@ -106,11 +106,11 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
   }
 
   return (
-    <>
-      <div className="sticky top-0 z-10 w-fit py-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="w-fit shrink-0 px-7 py-2">
         <div
           aria-label="Settings sections"
-          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-content/6 p-1 backdrop-blur-xl"
+          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-content/6 p-1"
           ref={listRef}
           role="tablist"
           onBlur={handleBlur}
@@ -170,15 +170,19 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
         </div>
       </div>
 
-      <div
-        aria-labelledby={`settings-tab-${active}`}
-        className="pt-4 transition-opacity duration-[140ms] ease-arrive starting:opacity-0 motion-reduce:transition-none"
-        id={`settings-panel-${active}`}
-        key={active}
-        role="tabpanel"
-      >
-        {children}
+      {/* Only this region scrolls, so content dissolves under the tab strip through
+          a mask instead of sliding behind it and overlapping its labels. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-8 pt-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px)]">
+        <div
+          aria-labelledby={`settings-tab-${active}`}
+          className="max-w-[1080px] transition-opacity duration-[140ms] ease-arrive starting:opacity-0 motion-reduce:transition-none"
+          id={`settings-panel-${active}`}
+          key={active}
+          role="tabpanel"
+        >
+          {children}
+        </div>
       </div>
-    </>
+    </div>
   );
 }

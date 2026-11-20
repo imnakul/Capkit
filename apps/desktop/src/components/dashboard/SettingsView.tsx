@@ -565,7 +565,8 @@ export function SettingsView(): React.JSX.Element {
   const cursorSummary = `${capitalize(settings.cursor.style)}, ${settings.cursor.size}`;
 
   return (
-    <div className="max-w-[1080px] px-7 pb-8 pt-3">
+    <div className="flex h-full min-h-0 flex-col pt-3">
+      <div className="max-w-[1080px] shrink-0 px-7">
       <PageHeader
         title="Settings"
         trailing={
@@ -575,6 +576,7 @@ export function SettingsView(): React.JSX.Element {
           </span>
         }
       />
+      </div>
 
       <SettingsTabs active={activeTab} onSelect={setActiveTab} tabs={settingsTabs}>
         <div className="space-y-2">

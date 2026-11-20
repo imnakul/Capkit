@@ -239,9 +239,9 @@ export function DashboardPanel(): React.JSX.Element {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main className={`min-w-0 flex-1 ${activeTab === "settings" ? "overflow-hidden" : "overflow-y-auto"}`}>
         <div
-          className="transition-[opacity,transform] duration-[180ms] ease-arrive starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none"
+          className={`transition-[opacity,transform] duration-[180ms] ease-arrive starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none ${activeTab === "settings" ? "h-full" : ""}`}
           key={activeTab}
         >
           {activeTab === "screenshots" ? (
