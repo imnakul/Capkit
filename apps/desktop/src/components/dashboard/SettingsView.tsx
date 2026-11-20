@@ -630,7 +630,13 @@ export function SettingsView(): React.JSX.Element {
                 hint="Accent colours tools, focus and new annotations. Glass sets how much of the desktop shows through."
               >
                 <div className="flex flex-wrap gap-2">
-                  {[...accentColors, ...(accentColors.some((color) => color === settings.accentColor) ? [] : [settings.accentColor])].map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}
+                  {accentColors.map((color) => <ColorButton color={color} key={color} label={`Use ${color} as theme accent`} selected={settings.accentColor === color} onClick={() => update({ ...settings, accentColor: color })} />)}
+                  {accentColors.some((color) => color === settings.accentColor) ? null : (
+                    <label aria-label={`Custom accent ${settings.accentColor}, choose another color`} className="relative grid size-6 cursor-pointer place-items-center rounded-full border border-content/15 ring-2 ring-accent ring-offset-2 ring-offset-background-base transition-transform duration-120 focus-within:ring-accent/50 motion-reduce:transition-none [@media(hover:hover)]:hover:scale-[1.06]" style={{ backgroundColor: settings.accentColor }}>
+                      <Check aria-hidden="true" className="text-white mix-blend-difference" size={12} strokeWidth={2} />
+                      <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={settings.accentColor} onChange={(event) => update({ ...settings, accentColor: event.currentTarget.value })} />
+                    </label>
+                  )}
                   <label aria-label="Choose a custom accent color" className="relative grid size-6 cursor-pointer place-items-center rounded-full border border-dashed border-content/25 text-content/60 transition-colors duration-120 focus-within:ring-2 focus-within:ring-accent/50 hover:border-content/50 hover:text-content motion-reduce:transition-none">
                     <Plus aria-hidden="true" size={13} />
                     <input className="absolute inset-0 cursor-pointer opacity-0" type="color" value={settings.accentColor} onChange={(event) => update({ ...settings, accentColor: event.currentTarget.value })} />
