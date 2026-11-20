@@ -20,6 +20,7 @@ import {
   Tick as Check,
   View as Eye,
 } from "../icons";
+import { NoteDialog } from "./NoteDialog";
 
 const pageSize = 60;
 const searchDebounceMs = 250;
@@ -52,6 +53,8 @@ export function NotesView(): React.JSX.Element {
   const [state, setState] = useState<NotesState>({ status: "loading", notes: [] });
   const [menu, setMenu] = useState<NoteMenu | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [openNote, setOpenNote] = useState<NoteSummary | null>(null);
+  const openedFrom = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const sequence = useRef(0);
 
@@ -158,6 +161,18 @@ export function NotesView(): React.JSX.Element {
     startNoteDrag(note.id).catch(() => setActionError("Couldn't start dragging this note."));
   }
 
+  function showNote(note: NoteSummary): void {
+    setMenu(null);
+    if (document.activeElement instanceof HTMLElement) openedFrom.current = document.activeElement;
+    setOpenNote(note);
+  }
+
+  function closeNote(): void {
+    setOpenNote(null);
+    openedFrom.current?.focus();
+    openedFrom.current = null;
+  }
+
   function openMenu(note: NoteSummary, x: number, y: number): void {
     setMenu({
       note,
@@ -228,7 +243,7 @@ export function NotesView(): React.JSX.Element {
       {state.notes.length > 0 ? (
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
           {state.notes.map((note) => (
-            <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} />
+            <NoteCard key={note.id} note={note} onCopy={copyMarkdown} onDrag={drag} onMenu={openMenu} onOpen={showNote} />
           ))}
         </div>
       ) : null}
@@ -241,12 +256,25 @@ export function NotesView(): React.JSX.Element {
 
       {menu === null ? null : (
         <div className="fixed z-50 w-[196px] overflow-hidden rounded-lg border border-stone-300 bg-[#f7f7f4] p-1.5 text-stone-700 shadow-[0_18px_48px_rgba(0,0,0,0.28)] dark:border-white/12 dark:bg-[#2b2c29] dark:text-stone-200" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top }}>
+          <MenuItem icon={NotePin} label="Open note" onClick={() => showNote(menu.note)} />
           <MenuItem icon={Copy} label="Copy Markdown" onClick={() => void copyMarkdown(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Eye} label="Open page" onClick={() => void openPage(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Copy} label="Copy URL" onClick={() => void copyUrl(menu.note)} />
           <div className="my-1 border-t border-stone-300/80 dark:border-white/9" />
           <MenuItem destructive icon={Trash2} label="Delete" onClick={() => void remove(menu.note)} />
         </div>
+      )}
+
+      {openNote === null ? null : (
+        <NoteDialog
+          createdLabel={formatDate(openNote.createdAt)}
+          host={hostOf(openNote.pageUrl)}
+          note={openNote}
+          title={titleOf(openNote)}
+          onClose={closeNote}
+          onCopy={copyMarkdown}
+          onOpenPage={openPage}
+        />
       )}
     </section>
   );
@@ -257,9 +285,10 @@ type NoteCardProps = {
   onCopy: (note: NoteSummary) => Promise<boolean>;
   onDrag: (note: NoteSummary) => void;
   onMenu: (note: NoteSummary, x: number, y: number) => void;
+  onOpen: (note: NoteSummary) => void;
 };
 
-function NoteCard({ note, onCopy, onDrag, onMenu }: NoteCardProps): React.JSX.Element {
+function NoteCard({ note, onCopy, onDrag, onMenu, onOpen }: NoteCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -298,16 +327,17 @@ function NoteCard({ note, onCopy, onDrag, onMenu }: NoteCardProps): React.JSX.El
   return (
     <div className="group relative min-w-0">
       <button
-        aria-label={`Open menu for ${title}`}
+        aria-label={`Open note: ${title}`}
+        aria-haspopup="dialog"
         className="block w-full min-w-0 overflow-hidden rounded-lg border border-stone-300/80 bg-white text-left outline-none transition-colors hover:border-stone-400 focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] dark:border-white/9 dark:bg-[#2b2c29] dark:hover:border-white/16"
         type="button"
-        onClick={(event) => {
+        onClick={() => {
           pressStart.current = null;
           if (dragStarted.current) {
             dragStarted.current = false;
             return;
           }
-          onMenu(note, event.clientX, event.clientY);
+          onOpen(note);
         }}
         onContextMenu={(event) => {
           event.preventDefault();

@@ -6,6 +6,7 @@ import { NotesView } from "./NotesView";
 const mocks = vi.hoisted(() => ({
   listNotes: vi.fn(),
   copyNote: vi.fn(),
+  readNote: vi.fn(),
   deleteNote: vi.fn(),
   openNoteUrl: vi.fn(),
   startNoteDrag: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: mocks.confirm }));
 vi.mock("../../lib/tauri", () => ({
   listNotes: mocks.listNotes,
   copyNote: mocks.copyNote,
+  readNote: mocks.readNote,
   deleteNote: mocks.deleteNote,
   openNoteUrl: mocks.openNoteUrl,
   startNoteDrag: mocks.startNoteDrag,
@@ -42,6 +44,7 @@ function note(index: number, overrides: Partial<NoteSummary> = {}): NoteSummary 
 beforeEach(() => {
   mocks.listNotes.mockReset();
   mocks.copyNote.mockReset().mockResolvedValue(undefined);
+  mocks.readNote.mockReset().mockResolvedValue("# Page 1\n\n1. A very long comment");
   mocks.deleteNote.mockReset().mockResolvedValue(undefined);
   mocks.openNoteUrl.mockReset().mockResolvedValue(undefined);
   mocks.startNoteDrag.mockReset().mockResolvedValue(undefined);
@@ -156,7 +159,7 @@ describe("NotesView", () => {
   it("deletes through the context menu after confirming", async () => {
     mocks.listNotes.mockResolvedValue([note(1)]);
     render(<NotesView />);
-    const card = await screen.findByRole("button", { name: "Open menu for Page 1" });
+    const card = await screen.findByRole("button", { name: "Open note: Page 1" });
     fireEvent.contextMenu(card);
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Delete" }));
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith("Delete this note? This can't be undone.", expect.anything()));
@@ -167,7 +170,7 @@ describe("NotesView", () => {
     mocks.confirm.mockResolvedValue(false);
     mocks.listNotes.mockResolvedValue([note(1)]);
     render(<NotesView />);
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open menu for Page 1" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open note: Page 1" }));
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Delete" }));
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalled());
     expect(mocks.deleteNote).not.toHaveBeenCalled();
@@ -176,7 +179,7 @@ describe("NotesView", () => {
   it("disables Open page and Copy URL for a note without a URL", async () => {
     mocks.listNotes.mockResolvedValue([note(1, { pageUrl: null, pageTitle: null })]);
     render(<NotesView />);
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open menu for Screen capture" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open note: Screen capture" }));
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Open page" })).toBeDisabled();
     expect(within(menu).getByRole("menuitem", { name: "Copy URL" })).toBeDisabled();
@@ -185,7 +188,7 @@ describe("NotesView", () => {
   it("opens the page from the context menu", async () => {
     mocks.listNotes.mockResolvedValue([note(1)]);
     render(<NotesView />);
-    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open menu for Page 1" }));
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open note: Page 1" }));
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open page" }));
     await waitFor(() => expect(mocks.openNoteUrl).toHaveBeenCalledWith(note(1).id));
   });
@@ -193,7 +196,7 @@ describe("NotesView", () => {
   it("opens the context menu from the keyboard with Shift+F10", async () => {
     mocks.listNotes.mockResolvedValue([note(1)]);
     render(<NotesView />);
-    const card = await screen.findByRole("button", { name: "Open menu for Page 1" });
+    const card = await screen.findByRole("button", { name: "Open note: Page 1" });
     fireEvent.keyDown(card, { key: "F10", shiftKey: true });
     expect(screen.getByRole("menu")).toBeInTheDocument();
   });
@@ -201,11 +204,76 @@ describe("NotesView", () => {
   it("starts a file drag only after the pointer moves past 4 px", async () => {
     mocks.listNotes.mockResolvedValue([note(1)]);
     render(<NotesView />);
-    const card = await screen.findByRole("button", { name: "Open menu for Page 1" });
+    const card = await screen.findByRole("button", { name: "Open note: Page 1" });
     fireEvent.pointerDown(card, { button: 0, clientX: 10, clientY: 10, buttons: 1 });
     fireEvent.pointerMove(card, { clientX: 12, clientY: 12, buttons: 1 });
     expect(mocks.startNoteDrag).not.toHaveBeenCalled();
     fireEvent.pointerMove(card, { clientX: 30, clientY: 30, buttons: 1 });
     expect(mocks.startNoteDrag).toHaveBeenCalledWith(note(1).id);
+  });
+
+  it("opens a note on click and shows its full Markdown and screenshot", async () => {
+    mocks.listNotes.mockResolvedValue([note(1)]);
+    render(<NotesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Page 1" }));
+    const dialog = screen.getByRole("dialog", { name: "Page 1" });
+    expect(within(dialog).getByRole("status", { name: "Loading note" })).toBeInTheDocument();
+    expect(await within(dialog).findByLabelText("Note Markdown")).toHaveTextContent("1. A very long comment");
+    expect(within(dialog).getByRole("img", { name: "Screenshot for Page 1" })).toHaveAttribute("src", "asset://1.png");
+    expect(mocks.readNote).toHaveBeenCalledWith(note(1).id);
+    expect(within(dialog).getByRole("button", { name: "Close note" })).toHaveFocus();
+  });
+
+  it("closes the note with Escape and returns focus to its card", async () => {
+    mocks.listNotes.mockResolvedValue([note(1)]);
+    render(<NotesView />);
+    const card = await screen.findByRole("button", { name: "Open note: Page 1" });
+    card.focus();
+    fireEvent.click(card);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(card).toHaveFocus();
+  });
+
+  it("shows an error with Retry when the note can't be read", async () => {
+    mocks.readNote.mockRejectedValueOnce(new Error("gone")).mockResolvedValueOnce("# Back");
+    mocks.listNotes.mockResolvedValue([note(1)]);
+    render(<NotesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Page 1" }));
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Couldn't load this note.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
+    expect(await within(dialog).findByLabelText("Note Markdown")).toHaveTextContent("# Back");
+  });
+
+  it("says when the screenshot is missing", async () => {
+    mocks.listNotes.mockResolvedValue([note(1)]);
+    render(<NotesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Page 1" }));
+    fireEvent.error(screen.getByRole("img", { name: "Screenshot for Page 1" }));
+    expect(screen.getByText("The screenshot for this note is missing.")).toBeInTheDocument();
+  });
+
+  it("copies and opens the page from the open note, with Open page disabled without a URL", async () => {
+    mocks.listNotes.mockResolvedValue([note(1), note(2, { pageUrl: null, pageTitle: "No link" })]);
+    render(<NotesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Page 1" }));
+    let dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() => expect(mocks.copyNote).toHaveBeenCalledWith(note(1).id));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Open page" }));
+    await waitFor(() => expect(mocks.openNoteUrl).toHaveBeenCalledWith(note(1).id));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open note: No link" }));
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Open page" })).toBeDisabled();
+  });
+
+  it("opens the note from the context menu", async () => {
+    mocks.listNotes.mockResolvedValue([note(1)]);
+    render(<NotesView />);
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "Open note: Page 1" }));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open note" }));
+    expect(screen.getByRole("dialog", { name: "Page 1" })).toBeInTheDocument();
   });
 });

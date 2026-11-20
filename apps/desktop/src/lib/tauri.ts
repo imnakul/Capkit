@@ -805,6 +805,13 @@ export async function copyNote(id: string): Promise<void> {
   await invoke("notes_copy", { id });
 }
 
+/** The note's full Markdown, as copied by `copyNote`. */
+export async function readNote(id: string): Promise<string> {
+  if (!isTauri()) return "";
+  const raw: unknown = await invoke("notes_read", { id });
+  return z.string().parse(raw);
+}
+
 export async function deleteNote(id: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("notes_delete", { id });

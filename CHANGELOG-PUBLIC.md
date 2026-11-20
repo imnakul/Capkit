@@ -25,6 +25,8 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Fixed
 
+- Saved notes show their screenshot again in the Notes tab.
+- Click a saved note to read all of it: the full screenshot and every pin's comment and details.
 - Detection works again when a tiling window manager such as FancyWM is running. Before, it found nothing in tiled windows.
 - Screenshots in Aside now highlight exact page elements when the CapKit Inspector extension is linked.
 - Detection mode finds parts of web pages in Chrome, Edge and other Chromium browsers again, not just the browser's own buttons.

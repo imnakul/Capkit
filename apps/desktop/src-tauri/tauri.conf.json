@@ -47,7 +47,8 @@
         "enable": true,
         "scope": [
           "$TEMP/CapKit/**",
-          "$PICTURE/CapKit/**"
+          "$PICTURE/CapKit/**",
+          "$APPLOCALDATA/notes/images/**"
         ]
       }
     }

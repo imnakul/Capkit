@@ -869,6 +869,15 @@ async fn notes_copy(app: AppHandle, id: String) -> Result<(), SnaphubError> {
     .map_err(|error| SnaphubError::Notes(error.to_string()))?
 }
 
+/// The note's full Markdown (every pin and its element details), for reading it in the Notes tab.
+#[tauri::command]
+async fn notes_read(app: AppHandle, id: String) -> Result<String, SnaphubError> {
+    services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
+    tauri::async_runtime::spawn_blocking(move || app.state::<NotesStore>().markdown(&id))
+        .await
+        .map_err(|error| SnaphubError::Notes(error.to_string()))?
+}
+
 #[tauri::command]
 async fn notes_delete(app: AppHandle, id: String) -> Result<(), SnaphubError> {
     services::notes::require_developer_tools(app.state::<BrowserLinkService>().status().enabled)?;
@@ -2917,6 +2926,7 @@ pub fn run() {
             deliver_note,
             notes_list,
             notes_copy,
+            notes_read,
             notes_delete,
             notes_cleanup_unsaved,
             notes_open_url,
