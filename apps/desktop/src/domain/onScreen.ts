@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { pointSchema, type Point, type Rect } from "./capture";
 import {
+  SKETCH_LEVELS,
   STROKE_STYLES,
+  type SketchLevel,
   type StrokeGeometryInput,
   type StrokeStyle,
 } from "./strokeGeometry";
@@ -23,6 +25,7 @@ export const onScreenObjectSchema = z.discriminatedUnion("kind", [
     end: pointSchema,
     strokeStyle: z.enum(STROKE_STYLES as [StrokeStyle, ...StrokeStyle[]]).optional(),
     seed: z.number().int().positive().max(2_147_483_647).optional(),
+    sketchLevel: z.enum(SKETCH_LEVELS as [SketchLevel, ...SketchLevel[]]).optional(),
     cornerRadius: z.number().min(0).max(48).optional(),
   }),
   onScreenObjectBaseSchema.extend({
@@ -44,6 +47,8 @@ export type OnScreenShapeObject = {
   /** Absent means solid (older scenes). */
   strokeStyle?: StrokeStyle | undefined;
   seed?: number | undefined;
+  /** Used only when strokeStyle is sketchy; absent means loose. */
+  sketchLevel?: SketchLevel | undefined;
   /** Rectangles only. Older scenes without it keep their original 3 px corner. */
   cornerRadius?: number | undefined;
 };
@@ -60,6 +65,7 @@ export function onScreenGeometryInput(object: OnScreenShapeObject): StrokeGeomet
       points: [object.start, object.end],
       strokeWidth: object.size,
       strokeStyle: object.strokeStyle,
+      sketchLevel: object.sketchLevel,
       seed: object.seed,
     };
   }
@@ -69,6 +75,7 @@ export function onScreenGeometryInput(object: OnScreenShapeObject): StrokeGeomet
     cornerRadius: object.kind === "rectangle" ? (object.cornerRadius ?? LEGACY_ON_SCREEN_CORNER_RADIUS) : undefined,
     strokeWidth: object.size,
     strokeStyle: object.strokeStyle,
+    sketchLevel: object.sketchLevel,
     seed: object.seed,
   };
 }

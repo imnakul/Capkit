@@ -1,6 +1,6 @@
 import { translateAnnotation } from "./annotationGeometry";
 import type { Point, Rect } from "./capture";
-import type { StrokeStyle } from "./strokeGeometry";
+import type { SketchLevel, StrokeStyle } from "./strokeGeometry";
 
 export type ToolId =
   | "select"
@@ -23,6 +23,8 @@ export type ToolId =
 export type AnnotationStyle = {
   /** Line style for new shapes and lines. Session-only unless set in Settings. */
   strokeStyle: StrokeStyle;
+  /** Hand-drawn intensity when strokeStyle is sketchy. */
+  sketchLevel: SketchLevel;
   /** Corner radius for new rectangles, in logical pixels. */
   cornerRadius: number;
   color: string;
@@ -45,6 +47,8 @@ export type LineAnnotation = AnnotationBase & {
   strokeWidth: number;
   /** Only meaningful for line, arrow and curved-arrow; absent means solid. */
   strokeStyle?: StrokeStyle;
+  /** Used only when strokeStyle is sketchy; absent means loose. */
+  sketchLevel?: SketchLevel;
   /** Rough.js seed so a sketchy line keeps its wobble when moved. */
   seed?: number;
 };
@@ -57,6 +61,8 @@ export type ShapeAnnotation = AnnotationBase & {
   strokeWidth: number;
   /** Absent means solid. */
   strokeStyle?: StrokeStyle;
+  /** Used only when strokeStyle is sketchy; absent means loose. */
+  sketchLevel?: SketchLevel;
   /** Rough.js seed so a sketchy shape keeps its wobble when moved. */
   seed?: number;
   /** Rectangles only. Clamped at render time to half the shorter side. */
@@ -101,6 +107,7 @@ export type AnnotationScene = {
 
 export const defaultAnnotationStyle: AnnotationStyle = {
   strokeStyle: "solid",
+  sketchLevel: "loose",
   cornerRadius: 0,
   color: "#d9ff43",
   fill: "transparent",

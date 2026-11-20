@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_GEOMETRY_POINTS,
+  SKETCH_LEVEL_OPTIONS,
   clampCornerRadius,
   dashGap,
   dashLength,
@@ -149,5 +150,48 @@ describe("helpers", () => {
 
   it("generates non-zero seeds", () => {
     for (let i = 0; i < 50; i += 1) expect(newSketchSeed()).toBeGreaterThan(0);
+  });
+});
+
+describe("sketch levels", () => {
+  const flat = (input: StrokeGeometryInput): string => JSON.stringify(shapeStrokeGeometry(input).strokes);
+  const sketch = (level?: "neat" | "loose" | "wild"): StrokeGeometryInput =>
+    rect({ strokeStyle: "sketchy", seed: 7, ...(level === undefined ? {} : { sketchLevel: level }) });
+
+  it("pins the Rough.js constants per level", () => {
+    expect(SKETCH_LEVEL_OPTIONS.neat).toEqual({ roughness: 0.5, bowing: 0.5, disableMultiStroke: true });
+    expect(SKETCH_LEVEL_OPTIONS.loose).toEqual({ roughness: 1.2, bowing: 1, disableMultiStroke: false });
+    expect(SKETCH_LEVEL_OPTIONS.wild).toEqual({ roughness: 2.4, bowing: 2, disableMultiStroke: false });
+  });
+
+  it("draws different geometry per level", () => {
+    const outputs = new Set([flat(sketch("neat")), flat(sketch("loose")), flat(sketch("wild"))]);
+    expect(outputs.size).toBe(3);
+  });
+
+  it("treats an absent level as loose", () => {
+    expect(flat(sketch())).toBe(flat(sketch("loose")));
+  });
+
+  it("neat draws a single pass per edge, fewer strokes than loose", () => {
+    const neat = shapeStrokeGeometry(sketch("neat")).strokes.length;
+    const loose = shapeStrokeGeometry(sketch("loose")).strokes.length;
+    expect(neat).toBeLessThan(loose);
+  });
+
+  it("wild stays within a sensible margin of the bounds", () => {
+    const strokes = shapeStrokeGeometry(sketch("wild")).strokes.flat();
+    for (const point of strokes) {
+      expect(point.x).toBeGreaterThan(10 - 30);
+      expect(point.x).toBeLessThan(210 + 30);
+      expect(point.y).toBeGreaterThan(10 - 30);
+      expect(point.y).toBeLessThan(110 + 30);
+    }
+  });
+
+  it("ignores the level for non-sketchy styles", () => {
+    const solid = rect({ strokeStyle: "dashed", sketchLevel: "wild" });
+    const plain = rect({ strokeStyle: "dashed" });
+    expect(flat(solid)).toBe(flat(plain));
   });
 });

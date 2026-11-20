@@ -52,7 +52,8 @@ import {
   type OnScreenShapeObject,
   type ResizeHandle,
 } from "../domain/onScreen";
-import { needsStrokeGeometry, newSketchSeed, shapeStrokeGeometry, type StrokeGeometryInput, type StrokeStyle } from "../domain/strokeGeometry";
+import { needsStrokeGeometry, newSketchSeed, shapeStrokeGeometry, type SketchLevel, type StrokeGeometryInput, type StrokeStyle } from "../domain/strokeGeometry";
+import { SketchLevelControl } from "./SketchLevelControl";
 import { LineStyleControl } from "./LineStyleControl";
 import { onScreenCursor } from "../lib/cursor";
 import {
@@ -224,6 +225,7 @@ export function OnScreenOverlay(): React.JSX.Element {
   const [draft, setDraft] = useState<OnScreenObject | null>(null);
   /** Line style for new shapes; per Screen Draw session, it does not write Settings. */
   const [strokeStyle, setStrokeStyle] = useState<StrokeStyle>("solid");
+  const [sketchLevel, setSketchLevel] = useState<SketchLevel>("loose");
   const [cursorPoint, setCursorPoint] = useState<Point>({ x: 0, y: 0 });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const [pointerHeld, setPointerHeld] = useState(false);
@@ -834,6 +836,7 @@ export function OnScreenOverlay(): React.JSX.Element {
         settings.onScreen.color,
         settings.onScreen.strokeSize,
         strokeStyle,
+        sketchLevel,
         settings.annotation.cornerRadius,
       );
       draftRef.current = nextDraft;
@@ -1109,6 +1112,8 @@ export function OnScreenOverlay(): React.JSX.Element {
         capturing={isCapturing}
         saveDisabled={saveInFlight.current || isCapturing}
         strokeStyle={strokeStyle}
+        sketchLevel={sketchLevel}
+        onSketchLevelChange={setSketchLevel}
         toolShortcuts={settings.onScreen.toolShortcuts}
         onClear={clearAll}
         onStrokeStyleChange={setStrokeStyle}
@@ -1171,6 +1176,7 @@ function createDraft(
   color: string,
   size: number,
   strokeStyle: StrokeStyle,
+  sketchLevel: SketchLevel,
   cornerRadius: number,
 ): OnScreenObject {
   if (tool === "pencil") {
@@ -1191,7 +1197,12 @@ function createDraft(
     end: point,
     ...(strokeStyle === "solid" || tool === "blur"
       ? {}
-      : { strokeStyle, ...(strokeStyle === "sketchy" ? { seed: newSketchSeed() } : {}) }),
+      : {
+          strokeStyle,
+          ...(strokeStyle === "sketchy"
+            ? { seed: newSketchSeed(), ...(sketchLevel === "loose" ? {} : { sketchLevel }) }
+            : {}),
+        }),
     ...(tool === "rectangle" ? { cornerRadius } : {}),
   };
 }
@@ -1555,7 +1566,9 @@ const OnScreenDock = memo(function OnScreenDock({
   capturing,
   saveDisabled,
   strokeStyle,
+  sketchLevel,
   toolShortcuts,
+  onSketchLevelChange,
   onStrokeStyleChange,
   onToolChange,
   onUndo,
@@ -1569,7 +1582,9 @@ const OnScreenDock = memo(function OnScreenDock({
   capturing: boolean;
   saveDisabled: boolean;
   strokeStyle: StrokeStyle;
+  sketchLevel: SketchLevel;
   toolShortcuts: Record<OnScreenDrawingToolId, string>;
+  onSketchLevelChange: (level: SketchLevel) => void;
   onStrokeStyleChange: (style: StrokeStyle) => void;
   onToolChange: (tool: OnScreenToolId) => void;
   onUndo: () => void;
@@ -1599,6 +1614,9 @@ const OnScreenDock = memo(function OnScreenDock({
       </div>
       {activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "arrow" ? (
         <LineStyleControl value={strokeStyle} onChange={onStrokeStyleChange} />
+      ) : null}
+      {(activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "arrow") && strokeStyle === "sketchy" ? (
+        <SketchLevelControl value={sketchLevel} onChange={onSketchLevelChange} />
       ) : null}
       <span aria-hidden="true" className="mx-0.5 h-7 w-px bg-white/12" />
       <button aria-label="Undo on-screen change" className="grid size-11 place-items-center rounded-[11px] text-stone-300 outline-none transition hover:bg-white/9 hover:text-white focus-visible:ring-2 focus-visible:ring-[var(--snaphub-accent)] disabled:opacity-25" disabled={!canUndo} title="Undo" type="button" onClick={onUndo}><Undo aria-hidden="true" size={20} /></button>

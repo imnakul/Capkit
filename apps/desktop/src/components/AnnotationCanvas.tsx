@@ -1002,11 +1002,20 @@ function isTextAnnotation(
 }
 
 /** The line-style fields a new shape or line carries; solid shapes stay field-free like older scenes. */
-function styledFields(style: AnnotationStyle): { strokeStyle?: AnnotationStyle["strokeStyle"]; seed?: number } {
+function styledFields(style: AnnotationStyle): {
+  strokeStyle?: AnnotationStyle["strokeStyle"];
+  sketchLevel?: AnnotationStyle["sketchLevel"];
+  seed?: number;
+} {
   if (style.strokeStyle === "solid") return {};
   return {
     strokeStyle: style.strokeStyle,
-    ...(style.strokeStyle === "sketchy" ? { seed: newSketchSeed() } : {}),
+    ...(style.strokeStyle === "sketchy"
+      ? {
+          seed: newSketchSeed(),
+          ...(style.sketchLevel === "loose" ? {} : { sketchLevel: style.sketchLevel }),
+        }
+      : {}),
   };
 }
 

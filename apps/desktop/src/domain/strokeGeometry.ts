@@ -7,6 +7,23 @@ export type StrokeStyle = "solid" | "dashed" | "dotted" | "sketchy";
 
 export const STROKE_STYLES: readonly StrokeStyle[] = ["solid", "dashed", "dotted", "sketchy"];
 
+/** How hand-drawn the sketchy line style looks. Absent means "loose". */
+export type SketchLevel = "neat" | "loose" | "wild";
+
+export const SKETCH_LEVELS: readonly SketchLevel[] = ["neat", "loose", "wild"];
+
+export const DEFAULT_SKETCH_LEVEL: SketchLevel = "loose";
+
+/** Rough.js settings per sketch level; the one place these constants live. */
+export const SKETCH_LEVEL_OPTIONS: Record<
+  SketchLevel,
+  { roughness: number; bowing: number; disableMultiStroke: boolean }
+> = {
+  neat: { roughness: 0.5, bowing: 0.5, disableMultiStroke: true },
+  loose: { roughness: 1.2, bowing: 1, disableMultiStroke: false },
+  wild: { roughness: 2.4, bowing: 2, disableMultiStroke: false },
+};
+
 /**
  * Everything a renderer needs to draw a styled shape without knowing about the
  * style: polylines to stroke, dots to stamp (diameter = stroke width) and an
@@ -25,6 +42,7 @@ export type ShapeGeometryInput = {
   cornerRadius?: number | undefined;
   strokeWidth: number;
   strokeStyle?: StrokeStyle | undefined;
+  sketchLevel?: SketchLevel | undefined;
   seed?: number | undefined;
 };
 
@@ -33,6 +51,7 @@ export type LineGeometryInput = {
   points: readonly Point[];
   strokeWidth: number;
   strokeStyle?: StrokeStyle | undefined;
+  sketchLevel?: SketchLevel | undefined;
   seed?: number | undefined;
 };
 
@@ -40,9 +59,6 @@ export type StrokeGeometryInput = ShapeGeometryInput | LineGeometryInput;
 
 /** Per-annotation point budget. Beyond it the geometry fails closed to a solid outline. */
 export const MAX_GEOMETRY_POINTS = 20_000;
-
-/** Rough.js settings for the sketchy style (the "loose" level). */
-export const SKETCH_OPTIONS = { roughness: 1.2, bowing: 1, disableMultiStroke: false } as const;
 
 const BEZIER_STEPS = 8;
 const CORNER_STEPS = 8;
@@ -251,7 +267,7 @@ function lerp(from: Point, to: Point, amount: number): Point {
 
 function sketchGeometry(input: StrokeGeometryInput, outline: Point[], closed: boolean): StrokeGeometry {
   const options = {
-    ...SKETCH_OPTIONS,
+    ...SKETCH_LEVEL_OPTIONS[input.sketchLevel ?? DEFAULT_SKETCH_LEVEL],
     seed: input.seed ?? 1,
     strokeWidth: input.strokeWidth,
   };

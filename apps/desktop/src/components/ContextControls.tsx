@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId } from "../domain/settings";
 import { LineStyleControl } from "./LineStyleControl";
+import { SketchLevelControl } from "./SketchLevelControl";
 import type { ToolbarToolDefinition } from "./toolbarCatalog";
 
 const LINE_STYLE_TOOLS: readonly ToolId[] = ["rectangle", "smart", "ellipse", "line", "arrow", "curved-arrow"];
@@ -105,6 +106,13 @@ export function ContextControls({
             <LineStyleControl
               value={style.strokeStyle}
               onChange={(strokeStyle) => onStyleChange({ ...style, strokeStyle })}
+            />
+          ) : null}
+
+          {LINE_STYLE_TOOLS.includes(activeTool) && style.strokeStyle === "sketchy" ? (
+            <SketchLevelControl
+              value={style.sketchLevel}
+              onChange={(sketchLevel) => onStyleChange({ ...style, sketchLevel })}
             />
           ) : null}
 
