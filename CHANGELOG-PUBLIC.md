@@ -6,6 +6,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Added
 
+- Your own keys for toolbar tools: Settings → Toolbar → Tool keys. Smart select now comes first by default for new installs.
 - Sketch level (Neat, Loose, Wild) for the Sketchy line style, and hand-drawn fills (hatching, cross-hatch, zigzag, dots) for rectangles and ellipses. Set your defaults in Settings.
 - Smart select (W): hover to see an outline around the button, card or image under your pointer, then click to box it. Alt+click draws an ellipse instead; drag to draw a box yourself.
 - Line styles: solid, dashed, dotted or sketchy (hand-drawn) for shapes, lines and arrows, in Capture and Screen Draw. Set your default in Settings.

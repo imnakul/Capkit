@@ -1337,7 +1337,7 @@ export function App(): React.JSX.Element {
           id: `tool-${toolId}`,
           label: tool.label,
           icon: tool.icon,
-          ...(tool.shortcut === undefined ? {} : { shortcut: tool.shortcut }),
+          ...((settings.toolbar.keys[toolId] ?? tool.shortcut) === undefined ? {} : { shortcut: settings.toolbar.keys[toolId] ?? tool.shortcut }),
           active: tool.annotationTool !== undefined && tool.annotationTool === activeTool,
           disabled: toolId === "undo" ? history.past.length === 0 : toolId === "redo" ? history.future.length === 0 : false,
           onSelect: () => runToolbarTool(toolId, {

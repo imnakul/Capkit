@@ -668,7 +668,7 @@ export function SettingsView(): React.JSX.Element {
           ) : activeTab === "screenshots" ? (
             <>
               <SettingsCard id="capture-toolbar" onToggle={toggleSection} open={openSections["capture-toolbar"]} icon={SlidersHorizontal} title="Capture toolbar" summary={toolbarSummary} hint="Direct tools are one click away; groups keep the bar short.">
-                <ToolbarConfiguration toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
+                <ToolbarConfiguration reservedKeys={["V", settings.shortcuts.captureModeCopy, settings.shortcuts.captureModeSave, settings.shortcuts.captureModeCopyAndSave]} toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
                 <SectionReset visible={changed.toolbar} onClick={() => update({ ...settings, toolbar: defaultSnaphubSettings.toolbar })} />
               </SettingsCard>
               <SettingsCard

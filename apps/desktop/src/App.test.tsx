@@ -502,11 +502,11 @@ describe("App", () => {
     );
     expect(screen.getByText("440 × 300 px")).toBeInTheDocument();
 
-    const shapeFamily = screen.getByRole("button", { name: "Rectangle group" });
+    const shapeFamily = screen.getByRole("button", { name: "Smart select group" });
     fireEvent.pointerDown(shapeFamily, { button: 0, pointerId: 2 });
     fireEvent.click(shapeFamily);
     expect(shapeFamily).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Rectangle" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Smart select" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );

@@ -33,6 +33,8 @@ type AnnotationToolbarProps = {
 type PrimaryItem = {
   id: string;
   groupIndex?: number;
+  /** The tool this button runs: the only one in individual mode, the group's current one in group mode. */
+  toolId?: CaptureToolbarToolId;
   label: string;
   icon: CapkitIconComponent;
   active: boolean;
@@ -101,6 +103,7 @@ export function AnnotationToolbar({
       const active = tool.annotationTool === activeTool;
       items.push({
         id: `tool-${tool.id}`,
+        toolId: tool.id,
         label: tool.label,
         icon: tool.icon,
         ...(tool.shortcut === undefined ? {} : { shortcut: tool.shortcut }),
@@ -121,6 +124,7 @@ export function AnnotationToolbar({
       items.push({
         id: `group-${String(index)}`,
         groupIndex: index,
+        toolId: shown.id,
         label: `${shown.label} group`,
         icon: shown.icon,
         ...(shown.shortcut === undefined ? {} : { shortcut: shown.shortcut }),
@@ -142,9 +146,50 @@ export function AnnotationToolbar({
   }
 
   // Tools and groups (not finishing actions, which have their own letters) take 1–9, then 0.
-  items.slice(1).forEach((item, index) => {
-    const key = numberKeys[index];
+  // A tool with its own key keeps it; the rest take the digits nobody claimed, in order.
+  const ownKeys = new Map<string, string>(Object.entries(toolbar.keys));
+  const claimed = new Set(ownKeys.values());
+  const freeNumberKeys = numberKeys.filter((key) => !claimed.has(key));
+  let nextNumber = 0;
+  for (const item of items.slice(1)) {
+    const own = item.toolId === undefined ? undefined : ownKeys.get(item.toolId);
+    const key = own ?? freeNumberKeys[nextNumber++];
     if (key !== undefined) item.shortcut = key;
+  }
+
+  /** Own keys reach every enabled tool, including the ones behind a group and the ones in the side rail. */
+  const ownBindings: { key: string; disabled: boolean; run: () => void }[] = [];
+  if (toolbar.mode === "group") {
+    groups.forEach((group, index) => {
+      const opensRow = group.length > 1 || group.some((toolId) => getToolbarTool(toolId).supportsStyle);
+      for (const toolId of group) {
+        const key = ownKeys.get(toolId);
+        if (key === undefined) continue;
+        ownBindings.push({
+          key,
+          disabled: toolId === "undo" ? !canUndo : toolId === "redo" ? !canRedo : false,
+          run: () => {
+            runTool(toolId);
+            onGroupToolUsed(index, toolId);
+            onOpenGroupChange(opensRow ? index : null);
+          },
+        });
+      }
+    });
+  } else {
+    for (const tool of toolbarCatalog) {
+      const key = ownKeys.get(tool.id);
+      if (key === undefined || !toolbar.individual[tool.id]) continue;
+      ownBindings.push({
+        key,
+        disabled: tool.id === "undo" ? !canUndo : tool.id === "redo" ? !canRedo : false,
+        run: () => runTool(tool.id),
+      });
+    }
+  }
+  const shortcutBindings = useRef(ownBindings);
+  useEffect(() => {
+    shortcutBindings.current = ownBindings;
   });
 
   for (const action of actionItems) {
@@ -172,6 +217,12 @@ export function AnnotationToolbar({
       if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
       if (isTypingTarget(event.target)) return;
       const key = event.key.toUpperCase();
+      const own = shortcutBindings.current.find((candidate) => candidate.key === key);
+      if (own !== undefined) {
+        event.preventDefault();
+        if (!own.disabled) own.run();
+        return;
+      }
       const item = shortcutItems.current.find((candidate) => candidate.shortcut === key && !candidate.id.startsWith("action-"));
       if (item === undefined || item.disabled) return;
       event.preventDefault();

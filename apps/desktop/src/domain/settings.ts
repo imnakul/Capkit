@@ -89,6 +89,7 @@ export const captureToolbarToolIds = [
 ] as const;
 
 const captureToolbarToolIdSchema = z.enum(captureToolbarToolIds);
+const toolKeySchema = z.string().regex(/^[A-Z0-9]$/);
 export type CaptureToolbarToolId = z.infer<typeof captureToolbarToolIdSchema>;
 
 export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
@@ -113,7 +114,7 @@ export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
 };
 
 export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
-  ["rectangle", "smart", "ellipse", "line", "arrow", "curved-arrow"],
+  ["smart", "rectangle", "ellipse", "line", "arrow", "curved-arrow"],
   ["highlighter", "pencil", "text"],
   ["blur", "spotlight", "pixelate", "blackout"],
   ["counter", "note", "scrolling-capture"],
@@ -219,6 +220,8 @@ export const snaphubSettingsSchema = z.object({
     actions: toolbarActionsSchema.default(defaultToolbarActions),
     /** Individual-mode editing tools moved into the vertical rail. */
     verticalTools: z.array(captureToolbarToolIdSchema).max(16).default([]),
+    /** Optional own key per tool (one letter or digit, uppercase); tools without one use 1-9, 0 by position. */
+    keys: z.partialRecord(captureToolbarToolIdSchema, toolKeySchema).default({}),
   }),
   shortcuts: z.object({
     capture: z.string().min(1).max(64),
@@ -319,6 +322,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     groups: defaultToolbarGroups,
     actions: defaultToolbarActions,
     verticalTools: [],
+    keys: {},
   },
   shortcuts: {
     capture: "Alt+Shift+S",
