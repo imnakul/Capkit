@@ -2,11 +2,12 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
-## Unreleased — 2026-11-20
+## 0.5.1 — 2026-11-20
 
 ### Fixed
 
 - Reopening CapKit from the system tray after closing it no longer shows a second title bar and a pale, washed-out window.
+- After a failed save, the Retry save button gets keyboard focus immediately.
 
 ## 0.5.0 — 2026-11-20
 
