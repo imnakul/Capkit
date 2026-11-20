@@ -49,7 +49,7 @@ export function SettingsCard<Id extends string>({ id, open, onToggle, icon: Icon
         inert={!open}
       >
         <div className={`min-h-0 overflow-hidden transition-opacity ease-settle motion-reduce:transition-none ${open ? "opacity-100 duration-[220ms]" : "opacity-0 duration-[160ms]"}`}>
-          <div className="px-4 pb-4">
+          <div className={`px-4 pb-4 ${hint === undefined ? "pt-3" : "pt-1"}`}>
             {hint === undefined ? null : <p className="mb-3 text-[12px] text-content/60">{hint}</p>}
             {children}
           </div>
