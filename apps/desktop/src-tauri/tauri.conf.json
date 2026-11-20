@@ -22,7 +22,8 @@
         "minHeight": 640,
         "center": true,
         "decorations": true,
-        "transparent": false,
+        "transparent": true,
+        "windowEffects": { "effects": ["mica"] },
         "resizable": true,
         "skipTaskbar": false,
         "focus": true

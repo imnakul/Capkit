@@ -832,3 +832,9 @@ export async function startNoteDrag(id: string): Promise<void> {
   if (!isTauri()) return;
   await invoke("notes_start_drag", { id });
 }
+
+/** True when the OS can draw the dashboard's Mica backdrop (Windows 11). Falls back to opaque. */
+export async function dashboardSupportsGlass(): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("dashboard_supports_glass");
+}

@@ -2,6 +2,12 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  --theme-hue: 60;
+  --theme-saturation: 4%;
+  --background-lightness: 97%;
+  --content-lightness: 13%;
+  --glass-tint: 3%;
+  --glass-base: 72%;
   --snaphub-accent: #d9ff43;
   --capture-overlay: rgb(7 8 7 / 64%);
   --color-lime-300: var(--snaphub-accent);
@@ -14,6 +20,50 @@
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: geometricPrecision;
+}
+
+.dark {
+  --background-lightness: 10%;
+  --content-lightness: 93%;
+  --glass-tint: 5%;
+  --glass-base: 70%;
+}
+
+@theme {
+  --color-background-base: hsl(var(--theme-hue) var(--theme-saturation) var(--background-lightness));
+  --color-content: hsl(var(--theme-hue) var(--theme-saturation) var(--content-lightness));
+  --color-accent: var(--snaphub-accent);
+  --color-accent-ink: #12130f;
+  --color-danger: #dc2626;
+
+  /* A surface arriving: page, dialog, popover. */
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Collapse, toast, icon swap. */
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Follows the pointer: indicators, switch thumb. */
+  --ease-track: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Dashboard page: Mica shows through, carrying a breath of the accent. */
+body.dashboard-surface {
+  background: var(--color-background-base);
+  color: var(--color-content);
+}
+
+html.glass {
+  background: transparent;
+}
+
+html.glass body.dashboard-surface {
+  background:
+    linear-gradient(color-mix(in oklab, var(--color-accent) var(--glass-tint), transparent) 0 0),
+    color-mix(in oklab, var(--color-background-base) var(--glass-base), transparent);
+}
+
+html.dark-dashboard-swap *,
+html.dark-dashboard-swap *::before,
+html.dark-dashboard-swap *::after {
+  transition: none !important;
 }
 
 * {
