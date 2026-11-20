@@ -175,13 +175,13 @@ export function DashboardPanel(): React.JSX.Element {
     <div className="flex h-screen min-h-[640px] min-w-[900px] flex-col text-content">
       <DashboardTitleBar />
       <div className="flex min-h-0 flex-1">
-      <aside className="flex w-48 shrink-0 flex-col border-r border-content/10 px-2.5 py-3.5 text-content/60">
-        <div className="px-2 pb-5 pt-1">
+      <aside className="flex w-56 shrink-0 flex-col border-r border-content/10 px-2.5 py-3.5 text-content/60">
+        <div className="px-1 pb-5 pt-1">
           <div className="flex items-center gap-2.5">
             <CapKitLogo size={28} />
             <p className="text-[14px] font-semibold text-content">CapKit</p>
           </div>
-          <p className="mt-2.5 text-balance text-[11px] leading-snug text-content/45">
+          <p className="mt-2.5 text-balance text-[12px] leading-snug text-content/60">
             The lightweight desktop toolkit to capture, record, and showcase.
           </p>
         </div>

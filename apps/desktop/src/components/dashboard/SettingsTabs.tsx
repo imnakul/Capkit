@@ -110,7 +110,7 @@ export function SettingsTabs({ tabs, active, onSelect, children }: SettingsTabsP
       <div className="sticky top-0 z-10 w-fit py-2">
         <div
           aria-label="Settings sections"
-          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-background-base/70 p-1 backdrop-blur-md"
+          className="relative flex w-fit gap-1 rounded-lg border border-content/10 bg-content/6 p-1 backdrop-blur-xl"
           ref={listRef}
           role="tablist"
           onBlur={handleBlur}
