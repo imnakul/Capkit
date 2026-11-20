@@ -15,7 +15,7 @@ import {
   Copy,
   Delete as Trash2,
   Magnifier,
-  NotePin,
+  StickyNote,
   Refresh as RefreshCw,
   Tick as Check,
   View as Eye,
@@ -190,7 +190,7 @@ export function NotesView(): React.JSX.Element {
   return (
     <section aria-labelledby="notes-title" className="px-7 pb-8 pt-4">
       <PageHeader
-        title="Notes"
+        title="Page notes"
         trailing={
           <Button aria-label="Refresh notes" disabled={loading} variant="ghost" onClick={() => void load(debouncedQuery, 0)}>
             <RefreshCw aria-hidden="true" className={loading ? "animate-spin motion-reduce:animate-none" : ""} size={13} />
@@ -227,7 +227,7 @@ export function NotesView(): React.JSX.Element {
       {state.status === "ready" && state.notes.length === 0 ? (
         <div className="mt-5 grid min-h-64 place-items-center rounded-lg border border-dashed border-content/15 px-6 text-center">
           <div>
-            <span className="mx-auto grid size-10 place-items-center rounded-lg bg-content/6 text-content/45"><NotePin aria-hidden="true" size={17} /></span>
+            <span className="mx-auto grid size-10 place-items-center rounded-lg bg-content/6 text-content/45"><StickyNote aria-hidden="true" size={17} /></span>
             <p className="mx-auto mt-3 max-w-xs text-[12px] leading-5 text-content/60">
               {searching ? `No notes match '${debouncedQuery}'` : "No notes yet. Use the Note tool (N) in a capture, then press S to save it."}
             </p>
@@ -251,7 +251,7 @@ export function NotesView(): React.JSX.Element {
 
       {menu === null ? null : (
         <div className="fixed w-[196px] overflow-hidden rounded-lg border border-content/10 bg-background-base p-1.5 text-content shadow-xl" ref={menuRef} role="menu" style={{ left: menu.left, top: menu.top, zIndex: LAYER.popover }}>
-          <MenuItem icon={NotePin} label="Open note" onClick={() => showNote(menu.note)} />
+          <MenuItem icon={StickyNote} label="Open note" onClick={() => showNote(menu.note)} />
           <MenuItem icon={Copy} label="Copy Markdown" onClick={() => void copyMarkdown(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Eye} label="Open page" onClick={() => void openPage(menu.note)} />
           <MenuItem disabled={menu.note.pageUrl === null} icon={Copy} label="Copy URL" onClick={() => void copyUrl(menu.note)} />

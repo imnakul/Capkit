@@ -1,8 +1,8 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
+import { Cancel, Copy, Minus, SquareShape } from "../icons";
 
-const glyphClass = "size-[10px] fill-none stroke-current";
 const buttonClass =
   "grid h-full w-[46px] place-items-center text-content/70 outline-none transition-colors duration-120 hover:bg-content/8 hover:text-content focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 motion-reduce:transition-none";
 
@@ -44,9 +44,7 @@ export function DashboardTitleBar(): React.JSX.Element | null {
   return (
     <header className="flex h-8 shrink-0 items-stretch justify-end border-b border-content/10" data-tauri-drag-region>
       <button aria-label="Minimize" className={buttonClass} type="button" onClick={() => void appWindow.minimize().catch(report)}>
-        <svg aria-hidden="true" className={glyphClass} viewBox="0 0 10 10">
-          <path d="M0 5.5h10" />
-        </svg>
+        <Minus size={14} strokeWidth={1.6} />
       </button>
       <button
         aria-label={isMaximized ? "Restore" : "Maximize"}
@@ -54,9 +52,7 @@ export function DashboardTitleBar(): React.JSX.Element | null {
         type="button"
         onClick={() => void appWindow.toggleMaximize().catch(report)}
       >
-        <svg aria-hidden="true" className={glyphClass} viewBox="0 0 10 10">
-          {isMaximized ? <path d="M2.5 2.5V.5h7v7h-2M.5 2.5h7v7h-7z" /> : <rect height="9" width="9" x=".5" y=".5" />}
-        </svg>
+        {isMaximized ? <Copy size={13} strokeWidth={1.6} /> : <SquareShape size={12} strokeWidth={1.6} />}
       </button>
       <button
         aria-label="Close"
@@ -64,9 +60,7 @@ export function DashboardTitleBar(): React.JSX.Element | null {
         type="button"
         onClick={() => void appWindow.close().catch(report)}
       >
-        <svg aria-hidden="true" className={glyphClass} viewBox="0 0 10 10">
-          <path d="M.5.5l9 9M9.5.5l-9 9" />
-        </svg>
+        <Cancel size={14} strokeWidth={1.6} />
       </button>
     </header>
   );

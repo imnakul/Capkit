@@ -17,10 +17,10 @@ import { findSavedCapture, type SavedCapture } from "../../domain/capture";
 import {
   Image,
   Moon,
-  NotePin,
   Presentation,
   Record,
   Settings,
+  StickyNote,
   Sun,
 } from "../icons";
 
@@ -28,7 +28,7 @@ type DashboardTab = "screenshots" | "notes" | "showcase" | "record" | "settings"
 
 const navigation = [
   { id: "screenshots", label: "Screenshots", icon: Image },
-  { id: "notes", label: "Notes", icon: NotePin },
+  { id: "notes", label: "Page notes", icon: StickyNote },
   { id: "showcase", label: "Showcase", icon: Presentation },
   { id: "record", label: "Record", icon: Record },
   { id: "settings", label: "Settings", icon: Settings },
@@ -36,6 +36,7 @@ const navigation = [
 
 export function DashboardPanel(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<DashboardTab>("screenshots");
+  const [hoveredNavIndex, setHoveredNavIndex] = useState<number | null>(null);
   const [showcaseCapture, setShowcaseCapture] = useState<SavedCapture | null>(null);
   const [isShowcaseStylePending, setIsShowcaseStylePending] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
@@ -186,23 +187,32 @@ export function DashboardPanel(): React.JSX.Element {
           </p>
         </div>
 
-        <nav aria-label="Capkit sections" className="relative flex flex-col gap-1">
+        <nav aria-label="Capkit sections" className="relative flex flex-col gap-1" onMouseLeave={() => setHoveredNavIndex(null)}>
+          {/* Hover pill glides between items like the settings tabs; the active pill sits above it. */}
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute inset-x-0 top-0 h-8 rounded-md bg-content/6 transition-[transform,opacity] duration-200 ease-track motion-reduce:transition-none ${hoveredNavIndex === null ? "opacity-0" : "opacity-100"}`}
+            style={{ transform: `translateY(${String((hoveredNavIndex ?? activeIndex) * 36)}px)` }}
+          />
           <span
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 top-0 h-8 rounded-md bg-content/8 transition-transform duration-200 ease-track motion-reduce:transition-none"
             style={{ transform: `translateY(${String(activeIndex * 36)}px)` }}
           />
-          {visibleNavigation.map((item) => {
+          {visibleNavigation.map((item, index) => {
             const Icon = item.icon;
             const isActive = item.id === activeTab;
             return (
               <button
                 aria-label={`Open ${item.label}`}
                 aria-current={isActive ? "page" : undefined}
-                className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-content/6 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-[current=page]:font-medium aria-[current=page]:text-content aria-[current=page]:hover:bg-transparent motion-reduce:transition-none"
+                className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none transition-colors duration-120 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 aria-[current=page]:font-medium aria-[current=page]:text-content motion-reduce:transition-none"
                 key={item.id}
                 type="button"
+                onBlur={() => setHoveredNavIndex(null)}
                 onClick={() => setActiveTab(item.id)}
+                onFocus={() => setHoveredNavIndex(index)}
+                onMouseEnter={() => setHoveredNavIndex(index)}
               >
                 <Icon aria-hidden="true" className={isActive ? "text-accent" : "text-content/45"} size={14} strokeWidth={1.75} />
                 {item.label}
