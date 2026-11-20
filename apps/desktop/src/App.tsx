@@ -282,6 +282,8 @@ export function App(): React.JSX.Element {
           ...defaultAnnotationStyle,
           color: settingsRef.current.annotation.defaultColor,
           strokeWidth: settingsRef.current.annotation.defaultSize,
+          strokeStyle: settingsRef.current.annotation.strokeStyle,
+          cornerRadius: settingsRef.current.annotation.cornerRadius,
         });
         dispatchScene({ type: "reset" });
         dispatchNotes({ type: "reset" });

@@ -108,6 +108,21 @@ export function ContextControls({
             />
           ) : null}
 
+          {activeTool === "rectangle" ? (
+            <label className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">
+              Corners
+              <input
+                aria-label="Corner radius"
+                className="h-1 w-20 cursor-pointer accent-lime-300"
+                max="48"
+                min="0"
+                type="range"
+                value={style.cornerRadius}
+                onChange={(event) => onStyleChange({ ...style, cornerRadius: Number(event.currentTarget.value) })}
+              />
+            </label>
+          ) : null}
+
           {activeTool === "text" ? (
             <select
               aria-label="Text font"

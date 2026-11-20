@@ -811,6 +811,7 @@ export function OnScreenOverlay(): React.JSX.Element {
         settings.onScreen.color,
         settings.onScreen.strokeSize,
         strokeStyle,
+        settings.annotation.cornerRadius,
       );
       draftRef.current = nextDraft;
       setDraft(nextDraft);
@@ -1141,6 +1142,7 @@ function createDraft(
   color: string,
   size: number,
   strokeStyle: StrokeStyle,
+  cornerRadius: number,
 ): OnScreenObject {
   if (tool === "pencil") {
     return {
@@ -1161,6 +1163,7 @@ function createDraft(
     ...(strokeStyle === "solid" || tool === "blur"
       ? {}
       : { strokeStyle, ...(strokeStyle === "sketchy" ? { seed: newSketchSeed() } : {}) }),
+    ...(tool === "rectangle" ? { cornerRadius } : {}),
   };
 }
 
