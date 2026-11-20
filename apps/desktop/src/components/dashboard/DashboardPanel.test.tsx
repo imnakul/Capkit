@@ -53,7 +53,7 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Record" }));
-    expect(await screen.findByRole("heading", { name: "Capture your screen." })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Record" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Start recording" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Screenshots" })).not.toBeInTheDocument();
   });

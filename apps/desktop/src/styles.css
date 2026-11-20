@@ -35,6 +35,7 @@
   --color-accent: var(--snaphub-accent);
   --color-accent-ink: #12130f;
   --color-danger: #dc2626;
+  --color-warning: #b45309;
 
   /* A surface arriving: page, dialog, popover. */
   --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
@@ -42,6 +43,10 @@
   --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
   /* Follows the pointer: indicators, switch thumb. */
   --ease-track: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html.dark {
+  --color-warning: #fbbf24;
 }
 
 /* Dashboard page: Mica shows through, carrying a breath of the accent. */
