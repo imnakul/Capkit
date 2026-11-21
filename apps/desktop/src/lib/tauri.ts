@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { z } from "zod";
 import { cssViewportSchema, elementDetailsSchema } from "@snaphub/devtools-protocol/protocol";
 import type { AnnotationScene } from "../domain/annotations";
+import { sceneForExport } from "../domain/annotationExport";
 import type { SnaphubSettings } from "../domain/settings";
 import { updateStatusSchema, type UpdateStatus } from "../domain/updates";
 import {
@@ -176,7 +177,7 @@ export async function completeCapture(
   }
 
   const raw: unknown = await invoke("complete_capture", {
-    request: { action, sessionId, selection, scene, noteId },
+    request: { action, sessionId, selection, scene: sceneForExport(scene), noteId },
   });
   return completionResultSchema.parse(raw);
 }

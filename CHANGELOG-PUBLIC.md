@@ -2,6 +2,22 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Added
+
+- Your own keys for toolbar tools: Settings → Toolbar → Tool keys. Smart select now comes first by default for new installs.
+- Sketch level (Neat, Loose, Wild) for the Sketchy line style, and hand-drawn fills (hatching, cross-hatch, zigzag, dots) for rectangles and ellipses. Set your defaults in Settings.
+- Smart select (W): hover to see an outline around the button, card or image under your pointer, then click to box it. Alt+click draws an ellipse instead; drag to draw a box yourself.
+- Line styles: solid, dashed, dotted or sketchy (hand-drawn) for shapes, lines and arrows, in Capture and Screen Draw. Set your default in Settings.
+- Rounded corners for rectangles, with a Corners slider and a default in Settings.
+- Press any shape with a drawing tool to select and move it, without switching to the cursor. Hold Alt to draw on top of it instead. Escape deselects before it closes the capture.
+
+### Improved
+
+- Changing colour, size, line style, fill, corners or font now updates the shape you have selected. Smart select's outline is solid and glides from one element to the next.
+- Text appears on the first click, shows a faint "Type something" hint, and clicking away leaves no empty box. Shift+Enter adds a new line, and it matches in the saved image.
+
 ## 0.5.1 — 2026-11-20
 
 ### Fixed

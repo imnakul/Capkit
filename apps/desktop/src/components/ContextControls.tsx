@@ -1,7 +1,12 @@
 import { useState } from "react";
 import type { AnnotationStyle, ToolId } from "../domain/annotations";
 import type { CaptureToolbarToolId } from "../domain/settings";
+import { FillStyleControl } from "./FillStyleControl";
+import { LineStyleControl } from "./LineStyleControl";
+import { SketchLevelControl } from "./SketchLevelControl";
 import type { ToolbarToolDefinition } from "./toolbarCatalog";
+
+const LINE_STYLE_TOOLS: readonly ToolId[] = ["rectangle", "smart", "ellipse", "line", "arrow", "curved-arrow"];
 
 type ContextControlsProps = {
   activeTool: ToolId;
@@ -97,6 +102,42 @@ export function ContextControls({
               onChange={(event) => onStyleChange({ ...style, strokeWidth: Number(event.currentTarget.value) })}
             />
           </label>
+
+          {LINE_STYLE_TOOLS.includes(activeTool) ? (
+            <LineStyleControl
+              value={style.strokeStyle}
+              onChange={(strokeStyle) => onStyleChange({ ...style, strokeStyle })}
+            />
+          ) : null}
+
+          {LINE_STYLE_TOOLS.includes(activeTool) && style.strokeStyle === "sketchy" ? (
+            <SketchLevelControl
+              value={style.sketchLevel}
+              onChange={(sketchLevel) => onStyleChange({ ...style, sketchLevel })}
+            />
+          ) : null}
+
+          {activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "smart" ? (
+            <FillStyleControl
+              value={style.fillStyle}
+              onChange={(fillStyle) => onStyleChange({ ...style, fillStyle })}
+            />
+          ) : null}
+
+          {activeTool === "rectangle" || activeTool === "smart" ? (
+            <label className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">
+              Corners
+              <input
+                aria-label="Corner radius"
+                className="h-1 w-20 cursor-pointer accent-lime-300"
+                max="48"
+                min="0"
+                type="range"
+                value={style.cornerRadius}
+                onChange={(event) => onStyleChange({ ...style, cornerRadius: Number(event.currentTarget.value) })}
+              />
+            </label>
+          ) : null}
 
           {activeTool === "text" ? (
             <select

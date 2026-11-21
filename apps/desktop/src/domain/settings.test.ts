@@ -4,6 +4,7 @@ import {
   parsePersistedSnaphubSettings,
   snaphubSettingsSchema,
   migratePersistedNoteTool,
+  migratePersistedSmartTool,
 } from "./settings";
 
 describe("Snaphub settings", () => {
@@ -18,6 +19,23 @@ describe("Snaphub settings", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("defaults the sketch level and fill for settings saved before they existed", () => {
+    const { defaultColor, defaultSize, strokeStyle, cornerRadius } = defaultSnaphubSettings.annotation;
+    const older = { defaultColor, defaultSize, strokeStyle, cornerRadius };
+    const result = snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: older });
+    expect(result.success).toBe(true);
+    expect(result.data?.annotation).toMatchObject({ sketchLevel: "loose", fillStyle: "none" });
+  });
+
+  it("rejects unknown sketch levels and fill styles", () => {
+    expect(
+      snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: { ...defaultSnaphubSettings.annotation, sketchLevel: "frantic" } }).success,
+    ).toBe(false);
+    expect(
+      snaphubSettingsSchema.safeParse({ ...defaultSnaphubSettings, annotation: { ...defaultSnaphubSettings.annotation, fillStyle: "plaid" } }).success,
+    ).toBe(false);
   });
 
   it("rejects unsafe annotation sizes", () => {
@@ -257,5 +275,25 @@ describe("toolbar placement", () => {
     };
     expect(migratePersistedNoteTool(saved)).toBe(saved);
     expect(parsePersistedSnaphubSettings(saved)?.toolbar.groups).toEqual([["text", "counter"]]);
+  });
+});
+
+describe("Smart select toolbar migration", () => {
+  it("adds Smart select after Rectangle in toolbars saved without it", () => {
+    const migrated = migratePersistedSmartTool({
+      toolbar: { individual: { rectangle: true }, groups: [["rectangle", "ellipse"], ["pencil"]], verticalTools: ["rectangle"] },
+    });
+    expect(migrated).toEqual({
+      toolbar: {
+        individual: { rectangle: true, smart: true },
+        groups: [["rectangle", "smart", "ellipse"], ["pencil"]],
+        verticalTools: ["rectangle", "smart"],
+      },
+    });
+  });
+
+  it("leaves toolbars that already know the tool alone", () => {
+    const saved = { toolbar: { individual: { rectangle: true, smart: false }, groups: [["rectangle"]] } };
+    expect(migratePersistedSmartTool(saved)).toBe(saved);
   });
 });

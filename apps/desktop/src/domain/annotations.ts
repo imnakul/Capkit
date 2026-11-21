@@ -1,5 +1,6 @@
 import { translateAnnotation } from "./annotationGeometry";
 import type { Point, Rect } from "./capture";
+import type { FillStyle, SketchLevel, StrokeStyle } from "./strokeGeometry";
 
 export type ToolId =
   | "select"
@@ -7,6 +8,7 @@ export type ToolId =
   | "curved-arrow"
   | "line"
   | "rectangle"
+  | "smart"
   | "ellipse"
   | "highlighter"
   | "pencil"
@@ -19,13 +21,20 @@ export type ToolId =
   | "text";
 
 export type AnnotationStyle = {
+  /** Line style for new shapes and lines. Session-only unless set in Settings. */
+  strokeStyle: StrokeStyle;
+  /** Hand-drawn intensity when strokeStyle is sketchy. */
+  sketchLevel: SketchLevel;
+  /** How new rectangles and ellipses are filled. Session-only unless set in Settings. */
+  fillStyle: FillStyle;
+  /** Corner radius for new rectangles, in logical pixels. */
+  cornerRadius: number;
   color: string;
   fill: string;
   strokeWidth: number;
   opacity: number;
   fontFamily: string;
   fontSize: number;
-  textContent: string;
 };
 
 type AnnotationBase = {
@@ -38,6 +47,12 @@ export type LineAnnotation = AnnotationBase & {
   points: readonly Point[];
   color: string;
   strokeWidth: number;
+  /** Only meaningful for line, arrow and curved-arrow; absent means solid. */
+  strokeStyle?: StrokeStyle;
+  /** Used only when strokeStyle is sketchy; absent means loose. */
+  sketchLevel?: SketchLevel;
+  /** Rough.js seed so a sketchy line keeps its wobble when moved. */
+  seed?: number;
 };
 
 export type ShapeAnnotation = AnnotationBase & {
@@ -46,6 +61,16 @@ export type ShapeAnnotation = AnnotationBase & {
   color: string;
   fill: string;
   strokeWidth: number;
+  /** Absent means solid. */
+  strokeStyle?: StrokeStyle;
+  /** Used only when strokeStyle is sketchy; absent means loose. */
+  sketchLevel?: SketchLevel;
+  /** Absent in older scenes: solid when fill is set, otherwise none. Patterns use the annotation colour at 35%. */
+  fillStyle?: FillStyle;
+  /** Rough.js seed so a sketchy shape keeps its wobble when moved. */
+  seed?: number;
+  /** Rectangles only. Clamped at render time to half the shorter side. */
+  cornerRadius?: number;
 };
 
 export type RegionAnnotation = AnnotationBase & {
@@ -85,13 +110,16 @@ export type AnnotationScene = {
 };
 
 export const defaultAnnotationStyle: AnnotationStyle = {
+  strokeStyle: "solid",
+  sketchLevel: "loose",
+  fillStyle: "none",
+  cornerRadius: 0,
   color: "#d9ff43",
   fill: "transparent",
   strokeWidth: 4,
   opacity: 1,
   fontFamily: "Caveat Variable",
   fontSize: 24,
-  textContent: "Type your note",
 };
 
 export const emptyScene: AnnotationScene = { version: 1, elements: [] };
@@ -100,11 +128,13 @@ export type SceneHistory = {
   past: readonly AnnotationScene[];
   present: AnnotationScene;
   future: readonly AnnotationScene[];
+  /** Set by a style edit so a slider drag on the same field stays one undo step. Cleared by any other action. */
+  lastEditKey?: string;
 };
 
 export type SceneAction =
   | { type: "add"; annotation: Annotation }
-  | { type: "update"; annotation: Annotation }
+  | { type: "update"; annotation: Annotation; coalesceKey?: string }
   | { type: "delete"; annotationId: string }
   | { type: "replace"; scene: AnnotationScene }
   | { type: "undo" }
@@ -136,10 +166,15 @@ export function sceneHistoryReducer(state: SceneHistory, action: SceneAction): S
       if (nextElements.every((element, index) => element === state.present.elements[index])) {
         return state;
       }
+      const present: AnnotationScene = { version: 1, elements: nextElements };
+      if (action.coalesceKey !== undefined && state.lastEditKey === action.coalesceKey) {
+        return { past: state.past, present, future: [], lastEditKey: action.coalesceKey };
+      }
       return {
         past: [...state.past, state.present],
-        present: { version: 1, elements: nextElements },
+        present,
         future: [],
+        ...(action.coalesceKey === undefined ? {} : { lastEditKey: action.coalesceKey }),
       };
     }
     case "delete": {

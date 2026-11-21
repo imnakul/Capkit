@@ -16,7 +16,7 @@ describe("ToolbarConfiguration", () => {
     const view = render(<ControlledToolbar />);
 
     expect(view.getByText("Each row is one group")).toBeVisible();
-    expect(view.getByRole("button", { name: /Rectangle, group default/ })).toBeVisible();
+    expect(view.getByRole("button", { name: /Smart select, group default/ })).toBeVisible();
     fireEvent.click(view.getByRole("button", { name: "Remove toolbar group 2" }));
     expect(view.getByRole("button", { name: /Text highlighter\. Drag to reorder/ })).toBeVisible();
   });
@@ -33,10 +33,10 @@ describe("ToolbarConfiguration", () => {
 
   it("moves a tool across groups with pointer dragging", () => {
     const view = render(<ControlledToolbar />);
-    const rectangle = view.getByRole("button", { name: /Rectangle, group default/ });
+    const smartSelect = view.getByRole("button", { name: /Smart select, group default/ });
     const writingRow = view.getByLabelText("Toolbar group 2");
     const originalElementFromPoint = Object.getOwnPropertyDescriptor(document, "elementFromPoint");
-    Object.defineProperties(rectangle, {
+    Object.defineProperties(smartSelect, {
       hasPointerCapture: { configurable: true, value: vi.fn(() => false) },
       setPointerCapture: { configurable: true, value: vi.fn() },
     });
@@ -45,11 +45,11 @@ describe("ToolbarConfiguration", () => {
       value: vi.fn(() => writingRow),
     });
 
-    fireEvent.pointerDown(rectangle, { button: 0, clientX: 10, clientY: 10, pointerId: 7 });
-    fireEvent.pointerMove(rectangle, { buttons: 1, clientX: 30, clientY: 30, pointerId: 7 });
-    fireEvent.pointerUp(rectangle, { button: 0, clientX: 30, clientY: 30, pointerId: 7 });
+    fireEvent.pointerDown(smartSelect, { button: 0, clientX: 10, clientY: 10, pointerId: 7 });
+    fireEvent.pointerMove(smartSelect, { buttons: 1, clientX: 30, clientY: 30, pointerId: 7 });
+    fireEvent.pointerUp(smartSelect, { button: 0, clientX: 30, clientY: 30, pointerId: 7 });
 
-    expect(within(writingRow).getByRole("button", { name: /Rectangle\. Drag to reorder/ })).toBeVisible();
+    expect(within(writingRow).getByRole("button", { name: /Smart select. Drag to reorder/ })).toBeVisible();
     if (originalElementFromPoint) {
       Object.defineProperty(document, "elementFromPoint", originalElementFromPoint);
     } else {
@@ -97,5 +97,29 @@ describe("ToolbarConfiguration", () => {
     expect(copy).not.toBeChecked();
     fireEvent.click(track);
     expect(copy).toBeChecked();
+  });
+});
+
+describe("ToolbarConfiguration tool keys", () => {
+  afterEach(() => cleanup());
+
+  it("assigns a key, refuses a duplicate and clears back to Auto", () => {
+    const view = render(<ControlledToolbar />);
+    const smart = view.getByRole("button", { name: "Smart select key" });
+    expect(smart).toHaveTextContent("Auto");
+
+    fireEvent.keyDown(smart, { key: "q" });
+    expect(smart).toHaveTextContent("Q");
+
+    const rectangle = view.getByRole("button", { name: "Rectangle key" });
+    fireEvent.keyDown(rectangle, { key: "q" });
+    expect(rectangle).toHaveTextContent("Auto");
+    expect(view.getByRole("status")).toHaveTextContent("Used by Smart select");
+
+    fireEvent.keyDown(rectangle, { key: "v" });
+    expect(rectangle).toHaveTextContent("Auto");
+
+    fireEvent.keyDown(smart, { key: "Backspace" });
+    expect(smart).toHaveTextContent("Auto");
   });
 });

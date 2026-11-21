@@ -5,6 +5,7 @@ import {
   CircleShape,
   CurvedArrow,
   Hashtag,
+  MagicWand,
   Highlighter,
   Minus,
   NotePin,
@@ -31,6 +32,7 @@ export type ToolbarToolDefinition = {
 };
 
 export const toolbarCatalog: readonly ToolbarToolDefinition[] = [
+  { id: "smart", label: "Smart select", icon: MagicWand, annotationTool: "smart", shortcut: "W", supportsStyle: true },
   { id: "rectangle", label: "Rectangle", icon: SquareShape, annotationTool: "rectangle", shortcut: "R", supportsStyle: true },
   { id: "ellipse", label: "Ellipse", icon: CircleShape, annotationTool: "ellipse", supportsStyle: true },
   { id: "line", label: "Line", icon: Minus, annotationTool: "line", shortcut: "L", supportsStyle: true },

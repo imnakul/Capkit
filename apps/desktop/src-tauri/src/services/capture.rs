@@ -21,7 +21,7 @@ use image::{Rgba, RgbaImage, imageops};
 use imageproc::{
     drawing::{
         draw_filled_circle_mut, draw_filled_rect_mut, draw_hollow_ellipse_mut,
-        draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut,
+        draw_hollow_rect_mut, draw_line_segment_mut, draw_polygon_mut, draw_text_mut,
     },
     rect::Rect as ImageRect,
 };
@@ -31,9 +31,9 @@ use crate::{
     domain::{
         Annotation, AnnotationScene, CaptureSessionDto, ColorFormat, CompletionAction,
         CompletionRequest, CompletionResult, CompletionStatus, DetectedTargetDto, DisplayDto,
-        PickColorRequest, PickedColorDto, Point, RecognizedTextDto, Rect, SavedCaptureDto,
-        ScrollingCaptureRequest, ScrollingCaptureResult, TextCopyResult, TextCopyStatus,
-        TextRecognitionRequest,
+        MAX_SCENE_GEOMETRY_POINTS, PickColorRequest, PickedColorDto, Point, RecognizedTextDto,
+        Rect, SavedCaptureDto, ScrollingCaptureRequest, ScrollingCaptureResult, StrokeGeometry,
+        TextCopyResult, TextCopyStatus, TextRecognitionRequest,
     },
     error::SnaphubError,
     platform::{
@@ -1149,7 +1149,29 @@ fn validate_completion_request(request: &CompletionRequest) -> Result<(), Snaphu
             request.scene.version
         )));
     }
+    validate_scene_geometry(&request.scene)?;
     validate_selection(request.selection)
+}
+
+/// Checks the frontend-computed stroke geometry before any pixel is drawn.
+fn validate_scene_geometry(scene: &AnnotationScene) -> Result<(), SnaphubError> {
+    let mut total = 0_usize;
+    for geometry in scene
+        .elements
+        .iter()
+        .filter_map(Annotation::stroke_geometry)
+    {
+        geometry.validate().map_err(|reason| {
+            SnaphubError::Export(format!("Invalid annotation geometry: {reason}"))
+        })?;
+        total = total.saturating_add(geometry.point_count());
+        if total > MAX_SCENE_GEOMETRY_POINTS {
+            return Err(SnaphubError::Export(
+                "The annotations are too detailed to export. Simplify or remove some styled shapes.".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_selection(selection: Rect) -> Result<(), SnaphubError> {
@@ -1217,7 +1239,126 @@ fn render_output(
     Ok(output)
 }
 
+/// Draws a styled or rounded shape from the frontend's geometry: fill, then strokes, then dots.
+fn render_stroke_geometry(
+    canvas: &mut RgbaImage,
+    annotation: &Annotation,
+    geometry: &StrokeGeometry,
+    scale: f64,
+) {
+    let (color, fill, stroke_width, opacity) = match annotation {
+        Annotation::Line {
+            color,
+            stroke_width,
+            opacity,
+            ..
+        }
+        | Annotation::Arrow {
+            color,
+            stroke_width,
+            opacity,
+            ..
+        }
+        | Annotation::CurvedArrow {
+            color,
+            stroke_width,
+            opacity,
+            ..
+        } => (color, None, *stroke_width, *opacity),
+        Annotation::Rectangle {
+            color,
+            fill,
+            stroke_width,
+            opacity,
+            ..
+        }
+        | Annotation::Ellipse {
+            color,
+            fill,
+            stroke_width,
+            opacity,
+            ..
+        } => (color, Some(fill), *stroke_width, *opacity),
+        _ => return,
+    };
+    if let (Some(fill), Some(polygon)) = (fill, geometry.fill.as_ref())
+        && fill != "transparent"
+    {
+        fill_polygon(canvas, polygon, scale, parse_color(fill, opacity));
+    }
+    // Pattern fills sit under the outline: current colour at 35% opacity, half the outline weight.
+    if !geometry.fill_strokes.is_empty() || !geometry.fill_dots.is_empty() {
+        let pattern_pixel = parse_color(color, opacity * 0.35);
+        let pattern_width = (stroke_width / 2.0).max(1.0);
+        for stroke in &geometry.fill_strokes {
+            for pair in stroke.windows(2) {
+                draw_thick_line(
+                    canvas,
+                    pair[0],
+                    pair[1],
+                    pattern_width,
+                    scale,
+                    pattern_pixel,
+                );
+            }
+        }
+        let pattern_radius = non_negative_i32(f64::from(pattern_width) * scale / 2.0).max(1);
+        for dot in &geometry.fill_dots {
+            draw_filled_circle_mut(
+                canvas,
+                (
+                    non_negative_i32(dot.x * scale),
+                    non_negative_i32(dot.y * scale),
+                ),
+                pattern_radius,
+                pattern_pixel,
+            );
+        }
+    }
+    let pixel = parse_color(color, opacity);
+    for stroke in &geometry.strokes {
+        for pair in stroke.windows(2) {
+            draw_thick_line(canvas, pair[0], pair[1], stroke_width, scale, pixel);
+        }
+    }
+    let radius = non_negative_i32(f64::from(stroke_width) * scale / 2.0).max(1);
+    for dot in &geometry.dots {
+        draw_filled_circle_mut(
+            canvas,
+            (
+                non_negative_i32(dot.x * scale),
+                non_negative_i32(dot.y * scale),
+            ),
+            radius,
+            pixel,
+        );
+    }
+}
+
+fn fill_polygon(canvas: &mut RgbaImage, polygon: &[Point], scale: f64, pixel: Rgba<u8>) {
+    let mut points: Vec<imageproc::point::Point<i32>> = polygon
+        .iter()
+        .map(|point| {
+            imageproc::point::Point::new(
+                (point.x * scale).round() as i32,
+                (point.y * scale).round() as i32,
+            )
+        })
+        .collect();
+    points.dedup();
+    while points.len() > 1 && points.first() == points.last() {
+        points.pop();
+    }
+    if points.len() >= 3 {
+        draw_polygon_mut(canvas, &points, pixel);
+    }
+}
+
 fn render_annotation(canvas: &mut RgbaImage, annotation: &Annotation, scale: f64) {
+    if let Some(geometry) = annotation.stroke_geometry() {
+        render_stroke_geometry(canvas, annotation, geometry, scale);
+        return;
+    }
     match annotation {
         Annotation::Line {
             points,
@@ -1367,18 +1508,30 @@ fn render_annotation(canvas: &mut RgbaImage, annotation: &Annotation, scale: f64
             ..
         } => {
             if let Some(font) = system_font(font_family) {
-                draw_text_mut(
-                    canvas,
-                    parse_color(color, *opacity),
-                    non_negative_i32(position.x * scale),
-                    non_negative_i32(position.y * scale),
-                    (f64::from(*font_size) * scale) as f32,
-                    &font,
-                    text,
-                );
+                let color = parse_color(color, *opacity);
+                let pixel_size = (f64::from(*font_size) * scale) as f32;
+                for (index, line) in text.split('\n').enumerate() {
+                    draw_text_mut(
+                        canvas,
+                        color,
+                        non_negative_i32(position.x * scale),
+                        non_negative_i32(position.y * scale + text_line_offset(pixel_size, index)),
+                        pixel_size,
+                        &font,
+                        line,
+                    );
+                }
             }
         }
     }
+}
+
+/// Line height multiple shared with the TypeScript canvas (`TEXT_LINE_HEIGHT`).
+const TEXT_LINE_HEIGHT: f32 = 1.2;
+
+/// Vertical offset in output pixels of the zero-based text line `index`.
+fn text_line_offset(pixel_size: f32, index: usize) -> f64 {
+    f64::from(pixel_size * TEXT_LINE_HEIGHT) * index as f64
 }
 
 fn draw_thick_line(
@@ -2819,5 +2972,114 @@ mod tests {
         service.finalize_committed(&second_session).unwrap();
         assert_eq!(png_files(&directory.0).len(), 2);
         assert!(!has_partial_file(&directory.0));
+    }
+
+    fn annotation_from_json(raw: &str) -> Annotation {
+        serde_json::from_str(raw).expect("annotation JSON should parse")
+    }
+
+    fn scene_with(raw_elements: &[&str]) -> AnnotationScene {
+        AnnotationScene {
+            version: 1,
+            elements: raw_elements
+                .iter()
+                .map(|raw| annotation_from_json(raw))
+                .collect(),
+        }
+    }
+
+    const DASHED_RECT: &str = r##"{"id":"a","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":80,"height":40},"color":"#ff0000","fill":"transparent","strokeWidth":2,"strokeStyle":"dashed","strokeGeometry":{"strokes":[[{"x":10,"y":10},{"x":16,"y":10}],[{"x":20,"y":10},{"x":26,"y":10}]],"dots":[]}}"##;
+
+    #[test]
+    fn multi_line_text_steps_down_by_the_shared_line_height() {
+        assert_eq!(text_line_offset(20.0, 0), 0.0);
+        assert!((text_line_offset(20.0, 1) - 24.0).abs() < 1e-6);
+        assert!((text_line_offset(20.0, 2) - 48.0).abs() < 1e-6);
+        assert_eq!("one\ntwo".split('\n').count(), 2);
+    }
+
+    #[test]
+    fn dashed_geometry_leaves_gaps_between_dashes() {
+        let mut canvas = RgbaImage::from_pixel(100, 80, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation_from_json(DASHED_RECT), 1.0);
+        assert_eq!(canvas.get_pixel(13, 10).0[..3], [255, 0, 0]);
+        assert_eq!(canvas.get_pixel(23, 10).0[..3], [255, 0, 0]);
+        assert_eq!(canvas.get_pixel(18, 10).0[..3], [255, 255, 255]);
+        assert_eq!(canvas.get_pixel(50, 50).0[..3], [255, 255, 255]);
+    }
+
+    #[test]
+    fn dotted_geometry_stamps_discs() {
+        let raw = r##"{"id":"d","kind":"line","opacity":1,"points":[{"x":10,"y":10},{"x":60,"y":10}],"color":"#00ff00","strokeWidth":6,"strokeStyle":"dotted","strokeGeometry":{"strokes":[],"dots":[{"x":20,"y":20},{"x":40,"y":20}]}}"##;
+        let mut canvas = RgbaImage::from_pixel(100, 80, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation_from_json(raw), 1.0);
+        assert_eq!(canvas.get_pixel(20, 20).0[..3], [0, 255, 0]);
+        assert_eq!(canvas.get_pixel(30, 20).0[..3], [255, 255, 255]);
+        assert_eq!(canvas.get_pixel(20, 10).0[..3], [255, 255, 255]);
+    }
+
+    #[test]
+    fn rounded_geometry_cuts_the_corner_and_fills_the_inside() {
+        let raw = r##"{"id":"r","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":60,"height":40},"color":"#0000ff","fill":"#00ff00","strokeWidth":2,"cornerRadius":16,"strokeGeometry":{"strokes":[[{"x":26,"y":10},{"x":54,"y":10},{"x":70,"y":26},{"x":70,"y":34},{"x":54,"y":50},{"x":26,"y":50},{"x":10,"y":34},{"x":10,"y":26},{"x":26,"y":10}]],"dots":[],"fill":[{"x":26,"y":10},{"x":54,"y":10},{"x":70,"y":26},{"x":70,"y":34},{"x":54,"y":50},{"x":26,"y":50},{"x":10,"y":34},{"x":10,"y":26},{"x":26,"y":10}]}}"##;
+        let mut canvas = RgbaImage::from_pixel(100, 80, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation_from_json(raw), 1.0);
+        assert_eq!(canvas.get_pixel(40, 30).0[..3], [0, 255, 0]);
+        assert_eq!(canvas.get_pixel(11, 11).0[..3], [255, 255, 255]);
+    }
+
+    #[test]
+    fn hachure_fill_tints_pixels_under_the_outline_and_leaves_gaps() {
+        let raw = r##"{"id":"h","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":60,"height":40},"color":"#0000ff","fill":"transparent","strokeWidth":4,"fillStyle":"hachure","strokeGeometry":{"strokes":[[{"x":10,"y":10},{"x":70,"y":10},{"x":70,"y":50},{"x":10,"y":50},{"x":10,"y":10}]],"dots":[],"fillStrokes":[[{"x":20,"y":20},{"x":40,"y":20}]],"fillDots":[{"x":60,"y":40}]}}"##;
+        let mut canvas = RgbaImage::from_pixel(100, 80, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation_from_json(raw), 1.0);
+        let tinted = canvas.get_pixel(30, 20).0;
+        assert!(
+            tinted[0] < 255 && tinted[2] == 255,
+            "pattern is a light tint of the colour: {tinted:?}"
+        );
+        assert!(canvas.get_pixel(60, 40).0[0] < 255);
+        assert_eq!(canvas.get_pixel(30, 35).0[..3], [255, 255, 255]);
+        assert_eq!(canvas.get_pixel(40, 10).0[..3], [0, 0, 255]);
+    }
+
+    #[test]
+    fn scene_without_geometry_still_parses_and_renders_the_old_way() {
+        let raw = r##"{"id":"o","kind":"rectangle","opacity":1,"bounds":{"x":10,"y":10,"width":30,"height":20},"color":"#ff0000","fill":"transparent","strokeWidth":2}"##;
+        let annotation = annotation_from_json(raw);
+        assert!(annotation.stroke_geometry().is_none());
+        let mut canvas = RgbaImage::from_pixel(60, 60, Rgba([255, 255, 255, 255]));
+        render_annotation(&mut canvas, &annotation, 1.0);
+        assert_eq!(canvas.get_pixel(10, 15).0[..3], [255, 0, 0]);
+    }
+
+    #[test]
+    fn geometry_validation_accepts_normal_and_rejects_bad_input() {
+        assert!(validate_scene_geometry(&scene_with(&[DASHED_RECT])).is_ok());
+
+        let single_point = r##"{"id":"x","kind":"line","opacity":1,"points":[{"x":0,"y":0},{"x":1,"y":1}],"color":"#ffffff","strokeWidth":2,"strokeGeometry":{"strokes":[[{"x":0,"y":0}]],"dots":[]}}"##;
+        assert!(validate_scene_geometry(&scene_with(&[single_point])).is_err());
+
+        let mut scene = scene_with(&[DASHED_RECT]);
+        if let Annotation::Rectangle {
+            stroke_geometry: Some(geometry),
+            ..
+        } = &mut scene.elements[0]
+        {
+            geometry.strokes[0][0].x = f64::NAN;
+        }
+        assert!(validate_scene_geometry(&scene).is_err());
+    }
+
+    #[test]
+    fn geometry_validation_caps_total_points() {
+        let mut scene = scene_with(&[DASHED_RECT]);
+        if let Annotation::Rectangle {
+            stroke_geometry: Some(geometry),
+            ..
+        } = &mut scene.elements[0]
+        {
+            geometry.dots = vec![Point { x: 1.0, y: 1.0 }; MAX_SCENE_GEOMETRY_POINTS + 1];
+        }
+        assert!(validate_scene_geometry(&scene).is_err());
     }
 }

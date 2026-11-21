@@ -55,6 +55,7 @@ import { captureCursor } from "./lib/cursor";
 import { prefersReducedMotion } from "./lib/motion";
 import { eyedropperFormat } from "./lib/eyedropper";
 import { suggestRedactions, suggestRedactionsFromWeb } from "./lib/redactionPatterns";
+import { useSmartSelect } from "./lib/useSmartSelect";
 import { createVisualTargetDetector, type VisualTargetDetector } from "./lib/visualTargets";
 import {
   cancelCapture,
@@ -120,6 +121,9 @@ export function App(): React.JSX.Element {
   const [history, dispatchScene] = useReducer(sceneHistoryReducer, initialSceneHistory);
   const [notes, dispatchNotes] = useReducer(notesReducer, []);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  /** Escape deselects a selected annotation before it exits the capture. */
+  const annotationSelectedRef = useRef(false);
+  const [deselectToken, setDeselectToken] = useState(0);
   const [pinDrag, setPinDrag] = useState<{ counterId: string; position: Point } | null>(null);
   const [lookups, setLookups] = useState<Readonly<Record<string, NoteLookupStatus>>>({});
   const [developerTools, setDeveloperTools] = useState(false);
@@ -139,6 +143,13 @@ export function App(): React.JSX.Element {
   const [targets, setTargets] = useState<readonly DetectedTarget[]>([]);
   const [isDraftingSelection, setIsDraftingSelection] = useState(false);
   const [message, setMessage] = useState("Hover to preview targets / drag to draw a rectangle / I copies a colour");
+  const smartSelect = useSmartSelect({
+    session,
+    selection,
+    active: activeTool === "smart",
+    uiRegions: settings.detection.uiRegions,
+    windows: settings.detection.windows,
+  });
   const [scrollingCapture, setScrollingCapture] = useState<ScrollingCaptureState | null>(null);
   // The swatch shows only while its message is still the current one.
   const [pickedSwatch, setPickedSwatch] = useState<{ hex: string; message: string } | null>(null);
@@ -282,6 +293,10 @@ export function App(): React.JSX.Element {
           ...defaultAnnotationStyle,
           color: settingsRef.current.annotation.defaultColor,
           strokeWidth: settingsRef.current.annotation.defaultSize,
+          strokeStyle: settingsRef.current.annotation.strokeStyle,
+          cornerRadius: settingsRef.current.annotation.cornerRadius,
+          sketchLevel: settingsRef.current.annotation.sketchLevel,
+          fillStyle: settingsRef.current.annotation.fillStyle,
         });
         dispatchScene({ type: "reset" });
         dispatchNotes({ type: "reset" });
@@ -1160,8 +1175,14 @@ export function App(): React.JSX.Element {
       if (event.key === "Escape") {
         // The note popover owns Esc while it is open.
         if (editingNoteId !== null) return;
+        // The canvas text editor owns Esc while it is open: it commits and keeps the tool active.
+        if (event.target instanceof Element && event.target.closest("[data-text-editor]") !== null) return;
         event.preventDefault();
         event.stopPropagation();
+        if (annotationSelectedRef.current) {
+          setDeselectToken((token) => token + 1);
+          return;
+        }
         if (scrollingCapture !== null) {
           void closeScrollingCapture();
           return;
@@ -1316,7 +1337,7 @@ export function App(): React.JSX.Element {
           id: `tool-${toolId}`,
           label: tool.label,
           icon: tool.icon,
-          ...(tool.shortcut === undefined ? {} : { shortcut: tool.shortcut }),
+          ...((settings.toolbar.keys[toolId] ?? tool.shortcut) === undefined ? {} : { shortcut: settings.toolbar.keys[toolId] ?? tool.shortcut }),
           active: tool.annotationTool !== undefined && tool.annotationTool === activeTool,
           disabled: toolId === "undo" ? history.past.length === 0 : toolId === "redo" ? history.future.length === 0 : false,
           onSelect: () => runToolbarTool(toolId, {
@@ -1386,6 +1407,14 @@ export function App(): React.JSX.Element {
           onResizeStart={handleResizeStart}
         >
           <AnnotationCanvas
+            deselectToken={deselectToken}
+            smartTarget={smartSelect.target}
+            smartTargetId={smartSelect.targetId}
+            onSmartHover={smartSelect.hover}
+            onSmartMiss={() => setMessage("Nothing to snap to here. Drag to draw a box instead.")}
+            onSelectionActiveChange={(active) => {
+              annotationSelectedRef.current = active;
+            }}
             activeTool={activeTool}
             bounds={selection}
             cursor={activeCaptureCursor}
@@ -1402,6 +1431,7 @@ export function App(): React.JSX.Element {
             }}
             onDelete={(annotationId) => dispatchScene({ type: "delete", annotationId })}
             onUpdate={(annotation) => dispatchScene({ type: "update", annotation })}
+            onRestyle={(annotation, coalesceKey) => dispatchScene({ type: "update", annotation, coalesceKey })}
           />
           {activeNotes.filter((note) => note.id === editingNoteId).map((note) => (
             <NotePopover

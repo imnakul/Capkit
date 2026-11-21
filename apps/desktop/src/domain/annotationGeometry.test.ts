@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Annotation } from "./annotations";
-import { annotationBounds, isResizableAnnotation, resizeAnnotation } from "./annotationGeometry";
+import { annotationBounds, findEditableAnnotationAt, isResizableAnnotation, resizeAnnotation } from "./annotationGeometry";
 
 const rectangle: Annotation = {
   id: "rect",
@@ -61,5 +61,46 @@ describe("resizeAnnotation", () => {
     const text: Annotation = { id: "t", kind: "text", position: { x: 0, y: 0 }, text: "Hi", color: "#fff", fontFamily: "Inter", fontSize: 16, opacity: 1 };
     expect(isResizableAnnotation(text)).toBe(false);
     expect(resizeAnnotation(text, "se", 40, 40)).toBe(text);
+  });
+});
+
+describe("findEditableAnnotationAt", () => {
+  const frame: Annotation = { id: "frame", kind: "rectangle", bounds: { x: 100, y: 100, width: 200, height: 120 }, color: "#fff", fill: "transparent", strokeWidth: 4, opacity: 1 };
+  const filled: Annotation = { ...frame, id: "filled", fill: "#ff0000" };
+  const line: Annotation = { id: "line", kind: "line", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }], color: "#fff", strokeWidth: 2, opacity: 1 };
+
+  it("matches an unfilled rectangle only on its outline", () => {
+    expect(findEditableAnnotationAt([frame], { x: 100, y: 160 })?.id).toBe("frame");
+    expect(findEditableAnnotationAt([frame], { x: 104, y: 160 })?.id).toBe("frame");
+    expect(findEditableAnnotationAt([frame], { x: 200, y: 160 })).toBeUndefined();
+    expect(findEditableAnnotationAt([frame], { x: 60, y: 160 })).toBeUndefined();
+  });
+
+  it("treats a pattern fill like a filled shape, and fillStyle none like an unfilled one", () => {
+    const hatched: Annotation = { ...frame, id: "hatched", fillStyle: "hachure" };
+    expect(findEditableAnnotationAt([hatched], { x: 200, y: 160 })?.id).toBe("hatched");
+    const cleared: Annotation = { ...filled, id: "cleared", fillStyle: "none" };
+    expect(findEditableAnnotationAt([cleared], { x: 200, y: 160 })).toBeUndefined();
+  });
+
+  it("matches a filled shape anywhere inside, plus 4 px", () => {
+    expect(findEditableAnnotationAt([filled], { x: 200, y: 160 })?.id).toBe("filled");
+    expect(findEditableAnnotationAt([filled], { x: 96, y: 160 })?.id).toBe("filled");
+    expect(findEditableAnnotationAt([filled], { x: 90, y: 160 })).toBeUndefined();
+  });
+
+  it("matches an unfilled ellipse on its outline only", () => {
+    const ellipse: Annotation = { ...frame, id: "ellipse", kind: "ellipse" };
+    expect(findEditableAnnotationAt([ellipse], { x: 100, y: 160 })?.id).toBe("ellipse");
+    expect(findEditableAnnotationAt([ellipse], { x: 200, y: 160 })).toBeUndefined();
+  });
+
+  it("matches lines by distance to the polyline", () => {
+    expect(findEditableAnnotationAt([line], { x: 50, y: 6 })?.id).toBe("line");
+    expect(findEditableAnnotationAt([line], { x: 50, y: 30 })).toBeUndefined();
+  });
+
+  it("returns the topmost hit", () => {
+    expect(findEditableAnnotationAt([filled, line, { ...filled, id: "top" }], { x: 200, y: 160 })?.id).toBe("top");
   });
 });

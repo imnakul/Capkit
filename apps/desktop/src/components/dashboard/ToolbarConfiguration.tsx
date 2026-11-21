@@ -23,6 +23,8 @@ import {
 type ToolbarConfigurationProps = {
   toolbar: SnaphubSettings["toolbar"];
   onChange: (toolbar: SnaphubSettings["toolbar"]) => void;
+  /** Keys the capture screen already uses (Select, Copy, Save…), so a tool can't take them. */
+  reservedKeys?: readonly string[];
 };
 
 type DropTarget = { row: number; index: number };
@@ -40,7 +42,17 @@ type DropDestination = { kind: "row"; row: number; index: number } | { kind: "av
 export function ToolbarConfiguration({
   toolbar,
   onChange,
+  reservedKeys = ["V"],
 }: ToolbarConfigurationProps): React.JSX.Element {
+  const keyedTools: CaptureToolbarToolId[] = toolbar.mode === "group"
+    ? [...new Set(toolbar.groups.flat())]
+    : captureToolbarToolIds.filter((toolId) => toolbar.individual[toolId]);
+
+  function setToolKey(toolId: CaptureToolbarToolId, key: string | null): void {
+    const others = Object.fromEntries(Object.entries(toolbar.keys).filter(([id]) => id !== toolId));
+    onChange({ ...toolbar, keys: key === null ? others : { ...others, [toolId]: key } });
+  }
+
   const [dragging, setDragging] = useState<PointerDrag | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
@@ -301,6 +313,24 @@ export function ToolbarConfiguration({
       )}
 
       <div className="mt-6 border-t border-content/10 pt-4">
+        <p className="text-[13px] font-semibold text-content">Tool keys</p>
+        <p className="mt-1 max-w-lg text-[12px] leading-4 text-content/60">
+          Give a tool its own letter or number. Tools left on Auto use 1–9 and 0 in toolbar order. Click a field, then press a key; Backspace returns it to Auto.
+        </p>
+        <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          {keyedTools.map((toolId) => {
+            const tool = getToolbarTool(toolId);
+            const taken = (key: string): string | null => {
+              if (reservedKeys.some((reserved) => reserved.toUpperCase() === key)) return "Used by the capture screen";
+              const other = keyedTools.find((candidate) => candidate !== toolId && toolbar.keys[candidate] === key);
+              return other === undefined ? null : `Used by ${getToolbarTool(other).label}`;
+            };
+            return <ToolKeyField key={toolId} label={tool.label} icon={tool.icon} value={toolbar.keys[toolId] ?? null} validate={taken} onChange={(key) => setToolKey(toolId, key)} />;
+          })}
+        </div>
+      </div>
+
+      <div className="mt-6 border-t border-content/10 pt-4">
         <p className="text-[13px] font-semibold text-content">Finishing actions</p>
         <p className="mt-1 max-w-lg text-[12px] leading-4 text-content/60">
           Choose which actions appear and which toolbar holds them. Copy, Save and Copy &amp; Save keep their keyboard shortcuts even when hidden.
@@ -323,6 +353,58 @@ export function ToolbarConfiguration({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+type ToolKeyFieldProps = {
+  label: string;
+  icon: CapkitIconComponent;
+  value: string | null;
+  /** Returns why a key can't be used, or null when it is free. */
+  validate: (key: string) => string | null;
+  onChange: (key: string | null) => void;
+};
+
+function ToolKeyField({ label, icon: Icon, value, validate, onChange }: ToolKeyFieldProps): React.JSX.Element {
+  const [problem, setProblem] = useState<string | null>(null);
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
+    if (event.key === "Tab" || event.key === "Escape" || event.ctrlKey || event.altKey || event.metaKey) return;
+    event.preventDefault();
+    if (event.key === "Backspace" || event.key === "Delete") {
+      setProblem(null);
+      onChange(null);
+      return;
+    }
+    const key = event.key.toUpperCase();
+    if (!/^[A-Z0-9]$/.test(key)) {
+      setProblem("Use a letter or number");
+      return;
+    }
+    const reason = validate(key);
+    setProblem(reason);
+    if (reason === null) onChange(key);
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-content/8 py-2 last:border-b-0">
+      <span className="flex min-w-0 items-center gap-2 text-[13px] text-content">
+        <Icon aria-hidden="true" className="shrink-0 text-content/60" size={16} />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {problem === null ? null : <span className="text-[11px] text-red-500" role="status">{problem}</span>}
+        <button
+          aria-label={`${label} key`}
+          className="h-7 min-w-14 rounded-md border border-content/15 bg-content/4 px-2 text-center font-mono text-[12px] text-content outline-none transition-colors duration-150 hover:bg-content/8 focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
+          type="button"
+          onBlur={() => setProblem(null)}
+          onKeyDown={handleKeyDown}
+        >
+          {value ?? "Auto"}
+        </button>
+      </span>
     </div>
   );
 }

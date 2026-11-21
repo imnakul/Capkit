@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { z } from "zod";
+import { FILL_STYLES, SKETCH_LEVELS, STROKE_STYLES, type FillStyle, type SketchLevel, type StrokeStyle } from "./strokeGeometry";
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const shapeDefaultSchema = z.enum([
@@ -68,6 +69,7 @@ export const defaultOnScreenSettings = {
 
 export const captureToolbarToolIds = [
   "rectangle",
+  "smart",
   "ellipse",
   "line",
   "arrow",
@@ -87,10 +89,12 @@ export const captureToolbarToolIds = [
 ] as const;
 
 const captureToolbarToolIdSchema = z.enum(captureToolbarToolIds);
+const toolKeySchema = z.string().regex(/^[A-Z0-9]$/);
 export type CaptureToolbarToolId = z.infer<typeof captureToolbarToolIdSchema>;
 
 export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
   rectangle: true,
+  smart: true,
   ellipse: true,
   line: true,
   arrow: true,
@@ -110,7 +114,7 @@ export const defaultToolbarIndividual: Record<CaptureToolbarToolId, boolean> = {
 };
 
 export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
-  ["rectangle", "ellipse", "line", "arrow", "curved-arrow"],
+  ["smart", "rectangle", "ellipse", "line", "arrow", "curved-arrow"],
   ["highlighter", "pencil", "text"],
   ["blur", "spotlight", "pixelate", "blackout"],
   ["counter", "note", "scrolling-capture"],
@@ -119,6 +123,7 @@ export const defaultToolbarGroups: CaptureToolbarToolId[][] = [
 
 const toolbarIndividualSchema = z.object({
   rectangle: z.boolean(),
+  smart: z.boolean().default(true),
   ellipse: z.boolean(),
   line: z.boolean(),
   arrow: z.boolean(),
@@ -187,6 +192,14 @@ export const snaphubSettingsSchema = z.object({
   annotation: z.object({
     defaultColor: hexColorSchema,
     defaultSize: z.number().int().min(1).max(24),
+    /** Starting line style for each capture; changing it in the strip is session-only. */
+    strokeStyle: z.enum(STROKE_STYLES as [StrokeStyle, ...StrokeStyle[]]).default("solid"),
+    /** Starting rectangle corner radius in px (0 = square). */
+    cornerRadius: z.number().int().min(0).max(48).default(0),
+    /** Starting sketch level, used when the line style is sketchy. */
+    sketchLevel: z.enum(SKETCH_LEVELS as [SketchLevel, ...SketchLevel[]]).default("loose"),
+    /** Starting fill style for new rectangles and ellipses. */
+    fillStyle: z.enum(FILL_STYLES as [FillStyle, ...FillStyle[]]).default("none"),
   }),
   accentColor: hexColorSchema,
   appearance: z.enum(["light", "dark"]).default("light"),
@@ -207,6 +220,8 @@ export const snaphubSettingsSchema = z.object({
     actions: toolbarActionsSchema.default(defaultToolbarActions),
     /** Individual-mode editing tools moved into the vertical rail. */
     verticalTools: z.array(captureToolbarToolIdSchema).max(16).default([]),
+    /** Optional own key per tool (one letter or digit, uppercase); tools without one use 1-9, 0 by position. */
+    keys: z.partialRecord(captureToolbarToolIdSchema, toolKeySchema).default({}),
   }),
   shortcuts: z.object({
     capture: z.string().min(1).max(64),
@@ -290,7 +305,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
   version: 1,
   palette: ["#d9ff43", "#ff5b4d", "#60a5fa", "#ffffff", "#171717"],
   customColors: [],
-  annotation: { defaultColor: "#d9ff43", defaultSize: 4 },
+  annotation: { defaultColor: "#d9ff43", defaultSize: 4, strokeStyle: "solid", cornerRadius: 0, sketchLevel: "loose", fillStyle: "none" },
   accentColor: "#d9ff43",
   appearance: "light",
   glassStrength: 50,
@@ -307,6 +322,7 @@ export const defaultSnaphubSettings: SnaphubSettings = {
     groups: defaultToolbarGroups,
     actions: defaultToolbarActions,
     verticalTools: [],
+    keys: {},
   },
   shortcuts: {
     capture: "Alt+Shift+S",
@@ -373,7 +389,7 @@ export function captureModeShortcutConflict(
 }
 
 export function parsePersistedSnaphubSettings(value: unknown): SnaphubSettings | null {
-  const migrated = migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value));
+  const migrated = migratePersistedSmartTool(migratePersistedNoteTool(migratePersistedCaptureModeShortcuts(value)));
   const parsed = snaphubSettingsSchema.safeParse(migrated);
   return parsed.success ? parsed.data : null;
 }
@@ -416,6 +432,34 @@ export function migratePersistedNoteTool(value: unknown): unknown {
     toolbar: {
       ...toolbar,
       individual: { ...toolbar.individual, note: true },
+      ...(nextGroups === undefined ? {} : { groups: nextGroups }),
+      ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
+    },
+  };
+}
+
+/**
+ * Toolbars saved before Smart select existed never list it. A saved `toolbar.individual` without a
+ * `smart` key marks such a toolbar: Smart select is added once, right after Rectangle.
+ */
+export function migratePersistedSmartTool(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.toolbar)) return value;
+  const toolbar = value.toolbar;
+  if (!isRecord(toolbar.individual) || "smart" in toolbar.individual) return value;
+  const insertSmart = (tools: unknown[]): unknown[] => {
+    if (tools.includes("smart")) return tools;
+    const rectangle = tools.indexOf("rectangle");
+    return rectangle === -1 ? tools : [...tools.slice(0, rectangle + 1), "smart", ...tools.slice(rectangle + 1)];
+  };
+  const groups: unknown[] | undefined = Array.isArray(toolbar.groups) ? toolbar.groups : undefined;
+  const nextGroups = groups?.map((group: unknown): unknown => (Array.isArray(group) && group.length < 16 ? insertSmart(group) : group));
+  const vertical: unknown[] | undefined = Array.isArray(toolbar.verticalTools) ? toolbar.verticalTools : undefined;
+  const nextVertical = vertical !== undefined && vertical.length < 16 ? insertSmart(vertical) : vertical;
+  return {
+    ...value,
+    toolbar: {
+      ...toolbar,
+      individual: { ...toolbar.individual, smart: true },
       ...(nextGroups === undefined ? {} : { groups: nextGroups }),
       ...(nextVertical === undefined ? {} : { verticalTools: nextVertical }),
     },

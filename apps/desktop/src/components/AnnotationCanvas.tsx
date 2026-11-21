@@ -1,5 +1,7 @@
+import { changedStyleKeys, restyleAnnotation } from "../domain/restyle";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { measureTextBlock, TEXT_LINE_HEIGHT } from "../domain/textMetrics";
+import { Arrow, Circle, Ellipse, Group, Layer, Line, Rect, Shape, Stage, Text } from "react-konva";
 import type {
   Annotation,
   AnnotationScene,
@@ -11,11 +13,22 @@ import type {
 import {
   annotationBounds,
   findAnnotationAtPoint,
+  findEditableAnnotationAt,
   isResizableAnnotation,
   resizeAnnotation,
   translateAnnotation,
 } from "../domain/annotationGeometry";
+import { smartAnnotationBounds } from "../domain/smartSelect";
 import { Cancel } from "./icons";
+import {
+  FILL_PATTERN_OPACITY,
+  effectiveFillStyle,
+  fillPatternWeight,
+  needsStrokeGeometry,
+  newSketchSeed,
+  shapeStrokeGeometry,
+  type StrokeGeometryInput,
+} from "../domain/strokeGeometry";
 import type { Point, Rect as CaptureRect } from "../domain/capture";
 import { normalizeRect, type ResizeHandle } from "../lib/geometry";
 
@@ -57,6 +70,8 @@ type AnnotationCanvasProps = {
   cursor: string;
   onCommit: (annotation: Annotation) => void;
   onUpdate: (annotation: Annotation) => void;
+  /** A strip change restyled the selected annotation; the key lets a slider drag collapse into one undo step. */
+  onRestyle?: (annotation: Annotation, coalesceKey: string) => void;
   onDelete: (annotationId: string) => void;
   /** Pin colour for the Note tool (the accent colour). */
   noteColor?: string;
@@ -66,7 +81,38 @@ type AnnotationCanvasProps = {
   onPinSelect?: (annotationId: string) => void;
   /** A pin's live position while Select drags it, then null on release, so its comment can follow. */
   onPinDrag?: (annotationId: string, position: Point | null) => void;
+  /** Reports whether an annotation is selected, so Escape can deselect before it exits the capture. */
+  onSelectionActiveChange?: (active: boolean) => void;
+  /** Bump to deselect the current annotation (the app's Escape handler). */
+  deselectToken?: number;
+  /** Smart select: the detected box under the pointer, in canvas coordinates. */
+  smartTarget?: CaptureRect | null;
+  /** Changes only when the Smart select candidate does; restarts the ghost fade-in. */
+  smartTargetId?: string | null;
+  onSmartHover?: (point: Point | null) => void;
+  /** A Smart select click found nothing to snap to. */
+  onSmartMiss?: () => void;
 };
+
+/** Drawing tools that still let a press on an existing annotation select and move it. */
+const EDIT_IN_TOOL_TOOLS: readonly ToolId[] = [
+  "arrow",
+  "curved-arrow",
+  "line",
+  "rectangle",
+  "smart",
+  "ellipse",
+  "highlighter",
+  "pencil",
+  "spotlight",
+  "counter",
+  "blur",
+  "pixelate",
+  "blackout",
+];
+
+/** A press must travel further than this (px) before it moves the annotation instead of just selecting it. */
+const DRAG_SLOP = 3;
 
 /** A press that moves less than this (px) places a point note; further drags an area note. */
 const noteAreaThreshold = 6;
@@ -82,11 +128,18 @@ export function AnnotationCanvas({
   cursor,
   onCommit,
   onUpdate,
+  onRestyle,
   onDelete,
   noteColor = "#d9ff43",
   onNotePlace,
   onPinSelect,
   onPinDrag,
+  onSelectionActiveChange,
+  deselectToken = 0,
+  smartTarget = null,
+  smartTargetId = null,
+  onSmartHover,
+  onSmartMiss,
 }: AnnotationCanvasProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -95,12 +148,42 @@ export function AnnotationCanvas({
   const [movingAnnotation, setMovingAnnotation] = useState<{ initial: Annotation; current: Annotation } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  /** A text box created by a click but not yet committed; it enters the scene (and undo) only with content. */
+  const [pendingText, setPendingText] = useState<TextAnnotation | null>(null);
   const editingTextIdRef = useRef<string | null>(null);
+  const finishEditRef = useRef<() => void>(() => undefined);
   const editingValueRef = useRef("");
   const draftRef = useRef<Draft | null>(null);
   const draftFrameRequest = useRef<number | null>(null);
   // `handle` is null while moving and names the dragged handle while resizing.
-  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null } | null>(null);
+  // `slop` is set when a drawing tool picked the annotation up: nothing moves until the press travels past it.
+  const movingAnnotationRef = useRef<{ initial: Annotation; current: Annotation; start: Point; handle: ResizeHandle | null; slop?: number; engaged?: boolean } | null>(null);
+  const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
+  const hoverFrameRequest = useRef<number | null>(null);
+  const hoverPointRef = useRef<Point | null>(null);
+  const previousStyleRef = useRef(style);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const selectedAnnotationIdRef = useRef(selectedAnnotationId);
+  selectedAnnotationIdRef.current = selectedAnnotationId;
+  const onRestyleRef = useRef(onRestyle ?? ((annotation: Annotation): void => onUpdate(annotation)));
+  onRestyleRef.current = onRestyle ?? ((annotation: Annotation): void => onUpdate(annotation));
+
+  // Changing the strip while a drawn annotation is selected restyles it, not just the next one drawn.
+  useEffect(() => {
+    const keys = changedStyleKeys(previousStyleRef.current, style);
+    previousStyleRef.current = style;
+    const selectedId = selectedAnnotationIdRef.current;
+    if (keys.length === 0 || selectedId === null) return;
+    const target = sceneRef.current.elements.find((element) => element.id === selectedId);
+    if (target === undefined) return;
+    const restyled = restyleAnnotation(target, style, keys);
+    if (restyled !== null) onRestyleRef.current(restyled, `${selectedId}:${keys.join(",")}`);
+  }, [style]);
+
+  const editInTool = EDIT_IN_TOOL_TOOLS.includes(activeTool);
+  // Smart select draws a plain rectangle when dragged; a click snaps to the detected box instead.
+  const drawTool: ToolId = activeTool === "smart" ? "rectangle" : activeTool;
 
   const displayedElements = useMemo<readonly Annotation[]>(() => {
     if (movingAnnotation === null) return scene.elements;
@@ -121,8 +204,8 @@ export function AnnotationCanvas({
         opacity: 1,
       };
     }
-    return createAnnotation(activeTool, draft.start, draft.end, style, scene, draft.id, draft.points);
-  }, [activeTool, draft, noteColor, scene, style]);
+    return createAnnotation(drawTool, draft.start, draft.end, style, scene, draft.id, draft.points);
+  }, [drawTool, activeTool, draft, noteColor, scene, style]);
 
   function relativePoint(event: React.PointerEvent<HTMLDivElement>): Point {
     const host = containerRef.current?.getBoundingClientRect();
@@ -136,6 +219,18 @@ export function AnnotationCanvas({
     draftFrameRequest.current = window.requestAnimationFrame((): void => {
       draftFrameRequest.current = null;
       setDraft(draftRef.current);
+    });
+  }
+
+  /** Hit-tests at most once per animation frame while the pointer hovers with a drawing tool active. */
+  function scheduleHover(point: Point, altHeld: boolean): void {
+    hoverPointRef.current = altHeld ? null : point;
+    if (hoverFrameRequest.current !== null) return;
+    hoverFrameRequest.current = window.requestAnimationFrame((): void => {
+      hoverFrameRequest.current = null;
+      const target = hoverPointRef.current;
+      const hit = target === null ? undefined : findEditableAnnotationAt(scene.elements, target);
+      setHoveredAnnotationId(hit?.id ?? null);
     });
   }
 
@@ -172,24 +267,42 @@ export function AnnotationCanvas({
     if ("setPointerCapture" in event.currentTarget) {
       event.currentTarget.setPointerCapture(event.pointerId);
     }
-    if (activeTool === "counter" || activeTool === "text") {
-      if (activeTool === "text") finishActiveTextEdit();
-      const annotation = createAnnotation(activeTool, point, point, style, scene);
-      if (annotation !== null) {
-        onCommit(annotation);
-        if (annotation.kind === "text") {
-          setSelectedTextId(annotation.id);
-          setSelectedAnnotationId(annotation.id);
-          setEditingTextId(null);
-          editingTextIdRef.current = null;
+    if (editInTool && !event.altKey) {
+      const hit = findEditableAnnotationAt(scene.elements, point);
+      if (hit !== undefined) {
+        finishActiveTextEdit();
+        setHoveredAnnotationId(null);
+        setSelectedAnnotationId(hit.id);
+        setSelectedTextId(hit.kind === "text" ? hit.id : null);
+        if (hit.kind === "counter" && onPinSelect !== undefined) {
+          event.preventDefault();
+          onPinSelect(hit.id);
         }
+        movingAnnotationRef.current = { initial: hit, current: hit, start: point, handle: null, slop: DRAG_SLOP, engaged: false };
+        setMovingAnnotation({ initial: hit, current: hit });
+        return;
+      }
+    }
+    if (activeTool === "text" && editingTextIdRef.current !== null) {
+      // Clicking away only commits; it never starts a second box.
+      finishActiveTextEdit();
+      return;
+    }
+    if (activeTool === "counter" || activeTool === "text") {
+      const annotation = createAnnotation(activeTool, point, point, style, scene);
+      if (annotation === null) return;
+      if (annotation.kind === "text") {
+        setPendingText(annotation);
+        setSelectedTextId(null);
+        beginTextEdit(annotation, "");
+      } else {
+        onCommit(annotation);
       }
       return;
     }
+    finishActiveTextEdit();
     setSelectedTextId(null);
     setSelectedAnnotationId(null);
-    setEditingTextId(null);
-    editingTextIdRef.current = null;
     const nextDraft = { id: crypto.randomUUID(), start: point, end: point, points: [point] };
     draftRef.current = nextDraft;
     setDraft(nextDraft);
@@ -220,6 +333,10 @@ export function AnnotationCanvas({
       const point = relativePoint(event);
       const dx = point.x - moving.start.x;
       const dy = point.y - moving.start.y;
+      if (moving.slop !== undefined && moving.engaged !== true) {
+        if (Math.hypot(dx, dy) <= moving.slop) return;
+        moving.engaged = true;
+      }
       const current = moving.handle === null
         ? translateAnnotation(moving.initial, dx, dy)
         : resizeAnnotation(moving.initial, moving.handle, dx, dy);
@@ -229,7 +346,11 @@ export function AnnotationCanvas({
       return;
     }
     const current = draftRef.current;
-    if (current === null) return;
+    if (current === null) {
+      if (editInTool && event.buttons === 0) scheduleHover(relativePoint(event), event.altKey);
+      if (activeTool === "smart" && event.buttons === 0) onSmartHover?.(relativePoint(event));
+      return;
+    }
     if ((event.buttons & 1) === 0) {
       handlePointerUp(event);
       return;
@@ -248,7 +369,9 @@ export function AnnotationCanvas({
     const moving = movingAnnotationRef.current;
     if (moving !== null) {
       event.stopPropagation();
-      onUpdate(moving.current);
+      // A drawing-tool press that never left the slop only selected the annotation.
+      const wasClick = moving.slop !== undefined && moving.engaged !== true;
+      if (!wasClick) onUpdate(moving.current);
       if (moving.current.kind === "counter") onPinDrag?.(moving.current.id, null);
       movingAnnotationRef.current = null;
       setMovingAnnotation(null);
@@ -283,8 +406,27 @@ export function AnnotationCanvas({
       );
       return;
     }
+    const releasePoint = relativePoint(event);
+    if (activeTool === "smart" && Math.hypot(releasePoint.x - current.start.x, releasePoint.y - current.start.y) <= DRAG_SLOP) {
+      draftRef.current = null;
+      setDraft(null);
+      if (smartTarget === null) {
+        onSmartMiss?.();
+        return;
+      }
+      const box = smartAnnotationBounds(smartTarget, { width: bounds.width, height: bounds.height }, event.altKey);
+      const snapped = createAnnotation(
+        event.altKey ? "ellipse" : "rectangle",
+        { x: box.x, y: box.y },
+        { x: box.x + box.width, y: box.y + box.height },
+        style,
+        scene,
+      );
+      if (snapped !== null) onCommit(snapped);
+      return;
+    }
     const annotation = createAnnotation(
-      activeTool,
+      drawTool,
       current.start,
       relativePoint(event),
       style,
@@ -297,13 +439,32 @@ export function AnnotationCanvas({
     if (annotation !== null) onCommit(annotation);
   }
 
-  useEffect(() => (): void => clearDraftFrame(), []);
+  useEffect(
+    () => (): void => {
+      clearDraftFrame();
+      if (hoverFrameRequest.current !== null) window.cancelAnimationFrame(hoverFrameRequest.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setHoveredAnnotationId(null);
+  }, [activeTool]);
+
+  useEffect(() => {
+    onSelectionActiveChange?.(selectedAnnotationId !== null);
+  }, [onSelectionActiveChange, selectedAnnotationId]);
+
+  useEffect(() => {
+    if (deselectToken === 0) return;
+    setSelectedAnnotationId(null);
+    setSelectedTextId(null);
+  }, [deselectToken]);
 
   useEffect(() => {
     if (activeTool !== "text") {
+      finishEditRef.current();
       setSelectedTextId(null);
-      setEditingTextId(null);
-      editingTextIdRef.current = null;
     }
   }, [activeTool]);
 
@@ -323,46 +484,72 @@ export function AnnotationCanvas({
   function selectText(annotation: Extract<Annotation, { kind: "text" }>): void {
     setSelectedAnnotationId(annotation.id);
     if (selectedTextId === annotation.id) {
-      setEditingTextId(annotation.id);
-      editingTextIdRef.current = annotation.id;
-      const initialValue = annotation.text === "Type something" ? "" : annotation.text;
-      editingValueRef.current = initialValue;
-      setEditingValue(initialValue);
+      beginTextEdit(annotation, annotation.text);
       return;
     }
     setSelectedTextId(annotation.id);
     setEditingTextId(null);
   }
 
-  function commitTextEdit(annotation: Extract<Annotation, { kind: "text" }>): void {
+  function beginTextEdit(annotation: TextAnnotation, initialValue: string): void {
+    setSelectedAnnotationId(annotation.id);
+    setEditingTextId(annotation.id);
+    editingTextIdRef.current = annotation.id;
+    editingValueRef.current = initialValue;
+    setEditingValue(initialValue);
+  }
+
+  /** Commits the open edit: empty text is dropped (no undo entry for a new box), otherwise it is saved. */
+  function commitTextEdit(annotation: TextAnnotation): void {
     if (editingTextIdRef.current !== annotation.id) return;
     const currentValue = editingValueRef.current;
     editingTextIdRef.current = null;
-    const nextText = currentValue.trim() === "" ? "Type something" : currentValue;
-    if (nextText !== annotation.text) onUpdate({ ...annotation, text: nextText });
     setEditingTextId(null);
+    const isEmpty = currentValue.trim() === "";
+    if (pendingText?.id === annotation.id) {
+      setPendingText(null);
+      if (isEmpty) {
+        setSelectedAnnotationId(null);
+      } else {
+        onCommit({ ...annotation, text: currentValue });
+        setSelectedTextId(annotation.id);
+        setSelectedAnnotationId(annotation.id);
+      }
+    } else if (isEmpty) {
+      onDelete(annotation.id);
+      setSelectedTextId(null);
+      setSelectedAnnotationId(null);
+    } else if (currentValue !== annotation.text) {
+      onUpdate({ ...annotation, text: currentValue });
+    }
+    containerRef.current?.focus({ preventScroll: true });
   }
 
   function finishActiveTextEdit(): void {
     const activeId = editingTextIdRef.current;
     if (activeId === null) return;
-    const annotation = scene.elements.find(
-      (element): element is Extract<Annotation, { kind: "text" }> =>
-        element.kind === "text" && element.id === activeId,
-    );
+    const annotation =
+      pendingText?.id === activeId
+        ? pendingText
+        : scene.elements.find((element): element is TextAnnotation => element.kind === "text" && element.id === activeId);
     if (annotation !== undefined) commitTextEdit(annotation);
   }
+  finishEditRef.current = finishActiveTextEdit;
 
   return (
     <div
       className="absolute inset-0 touch-none overflow-hidden"
       ref={containerRef}
       role="application"
+      tabIndex={-1}
       aria-label="Screenshot annotation canvas"
-      style={{ cursor }}
+      style={{ cursor: hoveredAnnotationId === null ? cursor : "move" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerCancel={handlePointerUp}
+      onPointerLeave={() => {
+        if (activeTool === "smart") onSmartHover?.(null);
+      }}
       onPointerUp={handlePointerUp}
     >
       <EffectPreviewLayer
@@ -376,11 +563,16 @@ export function AnnotationCanvas({
           {preview === null ? null : renderAnnotation(preview)}
         </Layer>
       </Stage>
-      {displayedElements.filter(isTextAnnotation).map((annotation) => {
+      {[...displayedElements.filter(isTextAnnotation), ...(pendingText === null ? [] : [pendingText])].map((annotation) => {
         const selected = selectedTextId === annotation.id;
         const editing = editingTextId === annotation.id;
-        const estimatedWidth = Math.max(92, annotation.text.length * annotation.fontSize * 0.54);
-        const estimatedHeight = annotation.fontSize * 1.35;
+        const measured = measureTextBlock(
+          editing ? editingValue || TEXT_PLACEHOLDER : annotation.text,
+          annotation.fontSize,
+          annotation.fontFamily,
+        );
+        const estimatedWidth = measured.width + (editing ? 6 : 0);
+        const estimatedHeight = measured.height;
         return (
           <div
             className="absolute z-20"
@@ -397,11 +589,15 @@ export function AnnotationCanvas({
               <textarea
                 aria-label="Edit annotation text"
                 autoFocus
-                className="h-full w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-left leading-none outline-none ring-1 ring-lime-300/75"
+                data-text-editor="true"
+                className="h-full w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-left outline-none ring-1 ring-lime-300/75 placeholder:text-current placeholder:opacity-45"
+                placeholder={TEXT_PLACEHOLDER}
+                rows={1}
                 style={{
                   color: annotation.color,
                   fontFamily: annotation.fontFamily,
                   fontSize: annotation.fontSize,
+                  lineHeight: TEXT_LINE_HEIGHT,
                 }}
                 value={editingValue}
                 onBlur={() => commitTextEdit(annotation)}
@@ -416,8 +612,7 @@ export function AnnotationCanvas({
                     commitTextEdit(annotation);
                   } else if (event.key === "Escape") {
                     event.preventDefault();
-                    setEditingTextId(null);
-                    editingTextIdRef.current = null;
+                    commitTextEdit(annotation);
                   }
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
@@ -428,6 +623,7 @@ export function AnnotationCanvas({
                 className={`h-full w-full border bg-transparent outline-none ${selected ? "border-dashed border-lime-300/80" : "border border-transparent"}`}
                 type="button"
                 onClick={() => selectText(annotation)}
+                onDoubleClick={() => beginTextEdit(annotation, annotation.text)}
                 onPointerDown={(event) => {
                   if (activeTool !== "select") event.stopPropagation();
                 }}
@@ -452,6 +648,29 @@ export function AnnotationCanvas({
           </div>
         );
       })}
+      {activeTool === "smart" && smartTarget !== null && draft === null && movingAnnotation === null ? (
+        <div
+          aria-hidden="true"
+          className="smart-ghost pointer-events-none absolute left-0 top-0 z-20 border-2 border-lime-300 shadow-[0_0_0_1px_rgba(0,0,0,0.55)]"
+          data-smart-target={smartTargetId ?? undefined}
+          data-testid="smart-ghost"
+          style={{ transform: `translate(${String(smartTarget.x)}px, ${String(smartTarget.y)}px)`, width: smartTarget.width, height: smartTarget.height }}
+        />
+      ) : null}
+      {((): React.JSX.Element | null => {
+        if (hoveredAnnotationId === null || hoveredAnnotationId === selectedAnnotationId || draft !== null) return null;
+        const hovered = displayedElements.find((element) => element.id === hoveredAnnotationId);
+        if (hovered === undefined) return null;
+        const hoverBounds = annotationBounds(hovered);
+        return (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute z-20 border border-lime-300/60"
+            data-testid="annotation-hover-outline"
+            style={{ left: hoverBounds.x, top: hoverBounds.y, width: hoverBounds.width, height: hoverBounds.height }}
+          />
+        );
+      })()}
       {selectedAnnotationId === null || draft !== null ? null : ((): React.JSX.Element | null => {
         const selected = displayedElements.find((element) => element.id === selectedAnnotationId);
         if (selected === undefined || selected.kind === "text") return null;
@@ -494,7 +713,132 @@ const SceneElements = memo(function SceneElements({
   return <>{elements.map(renderAnnotation)}</>;
 });
 
+/** Draws styled (dashed, dotted, sketchy) and rounded shapes from the shared geometry. */
+function renderStyledAnnotation(
+  annotation: Annotation,
+  input: StrokeGeometryInput,
+): React.JSX.Element {
+  const geometry = shapeStrokeGeometry(input);
+  const color = "color" in annotation ? annotation.color : "#000000";
+  const fill = annotation.kind === "rectangle" || annotation.kind === "ellipse" ? annotation.fill : "transparent";
+  const fillStyle =
+    annotation.kind === "rectangle" || annotation.kind === "ellipse"
+      ? effectiveFillStyle(annotation.fillStyle, annotation.fill)
+      : "none";
+  const strokeWidth = input.strokeWidth;
+  const patternWeight = fillPatternWeight(strokeWidth);
+  return (
+    <Group key={annotation.id} opacity={annotation.opacity}>
+      {geometry.fillStrokes !== undefined && geometry.fillStrokes.length > 0 ? (
+        <Shape
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+          opacity={FILL_PATTERN_OPACITY}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const stroke of geometry.fillStrokes ?? []) {
+              stroke.forEach((point, index) => {
+                if (index === 0) context.moveTo(point.x, point.y);
+                else context.lineTo(point.x, point.y);
+              });
+            }
+            context.strokeShape(shape);
+          }}
+          stroke={color}
+          strokeWidth={patternWeight}
+        />
+      ) : null}
+      {geometry.fillDots !== undefined && geometry.fillDots.length > 0 ? (
+        <Shape
+          fill={color}
+          listening={false}
+          opacity={FILL_PATTERN_OPACITY}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const dot of geometry.fillDots ?? []) {
+              context.moveTo(dot.x + patternWeight / 2, dot.y);
+              context.arc(dot.x, dot.y, patternWeight / 2, 0, Math.PI * 2);
+            }
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+      {geometry.fill !== undefined && fill !== "transparent" && fillStyle !== "none" ? (
+        <Shape
+          fill={fill}
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            geometry.fill?.forEach((point, index) => {
+              if (index === 0) context.moveTo(point.x, point.y);
+              else context.lineTo(point.x, point.y);
+            });
+            context.closePath();
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+      {geometry.strokes.length > 0 ? (
+        <Shape
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const stroke of geometry.strokes) {
+              stroke.forEach((point, index) => {
+                if (index === 0) context.moveTo(point.x, point.y);
+                else context.lineTo(point.x, point.y);
+              });
+            }
+            context.strokeShape(shape);
+          }}
+          stroke={color}
+          strokeWidth={strokeWidth}
+        />
+      ) : null}
+      {geometry.dots.length > 0 ? (
+        <Shape
+          fill={color}
+          listening={false}
+          sceneFunc={(context, shape) => {
+            context.beginPath();
+            for (const dot of geometry.dots) {
+              context.moveTo(dot.x + strokeWidth / 2, dot.y);
+              context.arc(dot.x, dot.y, strokeWidth / 2, 0, Math.PI * 2);
+            }
+            context.fillShape(shape);
+          }}
+        />
+      ) : null}
+    </Group>
+  );
+}
+
+/** The geometry input for annotations that can carry a line style, or null for the rest. */
+export function strokeGeometryInputOf(annotation: Annotation): StrokeGeometryInput | null {
+  return hasStrokeGeometry(annotation) ? annotation : null;
+}
+
+function hasStrokeGeometry(annotation: Annotation): annotation is Annotation & StrokeGeometryInput {
+  switch (annotation.kind) {
+    case "line":
+    case "arrow":
+    case "curved-arrow":
+    case "rectangle":
+    case "ellipse":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
+  const geometryInput = strokeGeometryInputOf(annotation);
+  if (geometryInput !== null && needsStrokeGeometry(geometryInput)) {
+    return renderStyledAnnotation(annotation, geometryInput);
+  }
   switch (annotation.kind) {
     case "line":
     case "pencil":
@@ -591,6 +935,7 @@ function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
           fontFamily={annotation.fontFamily}
           fontSize={annotation.fontSize}
           key={annotation.id}
+          lineHeight={TEXT_LINE_HEIGHT}
           opacity={annotation.opacity}
           text={annotation.text}
           x={annotation.position.x}
@@ -617,6 +962,10 @@ function renderAnnotation(annotation: Annotation): React.JSX.Element | null {
       );
   }
 }
+
+/** Shown only while a text box is empty; it is never stored in the scene. */
+const TEXT_PLACEHOLDER = "Type something";
+type TextAnnotation = Extract<Annotation, { kind: "text" }>;
 
 type RasterEffectAnnotation = RegionAnnotation & { kind: "blur" | "pixelate" };
 
@@ -719,6 +1068,24 @@ function isTextAnnotation(
   return annotation.kind === "text";
 }
 
+/** The line-style fields a new shape or line carries; solid shapes stay field-free like older scenes. */
+function styledFields(style: AnnotationStyle, needsSeed = false): {
+  strokeStyle?: AnnotationStyle["strokeStyle"];
+  sketchLevel?: AnnotationStyle["sketchLevel"];
+  seed?: number;
+} {
+  if (style.strokeStyle === "solid") return needsSeed ? { seed: newSketchSeed() } : {};
+  return {
+    strokeStyle: style.strokeStyle,
+    ...(style.strokeStyle === "sketchy"
+      ? {
+          seed: newSketchSeed(),
+          ...(style.sketchLevel === "loose" ? {} : { sketchLevel: style.sketchLevel }),
+        }
+      : {}),
+  };
+}
+
 function createAnnotation(
   tool: ToolId,
   start: Point,
@@ -749,6 +1116,7 @@ function createAnnotation(
         color: style.color,
         strokeWidth: tool === "highlighter" ? style.strokeWidth * 4 : style.strokeWidth,
         opacity,
+        ...(tool === "pencil" || tool === "highlighter" ? {} : styledFields(style)),
       };
     case "rectangle":
     case "ellipse":
@@ -757,9 +1125,12 @@ function createAnnotation(
         kind: tool,
         bounds,
         color: style.color,
-        fill: style.fill,
+        fill: style.fillStyle === "solid" ? style.color : style.fill,
         strokeWidth: style.strokeWidth,
         opacity,
+        ...(style.fillStyle === "none" ? {} : { fillStyle: style.fillStyle }),
+        ...styledFields(style, style.fillStyle !== "none" && style.fillStyle !== "solid"),
+        ...(tool === "rectangle" && style.cornerRadius > 0 ? { cornerRadius: style.cornerRadius } : {}),
       };
     case "spotlight":
     case "blur":
@@ -778,7 +1149,7 @@ function createAnnotation(
         id,
         kind: "text",
         position: start,
-        text: "Type something",
+        text: "",
         color: style.color,
         fontFamily: style.fontFamily,
         fontSize: style.fontSize,
@@ -796,6 +1167,7 @@ function createAnnotation(
       };
     case "note":
     case "select":
+    case "smart":
       return null;
   }
 }

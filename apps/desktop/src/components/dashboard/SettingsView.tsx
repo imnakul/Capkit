@@ -57,6 +57,7 @@ import {
   setStartupEnabled,
   type StartupState,
 } from "../../lib/startup";
+import { FillPreview } from "../FillStyleControl";
 import { BrowserExtensionSettings } from "./BrowserExtensionSettings";
 import { SettingsTabs, type SettingsTabId } from "./SettingsTabs";
 import { ToolbarConfiguration } from "./ToolbarConfiguration";
@@ -667,7 +668,7 @@ export function SettingsView(): React.JSX.Element {
           ) : activeTab === "screenshots" ? (
             <>
               <SettingsCard id="capture-toolbar" onToggle={toggleSection} open={openSections["capture-toolbar"]} icon={SlidersHorizontal} title="Capture toolbar" summary={toolbarSummary} hint="Direct tools are one click away; groups keep the bar short.">
-                <ToolbarConfiguration toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
+                <ToolbarConfiguration reservedKeys={["V", settings.shortcuts.captureModeCopy, settings.shortcuts.captureModeSave, settings.shortcuts.captureModeCopyAndSave]} toolbar={settings.toolbar} onChange={(toolbar) => update({ ...settings, toolbar })} />
                 <SectionReset visible={changed.toolbar} onClick={() => update({ ...settings, toolbar: defaultSnaphubSettings.toolbar })} />
               </SettingsCard>
               <SettingsCard
@@ -705,6 +706,19 @@ export function SettingsView(): React.JSX.Element {
                     </label>
                   </div>
                 </div>
+                <SettingRow label="Line style" hint="How new shapes and lines are drawn. Change it per shape from the toolbar.">
+                  <Segmented label="Default line style" value={settings.annotation.strokeStyle} options={lineStyleOptions} onChange={(strokeStyle) => update({ ...settings, annotation: { ...settings.annotation, strokeStyle } })} />
+                </SettingRow>
+                <SettingRow label="Sketch level" hint={settings.annotation.strokeStyle === "sketchy" ? "How hand-drawn Sketchy shapes look" : "Choose the Sketchy line style to use this"}>
+                  <Segmented disabled={settings.annotation.strokeStyle !== "sketchy"} label="Default sketch level" value={settings.annotation.sketchLevel} options={sketchLevelOptions} onChange={(sketchLevel) => update({ ...settings, annotation: { ...settings.annotation, sketchLevel } })} />
+                </SettingRow>
+                <SettingRow label="Fill" hint="How new rectangles and ellipses are filled">
+                  <Segmented label="Default fill style" value={settings.annotation.fillStyle} options={fillStyleOptions} onChange={(fillStyle) => update({ ...settings, annotation: { ...settings.annotation, fillStyle } })} />
+                </SettingRow>
+                <SettingRow label="Rounded corners" hint="Corner radius for new rectangles">
+                  <input aria-label="Default corner radius" className="w-28 accent-accent" max="48" min="0" type="range" value={settings.annotation.cornerRadius} onChange={(event) => update({ ...settings, annotation: { ...settings.annotation, cornerRadius: Number(event.currentTarget.value) } })} />
+                  <span className="w-9 text-right font-mono text-[12px] tabular-nums text-content/60">{settings.annotation.cornerRadius}px</span>
+                </SettingRow>
                 <SectionReset visible={changed.colors} onClick={() => update({ ...settings, palette: defaultSnaphubSettings.palette, customColors: [], annotation: defaultSnaphubSettings.annotation })} />
               </SettingsCard>
               <SettingsCard
@@ -866,6 +880,28 @@ export function SettingsView(): React.JSX.Element {
     </div>
   );
 }
+
+const sketchLevelOptions = [
+  { value: "neat", label: "Neat" },
+  { value: "loose", label: "Loose" },
+  { value: "wild", label: "Wild" },
+] as const;
+
+const fillStyleOptions = [
+  { value: "none", label: "None", icon: <FillPreview fill="none" /> },
+  { value: "solid", label: "Solid", icon: <FillPreview fill="solid" /> },
+  { value: "hachure", label: "Hatch", icon: <FillPreview fill="hachure" /> },
+  { value: "cross-hatch", label: "Cross", icon: <FillPreview fill="cross-hatch" /> },
+  { value: "zigzag", label: "Zigzag", icon: <FillPreview fill="zigzag" /> },
+  { value: "dots", label: "Dots", icon: <FillPreview fill="dots" /> },
+] as const;
+
+const lineStyleOptions = [
+  { value: "solid", label: "Solid" },
+  { value: "dashed", label: "Dashed" },
+  { value: "dotted", label: "Dotted" },
+  { value: "sketchy", label: "Sketchy" },
+] as const;
 
 const cursorSizes = [
   { value: "small", label: "Small" },
