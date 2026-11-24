@@ -2,6 +2,12 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Fixed
+
+- The pointer no longer freezes on the capture screen on some graphics cards.
+
 ## 0.6.0 — 2026-11-21
 
 ### Added

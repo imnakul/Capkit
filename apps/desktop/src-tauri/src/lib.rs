@@ -3667,6 +3667,29 @@ mod window_config_tests {
         assert_eq!(capture["decorations"].as_bool(), Some(false));
     }
 
+    /// An opaque, monitor-sized, always-on-top window lets Windows hand it straight to the
+    /// GPU (independent flip / multiplane overlay). On some drivers the pointer then stops
+    /// updating over the capture overlay until something forces composition (a screen
+    /// recording fixed it). A transparent window always goes through DWM composition, the
+    /// same as the on-screen drawing window, whose pointer never froze. The page still paints
+    /// an opaque background and the frozen snapshot, so nothing shows through.
+    #[test]
+    fn capture_window_is_transparent_so_dwm_always_composes_it() {
+        let config: tauri::utils::config::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json"))
+                .expect("Tauri config should parse");
+        let capture = config
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == "capture")
+            .expect("Tauri config should contain a capture window");
+
+        assert!(capture.transparent);
+        assert!(capture.always_on_top);
+        assert!(!capture.visible);
+    }
+
     /// Reopening the dashboard after Close rebuilds it from this same entry; it must stay
     /// undecorated (the page draws its own title bar) and transparent (for the glass).
     #[test]
