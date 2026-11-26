@@ -2,6 +2,12 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Fixed
+
+- Clicking with the Text tool on the capture screen creates a text box again.
+
 ## 0.6.1 — 2026-11-24
 
 ### Fixed

@@ -292,6 +292,9 @@ export function AnnotationCanvas({
       const annotation = createAnnotation(activeTool, point, point, style, scene);
       if (annotation === null) return;
       if (annotation.kind === "text") {
+        // The press would otherwise move focus to this canvas after the new editor
+        // autofocuses, blurring it at once; an empty blur drops the box before it shows.
+        event.preventDefault();
         setPendingText(annotation);
         setSelectedTextId(null);
         beginTextEdit(annotation, "");
