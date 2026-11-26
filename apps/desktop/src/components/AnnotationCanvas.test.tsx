@@ -187,6 +187,15 @@ describe("AnnotationCanvas effect previews", () => {
       expect(onCommit).not.toHaveBeenCalled();
     });
 
+    it("keeps the new editor focused after the press that created it", () => {
+      const { canvas } = renderText();
+      const notPrevented = fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
+      // A real press focuses the focusable canvas unless its default is prevented.
+      if (notPrevented) canvas.focus();
+      expect(notPrevented).toBe(false);
+      expect(screen.getByRole("textbox", { name: "Edit annotation text" })).toHaveFocus();
+    });
+
     it("drops empty or whitespace-only text without an undo entry", () => {
       const { onCommit, onDelete, canvas } = renderText();
       fireEvent.pointerDown(canvas, { button: 0, clientX: 50, clientY: 60, pointerId: 1 });
