@@ -2,7 +2,7 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
-## Unreleased
+## 0.6.2 — 2026-11-26
 
 ### Fixed
 
