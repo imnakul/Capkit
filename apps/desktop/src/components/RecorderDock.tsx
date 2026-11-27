@@ -42,7 +42,7 @@ import {
   stopRecording,
 } from "../lib/recordingTauri";
 import { describeInvokeError } from "../lib/tauri";
-import { Cancel, ChevronDown, Computer, Crop, Delete, Grip, Keyboard, Mic, Pause, Play, Record, Settings, Speaker, Stop, Video } from "./icons";
+import { Cancel, ChevronDown, Computer, Crop, Delete, Grip, Keyboard, Mic, Pause, Play, Record, SelectPointer, Settings, Speaker, Stop, Video } from "./icons";
 
 type Phase = "setup" | "counting" | "recording" | "saving";
 
@@ -667,6 +667,17 @@ export function RecorderDock(): React.JSX.Element {
                         ))}
                       </select>
                     </label>
+
+                    <button
+                      aria-pressed={settings.showCursor}
+                      className={controlClass}
+                      title="Shows the mouse pointer in the video file. Zoom on click works either way."
+                      type="button"
+                      onClick={() => patch({ showCursor: !settings.showCursor })}
+                    >
+                      <SelectPointer aria-hidden="true" size={14} />
+                      Show cursor
+                    </button>
 
                     <button
                       aria-pressed={settings.captureKeystrokes}

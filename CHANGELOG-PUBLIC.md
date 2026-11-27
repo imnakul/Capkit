@@ -2,6 +2,16 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.7.1 — 2026-11-27
+
+### Added
+
+- Screen record: a Show cursor option in the recorder's settings, on by default, puts the mouse pointer in the video file itself, so it shows in any player. Zoom on click still works, and Edit doesn't draw a second pointer on top.
+
+### Fixed
+
+- Screen record: Edit said every recording had no cursor track, so the pointer, smoothing and zoom on click were missing in Edit and in exports. Fixed, including for recordings you already made.
+
 ## 0.7.0 — 2026-11-27
 
 ### Added

@@ -3,6 +3,7 @@ import {
   defaultRecorderSettings,
   formatBytes,
   formatDuration,
+  recorderSettingsSchema,
   readRecorderSettings,
   repeatRatio,
   toRecordingRequest,
@@ -119,7 +120,14 @@ describe("requests", () => {
   it("leaves the hardware cursor out of the frames by default", () => {
     // The cursor is recorded as its own track precisely so the editor can
     // smooth it; burning it in would make that impossible.
-    expect(toRecordingRequest(defaultRecorderSettings, display, null).captureCursor).toBe(false);
+    expect(toRecordingRequest(defaultRecorderSettings, display, null).captureCursor).toBe(true);
+    expect(toRecordingRequest({ ...defaultRecorderSettings, showCursor: false }, display, null).captureCursor).toBe(false);
+  });
+
+  it("turns the cursor on for settings saved while it was off by default", () => {
+    const saved: Record<string, unknown> = { ...defaultRecorderSettings, captureCursor: false };
+    delete saved.showCursor;
+    expect(recorderSettingsSchema.parse(saved).showCursor).toBe(true);
   });
 
   it("keeps keystrokes off unless the user opts in, including for older stored settings", () => {

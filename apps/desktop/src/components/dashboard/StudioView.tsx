@@ -114,7 +114,9 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
     const raw = window.localStorage.getItem(videoSceneStorageKey);
     const parsed = raw === null ? null : storedVideoScenesSchema.safeParse(JSON.parse(raw) as unknown);
     const stored = parsed?.success === true ? parsed.data[selected.id] : undefined;
-    setScene(stored ?? defaultVideoScene(selected.durationSeconds));
+    const fresh = defaultVideoScene(selected.durationSeconds);
+    // A pointer already burned into the frames would be doubled by Studio's own.
+    setScene(stored ?? (selected.cursorInVideo ? { ...fresh, cursor: { ...fresh.cursor, show: false } } : fresh));
     setTrack(null);
     if (selected.cursorPath !== null) void loadCursorTrack(selected.cursorPath).then(setTrack);
   }, [selected]);
@@ -522,6 +524,7 @@ export function StudioView({ initialRecording = null }: { initialRecording?: Rec
               <MotionPanel
                 clickCount={clickTimes.length}
                 hasCameraTrack={hasCameraTrack}
+                cursorInVideo={selected.cursorInVideo}
                 hasCursorTrack={track !== null}
                 keysRecorded={track?.keysRecorded ?? false}
                 scene={scene}

@@ -160,6 +160,7 @@ export function StagePanel({ scene, onPatch, onApplyLook }: { scene: VideoScene;
 /** Cursor smoothing, zoom on click, and the camera. */
 export function MotionPanel({
   scene,
+  cursorInVideo,
   hasCursorTrack,
   hasCameraTrack,
   clickCount,
@@ -170,6 +171,7 @@ export function MotionPanel({
   onPatchKeystrokes,
 }: {
   scene: VideoScene;
+  cursorInVideo: boolean;
   hasCursorTrack: boolean;
   keysRecorded: boolean;
   hasCameraTrack: boolean;
@@ -190,6 +192,11 @@ export function MotionPanel({
       <div className={hasCursorTrack ? "space-y-2.5" : "pointer-events-none space-y-2.5 opacity-40"}>
         <CollapsibleSection defaultOpen icon={SelectPointer} title="Cursor">
           <Toggle checked={scene.cursor.show} label="Show cursor" onChange={(value) => onPatchCursor({ show: value })} />
+          {cursorInVideo ? (
+            <p className="text-[12px] leading-5 text-content/55">
+              The pointer is already in this video. Turning this on draws a smoothed one on top.
+            </p>
+          ) : null}
           <Slider
             hint="Higher removes more jitter"
             label="Smoothing"

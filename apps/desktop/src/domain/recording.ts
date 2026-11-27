@@ -50,6 +50,8 @@ export const recordingArtifactsSchema = z.object({
   systemAudioPath: z.string().nullable(),
   microphonePath: z.string().nullable(),
   cameraPath: z.string().nullable().default(null),
+  /** The pointer is burned into the frames; older recordings never were. */
+  cursorInVideo: z.boolean().default(false),
   width: z.number(),
   height: z.number(),
   fps: z.number(),
@@ -88,13 +90,14 @@ export const recorderSettingsSchema = z.object({
   microphoneDeviceId: z.string(),
   systemAudioDeviceId: z.string().default(""),
   /**
-   * Burns the hardware cursor into the video.
+   * Burns the hardware pointer into the video, so the file shows it in any
+   * player. On by default. The cursor track is recorded either way, so zoom on
+   * click still works; Studio just stops drawing its own pointer on top.
    *
-   * Off by default: the cursor is recorded as a separate track instead, which
-   * is what lets the editor smooth its motion and zoom towards clicks. Turning
-   * this on permanently bakes the raw pointer into the frames.
+   * A new key with its own default: settings saved before this existed stored
+   * the old `captureCursor: false`, which would otherwise keep it off.
    */
-  captureCursor: z.boolean(),
+  showCursor: z.boolean().default(true),
   /**
    * Records key presses for the Studio overlay. Off by default and opt-in:
    * shortcut names are kept, but typed characters are stored only as "typing
@@ -114,7 +117,7 @@ export const defaultRecorderSettings: RecorderSettings = {
   microphone: false,
   microphoneDeviceId: "",
   systemAudioDeviceId: "",
-  captureCursor: false,
+  showCursor: true,
   captureKeystrokes: false,
 };
 
@@ -195,7 +198,7 @@ export function toRecordingRequest(
     displayId: source.displayId,
     region: crop,
     fps: resolveFrameRate(settings.fps, source.refreshRate),
-    captureCursor: settings.captureCursor,
+    captureCursor: settings.showCursor,
     captureKeystrokes: settings.captureKeystrokes,
     systemAudio: settings.systemAudio,
     microphone: settings.microphone,
