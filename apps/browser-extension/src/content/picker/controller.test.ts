@@ -68,7 +68,7 @@ describe("PickerController", () => {
     picker.stop();
   });
 
-  it("copies Markdown and keeps the picks", async () => {
+  it("copies the notes as text and keeps the picks", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     const { picker, shadow, target } = setup(writeText);
     await addComment(picker, shadow, target, "Make it green");
@@ -77,8 +77,7 @@ describe("PickerController", () => {
       expect(writeText).toHaveBeenCalledOnce();
     });
     const copied: unknown = writeText.mock.calls[0]?.at(0);
-    expect(copied).toContain("## Change 1: SaveButton");
-    expect(copied).toContain("**Change:** Make it green");
+    expect(copied).toContain("1. SaveButton: Make it green");
     expect(picker.items).toHaveLength(1);
     expect(await vi.waitFor(() => query(shadow, ".toast"))).toHaveTextContent("Copied 1 comment");
     picker.stop();

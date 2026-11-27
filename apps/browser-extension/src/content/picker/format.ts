@@ -62,39 +62,33 @@ export function pickItem(
   };
 }
 
-/** Said in place of an empty comment, so the agent still knows what to do with the element. */
-const NO_COMMENT = "None written. Review this element and suggest or make an improvement.";
+/** Continuation lines of a note or detail sit under the item number. */
+const INDENT = "   ";
 
-function itemSection(item: PickItem, index: number): string[] {
+function itemLines(item: PickItem, index: number): string[] {
   const { box } = item;
-  const lines = [
-    `## Change ${String(index + 1)}: ${item.name}`,
-    "",
-    `**Change:** ${item.comment === "" ? NO_COMMENT : item.comment.replace(/\n/g, "\n  ")}`,
-    "",
-    "**Where:**",
-    "",
-  ];
-  if (item.source !== null) lines.push(`- Source: \`${item.source}\``);
-  lines.push(`- Element: \`${item.tag}\` · \`${item.selector}\``);
-  if (item.text !== "") lines.push(`- Text: "${item.text}"`);
-  lines.push(`- Position: ${String(box.width)}×${String(box.height)} at ${String(box.x)}, ${String(box.y)} (page, CSS px)`);
-  return lines;
+  const [first = "", ...rest] = item.comment.split("\n");
+  const head = `${String(index + 1)}. ${item.name}${first === "" ? "" : `: ${first}`}`;
+  const details = [
+    item.source,
+    item.tag,
+    item.selector,
+    item.text === "" ? null : `"${item.text}"`,
+    `${String(box.width)}×${String(box.height)} at ${String(box.x)},${String(box.y)}`,
+  ].filter((part): part is string => part !== null);
+  return [head, ...rest.map((line) => INDENT + line), INDENT + details.join(" · ")];
 }
 
 /**
- * The Markdown the Copy button puts on the clipboard. It opens with a plain
- * instruction, so pasting it into a coding agent on its own is enough.
+ * The plain text the Copy button puts on the clipboard. The first two lines
+ * say what it is, so it can be pasted into an agent without a prompt. A pick
+ * can be a request or just a pointer to an element, so nothing assumes a change.
  */
-export function buildPicksMarkdown(url: string, items: readonly PickItem[]): string {
-  const count = items.length === 1 ? "1 change" : `${String(items.length)} changes`;
-  const sections = items.flatMap((item, index) => ["", ...itemSection(item, index)]);
+export function buildPicksText(url: string, items: readonly PickItem[]): string {
+  const sections = items.flatMap((item, index) => ["", ...itemLines(item, index)]);
   return [
-    "# Page feedback",
-    "",
-    `Please make the ${count} below on this page. Each one names an element on the page and what to change. Find it in the code with its source file, or with its selector and text, then make the change.`,
-    "",
-    `Page: ${url}`,
+    `Notes on elements of ${url}`,
+    "Each item names one element, then my note. Under it: source file, tag, selector, text, size and page position (CSS px). An item without a note just points the element out.",
     ...sections,
   ].join("\n") + "\n";
 }

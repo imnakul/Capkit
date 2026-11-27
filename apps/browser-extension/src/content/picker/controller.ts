@@ -7,7 +7,7 @@ import { INSPECTOR_CSS } from "../inspector/styles";
 import { resolveComponentData, type ComponentResolver } from "../mainClient";
 import { hostShadow, installFonts } from "../shadow";
 import { THEME_CSS, closeIcon } from "../theme";
-import { MAX_COMMENT, MAX_PICKS, buildPicksMarkdown, pickItem, type PickItem } from "./format";
+import { MAX_COMMENT, MAX_PICKS, buildPicksText, pickItem, type PickItem } from "./format";
 import { PICKER_CSS } from "./styles";
 
 const TOAST_MS = 1600;
@@ -129,7 +129,7 @@ export class PickerController {
     if (this.entries.length === 0) return;
     const count = this.entries.length;
     try {
-      await this.deps.writeText(buildPicksMarkdown(this.doc.location.href, this.items));
+      await this.deps.writeText(buildPicksText(this.doc.location.href, this.items));
       this.toast(count === 1 ? "Copied 1 comment" : `Copied ${String(count)} comments`);
     } catch {
       this.toast("Couldn't copy");

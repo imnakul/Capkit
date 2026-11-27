@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPicksMarkdown, cleanComment, pickItem, pickText, type PickItem } from "./format";
+import { buildPicksText, cleanComment, pickItem, pickText, type PickItem } from "./format";
 
 function el(html: string): Element {
   document.body.innerHTML = html;
@@ -60,7 +60,7 @@ describe("pickItem", () => {
   });
 });
 
-describe("buildPicksMarkdown", () => {
+describe("buildPicksText", () => {
   const base: PickItem = {
     name: "SubmitButton",
     tag: "button",
@@ -71,44 +71,26 @@ describe("buildPicksMarkdown", () => {
     comment: "Make it bigger",
   };
 
-  it("lists one URL and a section per comment, without inspect-only details", () => {
-    const markdown = buildPicksMarkdown("https://example.com/contact", [base, { ...base, name: "Logo", text: "", source: null, comment: "" }]);
-    expect(markdown).toBe(
+  it("writes one compact plain-text item per pick, without inspect-only details", () => {
+    const text = buildPicksText("https://example.com/contact", [base, { ...base, name: "Logo", text: "", source: null, comment: "" }]);
+    expect(text).toBe(
       [
-        "# Page feedback",
+        "Notes on elements of https://example.com/contact",
+        "Each item names one element, then my note. Under it: source file, tag, selector, text, size and page position (CSS px). An item without a note just points the element out.",
         "",
-        "Please make the 2 changes below on this page. Each one names an element on the page and what to change. Find it in the code with its source file, or with its selector and text, then make the change.",
+        "1. SubmitButton: Make it bigger",
+        '   src/Contact.tsx:42 · button · form#contact > button.primary · "Send" · 320×40 at 120,860',
         "",
-        "Page: https://example.com/contact",
-        "",
-        "## Change 1: SubmitButton",
-        "",
-        "**Change:** Make it bigger",
-        "",
-        "**Where:**",
-        "",
-        "- Source: `src/Contact.tsx:42`",
-        "- Element: `button` · `form#contact > button.primary`",
-        '- Text: "Send"',
-        "- Position: 320×40 at 120, 860 (page, CSS px)",
-        "",
-        "## Change 2: Logo",
-        "",
-        "**Change:** None written. Review this element and suggest or make an improvement.",
-        "",
-        "**Where:**",
-        "",
-        "- Element: `button` · `form#contact > button.primary`",
-        "- Position: 320×40 at 120, 860 (page, CSS px)",
+        "2. Logo",
+        "   button · form#contact > button.primary · 320×40 at 120,860",
         "",
       ].join("\n"),
     );
-    expect(markdown).not.toMatch(/Styles|Classes|Role/);
+    expect(text).not.toMatch(/Styles|Classes|Role|^#|\*\*/mu);
   });
 
-  it("says 1 change for a single pick and keeps a multi-line comment inside its item", () => {
-    const markdown = buildPicksMarkdown("https://example.com", [{ ...base, comment: "Bigger\nAnd blue" }]);
-    expect(markdown).toContain("Please make the 1 change below");
-    expect(markdown).toContain("**Change:** Bigger\n  And blue");
+  it("keeps a multi-line note inside its item", () => {
+    const text = buildPicksText("https://example.com", [{ ...base, comment: "Bigger\nAnd blue" }]);
+    expect(text).toContain("1. SubmitButton: Bigger\n   And blue\n   src/Contact.tsx:42");
   });
 });
