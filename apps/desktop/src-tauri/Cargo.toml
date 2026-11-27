@@ -1,6 +1,6 @@
 [package]
 name = "capkit-desktop"
-version = "0.6.2"
+version = "0.7.0"
 description = "CapKit lightweight desktop toolkit to capture, record, and showcase"
 authors = ["CapKit"]
 edition = "2024"

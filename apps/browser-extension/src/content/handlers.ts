@@ -93,7 +93,7 @@ export function handlePageRequest(env: Env, request: PageRequest): Promise<PageR
       const matches = findSensitiveInArea(env.document, toCssRect(request.area, scale), scale);
       return Promise.resolve({ kind: "findSensitive", status: "ok", matches });
     }
-    case "toggle":
+    case "tool":
     case "ping":
       return Promise.resolve({ kind: "ok" });
   }

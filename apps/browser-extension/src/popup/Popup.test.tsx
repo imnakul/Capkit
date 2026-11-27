@@ -101,49 +101,110 @@ describe("Popup", () => {
     expect(screen.getByRole("button", { name: "Allow on all sites" })).toBeInTheDocument();
   });
 
-  it("says when the page can't be inspected and disables Inspect page", async () => {
+  it("says when the page can't be inspected and disables every tool", async () => {
     const { send } = fake({ retry: { state: "connected" }, siteAccess: { state: "unavailable" } });
     render(<Popup send={send} requestPermission={grant} />);
     expect(await screen.findByText("Not available on this page")).toBeInTheDocument();
-    expect(screen.getByText("Inspect works on web pages (http and https) only.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Inspect page" })).toBeDisabled();
+    expect(screen.getByText("These tools work on web pages (http and https) only.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Inspect/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Pick and comment/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Font/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Colour/ })).toBeDisabled();
   });
 
   it("keeps the popup open with a message when the inspector can't start", async () => {
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
-    const { send } = fake({ retry: { state: "connected" }, siteAccess: { state: "allowed" }, inspectActiveTab: { ok: false } });
+    const { send } = fake({ retry: { state: "connected" }, siteAccess: { state: "allowed" }, startTool: { ok: false } });
     const user = userEvent.setup();
     render(<Popup send={send} requestPermission={grant} />);
     await screen.findByText("Connected to CapKit");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Inspect page" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^Inspect/ })).toBeEnabled();
     });
-    await user.click(screen.getByRole("button", { name: "Inspect page" }));
+    await user.click(screen.getByRole("button", { name: /^Inspect/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't start the inspector here.");
     expect(close).not.toHaveBeenCalled();
     close.mockRestore();
   });
 
-  it("offers Inspect page without CapKit (standalone)", async () => {
+  it("offers the tools without CapKit (standalone)", async () => {
     const { send } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "needs-access", origin: "https://example.com/*" } });
     render(<Popup send={send} requestPermission={grant} />);
-    expect(await screen.findByRole("button", { name: "Inspect page" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: /^Inspect/ })).toBeEnabled();
   });
 
-  it("starts the inspector from Inspect page", async () => {
+  it("starts the inspector from its row", async () => {
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
     const { send, calls } = fake({ retry: { state: "connected" }, siteAccess: { state: "allowed", origin: "http://localhost/*" } });
     const user = userEvent.setup();
     render(<Popup send={send} requestPermission={grant} />);
     await screen.findByText("Connected to CapKit");
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Inspect page" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^Inspect/ })).toBeEnabled();
     });
-    await user.click(screen.getByRole("button", { name: "Inspect page" }));
-    expect(calls).toContainEqual({ kind: "inspectActiveTab" });
+    await user.click(screen.getByRole("button", { name: /^Inspect/ }));
+    expect(calls).toContainEqual({ kind: "startTool", tool: "inspect" });
     await waitFor(() => {
       expect(close).toHaveBeenCalled();
     });
     close.mockRestore();
+  });
+
+  it("starts Pick and comment from its button", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const { send, calls } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "needs-access", origin: "https://example.com/*" } });
+    const user = userEvent.setup();
+    render(<Popup send={send} requestPermission={grant} />);
+    const pick = await screen.findByRole("button", { name: /^Pick and comment/ });
+    await waitFor(() => {
+      expect(pick).toBeEnabled();
+    });
+    await user.click(pick);
+    expect(calls).toContainEqual({ kind: "startTool", tool: "pick" });
+    await waitFor(() => {
+      expect(close).toHaveBeenCalled();
+    });
+    close.mockRestore();
+  });
+
+  it("explains when Pick and comment can't start", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const { send } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "allowed" }, startTool: { ok: false } });
+    const user = userEvent.setup();
+    render(<Popup send={send} requestPermission={grant} />);
+    const pick = await screen.findByRole("button", { name: /^Pick and comment/ });
+    await waitFor(() => {
+      expect(pick).toBeEnabled();
+    });
+    await user.click(pick);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't start Pick and comment here.");
+    expect(close).not.toHaveBeenCalled();
+    close.mockRestore();
+  });
+  it("starts the font and colour tools", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const { send, calls } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "allowed" } });
+    const user = userEvent.setup();
+    render(<Popup send={send} requestPermission={grant} />);
+    const font = await screen.findByRole("button", { name: /^Font/ });
+    await waitFor(() => {
+      expect(font).toBeEnabled();
+    });
+    await user.click(font);
+    await user.click(screen.getByRole("button", { name: /^Colour/ }));
+    expect(calls).toContainEqual({ kind: "startTool", tool: "font" });
+    expect(calls).toContainEqual({ kind: "startTool", tool: "color" });
+    close.mockRestore();
+  });
+
+  it("shows each tool's shortcut", async () => {
+    const { send } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "allowed" } });
+    const loadShortcuts = (): Promise<ReadonlyMap<string, string>> => Promise.resolve(new Map([["toggle-font", "Alt+Shift+F"]]));
+    render(<Popup send={send} requestPermission={grant} loadShortcuts={loadShortcuts} />);
+    const font = await screen.findByRole("button", { name: /^Font/ });
+    await waitFor(() => {
+      expect(font).toHaveAttribute("aria-keyshortcuts", "Alt+Shift+F");
+    });
+    expect(screen.getByRole("button", { name: /^Inspect/ })).not.toHaveAttribute("aria-keyshortcuts");
   });
 });

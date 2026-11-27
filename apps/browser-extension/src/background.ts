@@ -1,7 +1,8 @@
 import { PROTOCOL_VERSION, type AppMessage, type ExtensionMessage } from "@snaphub/devtools-protocol/protocol";
 import { ACCENT_KEY } from "./accent";
 import { Link, WAKE_ALARM_MINUTES, wakeAlarmFor, type SocketLike, type TokenStore } from "./link";
-import { backgroundRequestSchema, type LinkStatus, type PageRequest } from "./messages";
+import { installMenus, toolForCommand, toolForMenu } from "./menus";
+import { backgroundRequestSchema, type LinkStatus, type PageRequest, type Tool } from "./messages";
 import { activeTabs, askTab, injectMainWorld, matchTab, originPattern, siteAccessFor, type TabRef } from "./tabs";
 
 const TOKEN_KEY = "capkitToken";
@@ -112,12 +113,17 @@ async function currentTab(): Promise<TabRef | null> {
   return tab?.id === undefined ? null : { id: tab.id, url: tab.url ?? "", title: tab.title ?? "" };
 }
 
-/** Opening the popup or pressing the shortcut grants activeTab, so the inspector needs no site access. */
-async function inspectActiveTab(): Promise<boolean> {
-  const tab = await currentTab();
+/** The popup, a shortcut or a menu click grants activeTab, so the page tools need no site access. */
+async function runTool(tab: TabRef | null, tool: Tool, action: "toggle" | "start"): Promise<boolean> {
   if (tab === null || originPattern(tab.url) === null) return false;
-  const result = await askTab(tab, { kind: "toggle" }, { requireSiteAccess: false });
+  const result = await askTab(tab, { kind: "tool", tool, action }, { requireSiteAccess: false });
   return result.response !== null;
+}
+
+async function refreshMenus(): Promise<void> {
+  const commands = await chrome.commands.getAll();
+  const shortcuts = new Map(commands.flatMap((command) => (command.name === undefined || command.shortcut === undefined ? [] : [[command.name, command.shortcut] as const])));
+  await installMenus(chrome.contextMenus, shortcuts);
 }
 
 async function dispatch(raw: unknown, sender: chrome.runtime.MessageSender): Promise<unknown> {
@@ -145,8 +151,8 @@ async function dispatch(raw: unknown, sender: chrome.runtime.MessageSender): Pro
     case "forget":
       await link.forget();
       return link.status;
-    case "inspectActiveTab":
-      return { ok: await inspectActiveTab() };
+    case "startTool":
+      return { ok: await runTool(await currentTab(), request.tool, "start") };
     case "siteAccess":
       return siteAccessFor(await currentTab());
   }
@@ -161,7 +167,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 });
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === "toggle-inspector") void inspectActiveTab();
+  const tool = toolForCommand(command);
+  if (tool !== null) void currentTab().then((tab) => runTool(tab, tool, "toggle"));
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const tool = toolForMenu(info.menuItemId);
+  if (tool === null || tab?.id === undefined) return;
+  void runTool({ id: tab.id, url: tab.url ?? info.pageUrl ?? "", title: tab.title ?? "" }, tool, "start");
 });
 
 // A fresh worker already connects at the bottom of this file; the alarm only nudges a live one.
@@ -170,8 +183,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 chrome.runtime.onStartup.addListener(() => {
   void link.connect();
+  void refreshMenus();
 });
 chrome.runtime.onInstalled.addListener(() => {
   void link.connect();
+  void refreshMenus();
 });
 void link.connect();

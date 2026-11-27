@@ -2,6 +2,24 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## 0.7.0 — 2026-11-27
+
+### Added
+
+- Browser extension: Pick and comment. Click elements on any page, add a comment to each, and copy them all as compact text an AI agent understands without an extra prompt. A note can ask for a change or just point an element out. Start it with Alt+Shift+C, from the extension popup, or by right-clicking the page → CapKit.
+- Browser extension: Font tool. Hover any text to see its font, size, weight, line height and colour; click to copy it as CSS. Alt+Shift+F or right-click → CapKit → Font.
+- Browser extension: Colour tool. Hover to see an element's text, background and border colours; click to lock it and copy any of them as HEX. Press E to pick any pixel on screen. Alt+Shift+K or right-click → CapKit → Colour.
+- Screen record: hover a recording to copy the video file (paste it into a folder, chat or email) or show it in its folder.
+
+### Improved
+
+- Screen record: clicking a recording opens it in your default video player. If none is set, Windows asks which app to use. The in-app player and its full-screen button, which could break the dashboard window, are gone.
+- Browser extension: the popup and on-page panels now match the CapKit dashboard: Geist font, compact buttons, and light and dark themes. The extension uses the CapKit app logo.
+
+### Fixed
+
+- Browser extension: after the extension updates, its tools start on pages that were already open, instead of asking you to reload the page.
+
 ## 0.6.2 — 2026-11-26
 
 ### Fixed

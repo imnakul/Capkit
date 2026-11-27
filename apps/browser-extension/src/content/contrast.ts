@@ -46,3 +46,16 @@ export function gradeContrast(ratio: number, largeText: boolean): ContrastGrade 
   if (ratio >= (largeText ? 3 : 4.5)) return "AA";
   return "Fail";
 }
+
+/** The opaque colour behind an element: its own and its ancestors' backgrounds composited over white. */
+export function effectiveBackground(element: Element): Rgba {
+  const layers: Rgba[] = [];
+  for (let node: Element | null = element; node !== null; node = node.parentElement) {
+    const color = parseColor(getComputedStyle(node).backgroundColor);
+    if (color !== null && color.a > 0) {
+      layers.push(color);
+      if (color.a >= 1) break;
+    }
+  }
+  return layers.reduceRight<Rgba>((below, layer) => over(layer, below), { r: 255, g: 255, b: 255, a: 1 });
+}

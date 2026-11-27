@@ -1,32 +1,29 @@
 import { StrictMode, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { Popup, type RequestPermission, type Transport } from "./Popup";
+import { Popup, type LoadShortcuts, type RequestPermission, type Transport } from "./Popup";
 import "./popup.css";
 import { readAccent } from "../accent";
+import { fontFaceCss } from "../fonts";
 
 const transport: Transport = (request) => chrome.runtime.sendMessage(request);
 // Must run inside the click handler: Chrome only shows the prompt during a user gesture.
 const requestPermission: RequestPermission = (origins) => chrome.permissions.request({ origins });
+const loadShortcuts: LoadShortcuts = async () => {
+  const commands = await chrome.commands.getAll();
+  return new Map(commands.flatMap((command) => (command.name === undefined || command.shortcut === undefined ? [] : [[command.name, command.shortcut] as const])));
+};
 
-function registerFonts(): void {
-  const url = (file: string): string => chrome.runtime.getURL(`fonts/${file}`);
-  const style = document.createElement("style");
-  style.textContent = [
-    `@font-face{font-family:"CapKit Sans";src:url("${url("plus-jakarta-sans-latin-wght-normal.woff2")}") format("woff2");font-weight:200 800}`,
-    `@font-face{font-family:"CapKit Mono";src:url("${url("jetbrains-mono-latin-wght-normal.woff2")}") format("woff2");font-weight:100 800}`,
-  ].join("");
-  document.head.append(style);
-}
-
-registerFonts();
+const fonts = document.createElement("style");
+fonts.textContent = fontFaceCss((path) => chrome.runtime.getURL(path));
+document.head.append(fonts);
 void readAccent().then((accent) => {
-  document.documentElement.style.setProperty("--color-accent", accent);
+  document.documentElement.style.setProperty("--capkit-accent", accent);
 });
 const container = document.getElementById("root");
 if (container !== null) {
   const app: ReactElement = (
     <StrictMode>
-      <Popup send={transport} requestPermission={requestPermission} />
+      <Popup send={transport} requestPermission={requestPermission} loadShortcuts={loadShortcuts} />
     </StrictMode>
   );
   createRoot(container).render(app);

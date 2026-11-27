@@ -47,7 +47,7 @@ await build({
 });
 
 await mkdir(resolve(dist, "fonts"), { recursive: true });
-for (const pkg of ["plus-jakarta-sans", "jetbrains-mono"]) {
+for (const pkg of ["geist", "geist-mono"]) {
   const dir = resolve(dirname(require.resolve(`@fontsource-variable/${pkg}/package.json`)), "files");
   for (const file of await readdir(dir)) {
     if (file.endsWith("-latin-wght-normal.woff2")) await cp(resolve(dir, file), resolve(dist, "fonts", file));
