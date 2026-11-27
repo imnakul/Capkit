@@ -227,6 +227,12 @@ export async function loadCursorTrack(path: string): Promise<CursorTrack | null>
   }
 }
 
+/** Opens a recording in the default video player; Windows asks for an app when none is set. */
+export async function openRecording(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_recording", { path });
+}
+
 /** Renderable URL for a recorded artefact. */
 export function recordingSrc(path: string): string {
   return isTauri() ? convertFileSrc(path) : path;

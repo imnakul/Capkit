@@ -33,9 +33,11 @@ const track: CursorTrack = {
 };
 
 const openRecorder = vi.fn<() => Promise<void>>();
+const openRecording = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve());
 
 vi.mock("../../lib/recordingTauri", () => ({
   openRecorder: (): Promise<void> => openRecorder(),
+  openRecording: (path: string): Promise<void> => openRecording(path),
   recordingSrc: (path: string): string => path,
   recordingSupported: (): Promise<boolean> => Promise.resolve(true),
   loadCursorTrack: (): Promise<CursorTrack> => Promise.resolve(track),
@@ -92,6 +94,23 @@ describe("RecordView", () => {
     resolveOpen();
     await vi.waitFor(() => expect(button).not.toBeDisabled());
     expect(openRecorder).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a recording in the video player from its thumbnail", async () => {
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Play recording 0:10 in your video player" }));
+
+    await vi.waitFor(() => expect(openRecording).toHaveBeenCalledWith(recording.videoPath));
+  });
+
+  it("explains when the video player cannot open the recording", async () => {
+    openRecording.mockRejectedValueOnce(new Error("missing"));
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Play recording 0:10 in your video player" }));
+
+    expect(await screen.findByText("Couldn't open this recording in your video player.")).toBeInTheDocument();
   });
 
   it("fills the available width with as many recording columns as fit, like screenshots", () => {

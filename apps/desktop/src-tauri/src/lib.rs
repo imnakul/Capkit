@@ -1987,6 +1987,21 @@ fn open_recording_directory(
     ))
 }
 
+/// Opens a recording in the default video player; Windows asks for an app when none is set.
+#[tauri::command]
+fn open_recording(
+    service: tauri::State<'_, RecordingService>,
+    path: String,
+) -> Result<(), SnaphubError> {
+    let video = service.validated_recording_video(Path::new(&path))?;
+    #[cfg(target_os = "windows")]
+    return platform::windows_shell::open_path(&video, true);
+    #[cfg(not(target_os = "windows"))]
+    Err(SnaphubError::Window(
+        "Opening recordings is not implemented on this platform".into(),
+    ))
+}
+
 /// Pauses or resumes the recording; paused time is omitted from the output.
 #[tauri::command]
 fn set_recording_paused(
@@ -3006,6 +3021,7 @@ pub fn run() {
             set_recording_directory,
             reset_recording_directory,
             open_recording_directory,
+            open_recording,
             recording_status,
             begin_camera_track,
             append_camera_chunk,

@@ -6,7 +6,7 @@ import {
   recordingLibraryStorageKey,
   type RecordingArtifacts,
 } from "../../domain/recording";
-import { openRecorder, recordingSupported } from "../../lib/recordingTauri";
+import { openRecorder, openRecording, recordingSupported } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
 import { ChevronDown, Delete, Film, Record } from "../icons";
 import { Button } from "../ui/Button";
@@ -53,6 +53,15 @@ export function RecordView(): React.JSX.Element {
     window.addEventListener("storage", onStorage);
     return (): void => window.removeEventListener("storage", onStorage);
   }, []);
+
+  async function play(item: RecordingArtifacts): Promise<void> {
+    setError(null);
+    try {
+      await openRecording(item.videoPath);
+    } catch (cause: unknown) {
+      setError(describeInvokeError(cause, "Couldn't open this recording in your video player."));
+    }
+  }
 
   const [opening, setOpening] = useState(false);
   const openingRef = useRef(false);
@@ -137,7 +146,7 @@ export function RecordView(): React.JSX.Element {
                 className="overflow-hidden rounded-lg border border-content/10 bg-content/4"
                 key={item.id}
               >
-                <RecordingPreview item={item} />
+                <RecordingPreview item={item} onOpen={(value) => void play(value)} />
                 <div className="flex items-center gap-2 px-2.5 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-medium tabular-nums text-content">

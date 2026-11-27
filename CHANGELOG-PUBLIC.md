@@ -2,6 +2,12 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Improved
+
+- Screen record: clicking a recording opens it in your default video player. If none is set, Windows asks which app to use. The in-app player and its full-screen button, which could break the dashboard window, are gone.
+
 ## 0.6.2 — 2026-11-26
 
 ### Fixed
