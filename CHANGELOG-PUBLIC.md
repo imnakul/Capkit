@@ -10,6 +10,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 - Browser extension: Font tool. Hover any text to see its font, size, weight, line height and colour; click to copy it as CSS. Alt+Shift+F or right-click → CapKit → Font.
 - Browser extension: Colour tool. Hover to see an element's text, background and border colours; click to lock it and copy any of them as HEX. Press E to pick any pixel on screen. Alt+Shift+K or right-click → CapKit → Colour.
 - Screen record: hover a recording to copy the video file (paste it into a folder, chat or email) or show it in its folder.
+- Screen record: a Show cursor option in the recorder's settings, on by default, puts the mouse pointer in the video file itself, so it shows in any player. Zoom on click still works, and Edit doesn't draw a second pointer on top.
 
 ### Improved
 
@@ -19,6 +20,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 ### Fixed
 
 - Browser extension: after the extension updates, its tools start on pages that were already open, instead of asking you to reload the page.
+- Screen record: Edit said every recording had no cursor track, so the pointer, smoothing and zoom on click were missing in Edit and in exports. Fixed, including for recordings you already made.
 
 ## 0.6.2 — 2026-11-26
 

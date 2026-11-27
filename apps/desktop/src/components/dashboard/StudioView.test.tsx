@@ -12,6 +12,7 @@ const recording: RecordingArtifacts = {
   systemAudioPath: "C:/Temp/CapKit/recordings/one/audio-system.m4a",
   microphonePath: null,
   cameraPath: null,
+  cursorInVideo: false,
   width: 1920,
   height: 1080,
   fps: 30,

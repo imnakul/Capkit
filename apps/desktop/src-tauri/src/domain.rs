@@ -494,6 +494,10 @@ pub struct RecordingArtifactsDto {
     pub system_audio_path: Option<String>,
     pub microphone_path: Option<String>,
     pub camera_path: Option<String>,
+    /// The hardware pointer is drawn into the video frames, so the editor
+    /// should not draw a second one from the cursor track.
+    #[serde(default)]
+    pub cursor_in_video: bool,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -587,6 +591,7 @@ mod request_tests {
             system_audio_path: None,
             microphone_path: None,
             camera_path: Some("camera.mp4".into()),
+            cursor_in_video: true,
             width: 1920,
             height: 1080,
             fps: 30,
@@ -595,6 +600,7 @@ mod request_tests {
         })
         .expect("artifacts serialize");
         assert_eq!(value["cameraPath"], "camera.mp4");
+        assert_eq!(value["cursorInVideo"], true);
     }
 
     #[test]

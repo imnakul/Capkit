@@ -346,6 +346,7 @@ pub struct WindowsRecordingSession {
     worker: Option<JoinHandle<Result<EncoderOutcome, SnaphubError>>>,
     outcome: Arc<Mutex<Option<EncoderOutcome>>>,
     pointer: Option<PointerSampler>,
+    cursor_in_video: bool,
     system_audio: Option<AudioTrack>,
     microphone: Option<AudioTrack>,
 }
@@ -518,6 +519,7 @@ impl WindowsRecordingSession {
                 worker: Some(worker),
                 outcome,
                 pointer,
+                cursor_in_video: request.capture_cursor,
                 system_audio,
                 microphone,
             },
@@ -599,6 +601,7 @@ impl RecordingSession for WindowsRecordingSession {
             microphone_path: microphone_path.map(|path| path.to_string_lossy().into_owned()),
             // The service sets the real path after the camera file closes.
             camera_path: None,
+            cursor_in_video: self.cursor_in_video,
             width: self.width,
             height: self.height,
             fps: self.fps,
