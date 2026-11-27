@@ -77,8 +77,8 @@ describe("PickerController", () => {
       expect(writeText).toHaveBeenCalledOnce();
     });
     const copied: unknown = writeText.mock.calls[0]?.at(0);
-    expect(copied).toContain("## 1. SaveButton");
-    expect(copied).toContain("Make it green");
+    expect(copied).toContain("## Change 1: SaveButton");
+    expect(copied).toContain("**Change:** Make it green");
     expect(picker.items).toHaveLength(1);
     expect(await vi.waitFor(() => query(shadow, ".toast"))).toHaveTextContent("Copied 1 comment");
     picker.stop();

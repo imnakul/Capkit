@@ -62,18 +62,39 @@ export function pickItem(
   };
 }
 
+/** Said in place of an empty comment, so the agent still knows what to do with the element. */
+const NO_COMMENT = "None written. Review this element and suggest or make an improvement.";
+
 function itemSection(item: PickItem, index: number): string[] {
   const { box } = item;
-  const lines = [`## ${String(index + 1)}. ${item.name}`, "", item.comment === "" ? "_No comment_" : item.comment, ""];
-  if (item.text !== "") lines.push(`- Text: "${item.text}"`);
-  lines.push(`- Element: \`${item.tag}\` · \`${item.selector}\``);
+  const lines = [
+    `## Change ${String(index + 1)}: ${item.name}`,
+    "",
+    `**Change:** ${item.comment === "" ? NO_COMMENT : item.comment.replace(/\n/g, "\n  ")}`,
+    "",
+    "**Where:**",
+    "",
+  ];
   if (item.source !== null) lines.push(`- Source: \`${item.source}\``);
+  lines.push(`- Element: \`${item.tag}\` · \`${item.selector}\``);
+  if (item.text !== "") lines.push(`- Text: "${item.text}"`);
   lines.push(`- Position: ${String(box.width)}×${String(box.height)} at ${String(box.x)}, ${String(box.y)} (page, CSS px)`);
   return lines;
 }
 
-/** The Markdown the Copy button puts on the clipboard. */
+/**
+ * The Markdown the Copy button puts on the clipboard. It opens with a plain
+ * instruction, so pasting it into a coding agent on its own is enough.
+ */
 export function buildPicksMarkdown(url: string, items: readonly PickItem[]): string {
+  const count = items.length === 1 ? "1 change" : `${String(items.length)} changes`;
   const sections = items.flatMap((item, index) => ["", ...itemSection(item, index)]);
-  return ["# Page feedback", "", `URL: ${url}`, ...sections].join("\n") + "\n";
+  return [
+    "# Page feedback",
+    "",
+    `Please make the ${count} below on this page. Each one names an element on the page and what to change. Find it in the code with its source file, or with its selector and text, then make the change.`,
+    "",
+    `Page: ${url}`,
+    ...sections,
+  ].join("\n") + "\n";
 }

@@ -77,20 +77,26 @@ describe("buildPicksMarkdown", () => {
       [
         "# Page feedback",
         "",
-        "URL: https://example.com/contact",
+        "Please make the 2 changes below on this page. Each one names an element on the page and what to change. Find it in the code with its source file, or with its selector and text, then make the change.",
         "",
-        "## 1. SubmitButton",
+        "Page: https://example.com/contact",
         "",
-        "Make it bigger",
+        "## Change 1: SubmitButton",
         "",
-        '- Text: "Send"',
-        "- Element: `button` · `form#contact > button.primary`",
+        "**Change:** Make it bigger",
+        "",
+        "**Where:**",
+        "",
         "- Source: `src/Contact.tsx:42`",
+        "- Element: `button` · `form#contact > button.primary`",
+        '- Text: "Send"',
         "- Position: 320×40 at 120, 860 (page, CSS px)",
         "",
-        "## 2. Logo",
+        "## Change 2: Logo",
         "",
-        "_No comment_",
+        "**Change:** None written. Review this element and suggest or make an improvement.",
+        "",
+        "**Where:**",
         "",
         "- Element: `button` · `form#contact > button.primary`",
         "- Position: 320×40 at 120, 860 (page, CSS px)",
@@ -98,5 +104,11 @@ describe("buildPicksMarkdown", () => {
       ].join("\n"),
     );
     expect(markdown).not.toMatch(/Styles|Classes|Role/);
+  });
+
+  it("says 1 change for a single pick and keeps a multi-line comment inside its item", () => {
+    const markdown = buildPicksMarkdown("https://example.com", [{ ...base, comment: "Bigger\nAnd blue" }]);
+    expect(markdown).toContain("Please make the 1 change below");
+    expect(markdown).toContain("**Change:** Bigger\n  And blue");
   });
 });
