@@ -3,6 +3,8 @@ import { pageRequestSchema, type PageResponse } from "../messages";
 import { handlePageRequest } from "./handlers";
 import { InspectorController } from "./inspector/controller";
 import { resolveComponentData } from "./mainClient";
+import { PickerController } from "./picker/controller";
+import { runTool } from "./tools";
 
 declare global {
   var __capkitInspector: number | undefined;
@@ -11,14 +13,14 @@ declare global {
 /** A second injection of the same protocol version is a no-op. */
 if (globalThis.__capkitInspector !== PROTOCOL_VERSION) {
   globalThis.__capkitInspector = PROTOCOL_VERSION;
-  const controller = new InspectorController(document);
+  const controllers = { inspect: new InspectorController(document), pick: new PickerController(document) };
 
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (response: PageResponse) => void) => {
     const parsed = pageRequestSchema.safeParse(message);
     if (!parsed.success) return false;
     const request = parsed.data;
-    if (request.kind === "toggle") {
-      controller.toggle();
+    if (request.kind === "tool") {
+      runTool(controllers, request.tool, request.action);
       sendResponse({ kind: "ok" });
       return false;
     }

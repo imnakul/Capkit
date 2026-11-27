@@ -1,7 +1,8 @@
 import { buildElementMarkdown } from "@snaphub/devtools-protocol/markdown";
 import { toViewportRect } from "../../geometry";
 import { describeElement, rectOf, shortLabel } from "../dom";
-import { ensureHost, resolveComponentData } from "../mainClient";
+import { resolveComponentData } from "../mainClient";
+import { fontCss, hostShadow } from "../shadow";
 import { measureBetween } from "../measure";
 import { h } from "./dom";
 import { Overlay } from "./overlay";
@@ -17,14 +18,6 @@ const FONT_FACES = ["Plus Jakarta Sans", "JetBrains Mono"];
 
 let savedPosition: PanelPosition | null = null;
 
-function fontCss(): string {
-  const url = (file: string): string => chrome.runtime.getURL(`fonts/${file}`);
-  return [
-    `@font-face{font-family:"CapKit Sans";src:url("${url("plus-jakarta-sans-latin-wght-normal.woff2")}") format("woff2");font-weight:200 800}`,
-    `@font-face{font-family:"CapKit Mono";src:url("${url("jetbrains-mono-latin-wght-normal.woff2")}") format("woff2");font-weight:100 800}`,
-  ].join("");
-}
-
 function label(element: Element, name: string | null): string {
   const rect = element.getBoundingClientRect();
   return `${name ?? shortLabel(element)} · ${element.tagName.toLowerCase()} · ${String(Math.round(rect.width))}×${String(Math.round(rect.height))}`;
@@ -33,7 +26,7 @@ function label(element: Element, name: string | null): string {
 /** Page-side inspector: hover outline, lock, side panel, measure, keyboard shortcuts. */
 export class InspectorController {
   private active = false;
-  private shadow: ShadowRoot | null = null;
+  private frame: HTMLElement | null = null;
   private root: HTMLElement | null = null;
   private overlay: Overlay | null = null;
   private panel: Panel | null = null;
@@ -59,15 +52,16 @@ export class InspectorController {
   start(): void {
     if (this.active) return;
     this.active = true;
-    const { host } = ensureHost(this.doc);
-    this.shadow ??= host.attachShadow({ mode: "closed" });
     const style = h(this.doc, "style", {}, fontCss(), INSPECTOR_CSS);
     this.root = h(this.doc, "div", { class: "root" });
     const root = this.root;
     void readAccent().then((accent) => {
       root.style.setProperty("--accent", accent);
     });
-    this.shadow.replaceChildren(style, this.root);
+    // Own frame in the shared shadow root, so stopping never removes the picker's UI.
+    this.frame?.remove();
+    this.frame = h(this.doc, "div", { style: "display:contents" }, style, root);
+    hostShadow(this.doc).append(this.frame);
     this.overlay = new Overlay(this.doc, this.root);
     this.panel = new Panel(this.doc, this.root, savedPosition ?? defaultPosition(), {
       close: (): void => {
@@ -106,8 +100,9 @@ export class InspectorController {
     const panel = this.panel;
     panel?.node.classList.remove("open");
     panel?.node.classList.add("closing");
+    const frame = this.frame;
     setTimeout(() => {
-      if (!this.active) this.shadow?.replaceChildren();
+      frame?.remove();
     }, EXIT_MS);
     this.hovered = null;
     this.locked = null;

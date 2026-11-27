@@ -9,6 +9,10 @@ import {
   viewportPointSchema,
 } from "@snaphub/devtools-protocol/protocol";
 
+/** The page tools: the inspector and pick and comment. Only one runs at a time. */
+export const toolSchema = z.enum(["inspect", "pick"]);
+export type Tool = z.infer<typeof toolSchema>;
+
 /** Messages from the background worker to the content script of a tab. */
 export const pageRequestSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("hitTest"), viewport: physicalRectSchema, point: viewportPointSchema }),
@@ -19,7 +23,7 @@ export const pageRequestSchema = z.discriminatedUnion("kind", [
     area: physicalRectSchema.optional(),
   }),
   z.strictObject({ kind: z.literal("findSensitive"), viewport: physicalRectSchema, area: physicalRectSchema }),
-  z.strictObject({ kind: z.literal("toggle") }),
+  z.strictObject({ kind: z.literal("tool"), tool: toolSchema, action: z.enum(["toggle", "start"]) }),
   z.strictObject({ kind: z.literal("ping") }),
 ]);
 export type PageRequest = z.infer<typeof pageRequestSchema>;
@@ -46,6 +50,7 @@ export const backgroundRequestSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("retry") }),
   z.strictObject({ kind: z.literal("forget") }),
   z.strictObject({ kind: z.literal("inspectActiveTab") }),
+  z.strictObject({ kind: z.literal("pickActiveTab") }),
   z.strictObject({ kind: z.literal("siteAccess"), tabId: z.number().int().optional() }),
 ]);
 export type BackgroundRequest = z.infer<typeof backgroundRequestSchema>;

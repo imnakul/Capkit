@@ -2,6 +2,12 @@
 
 User-facing changes only, grouped by date under Added / Improved / Fixed.
 
+## Unreleased
+
+### Added
+
+- Browser extension: Pick and comment. Click elements on any page, add a comment to each, and copy them all as short Markdown an AI agent can follow. Start it with Alt+Shift+C, from the extension popup, or by right-clicking the page → CapKit.
+
 ## 0.6.2 — 2026-11-26
 
 ### Fixed

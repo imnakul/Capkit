@@ -105,8 +105,9 @@ describe("Popup", () => {
     const { send } = fake({ retry: { state: "connected" }, siteAccess: { state: "unavailable" } });
     render(<Popup send={send} requestPermission={grant} />);
     expect(await screen.findByText("Not available on this page")).toBeInTheDocument();
-    expect(screen.getByText("Inspect works on web pages (http and https) only.")).toBeInTheDocument();
+    expect(screen.getByText("These tools work on web pages (http and https) only.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Inspect page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pick and comment" })).toBeDisabled();
   });
 
   it("keeps the popup open with a message when the inspector can't start", async () => {
@@ -144,6 +145,38 @@ describe("Popup", () => {
     await waitFor(() => {
       expect(close).toHaveBeenCalled();
     });
+    close.mockRestore();
+  });
+
+  it("starts Pick and comment from its button", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const { send, calls } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "needs-access", origin: "https://example.com/*" } });
+    const user = userEvent.setup();
+    render(<Popup send={send} requestPermission={grant} />);
+    const pick = await screen.findByRole("button", { name: "Pick and comment" });
+    await waitFor(() => {
+      expect(pick).toBeEnabled();
+    });
+    await user.click(pick);
+    expect(calls).toContainEqual({ kind: "pickActiveTab" });
+    await waitFor(() => {
+      expect(close).toHaveBeenCalled();
+    });
+    close.mockRestore();
+  });
+
+  it("explains when Pick and comment can't start", async () => {
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const { send } = fake({ retry: { state: "unreachable" }, siteAccess: { state: "allowed" }, pickActiveTab: { ok: false } });
+    const user = userEvent.setup();
+    render(<Popup send={send} requestPermission={grant} />);
+    const pick = await screen.findByRole("button", { name: "Pick and comment" });
+    await waitFor(() => {
+      expect(pick).toBeEnabled();
+    });
+    await user.click(pick);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't start Pick and comment here.");
+    expect(close).not.toHaveBeenCalled();
     close.mockRestore();
   });
 });

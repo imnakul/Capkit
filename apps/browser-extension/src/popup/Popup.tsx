@@ -10,7 +10,7 @@ const SETTLE_POLL_MS = 400;
 const SETTLE_ATTEMPTS = 8;
 
 const button =
-  "rounded-md border border-hairline bg-graphite-raised px-3 py-1.5 text-sm font-medium text-ink transition-[transform,background-color] duration-100 ease-out-strong hover:bg-white/10 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:active:scale-100";
+  "rounded-md border border-hairline bg-graphite-raised px-3 py-1.5 text-sm font-medium text-ink transition-[transform,background-color] duration-100 ease-out-strong hover:bg-white/10 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 motion-reduce:active:scale-100";
 const primary =
   "rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-graphite transition-[transform,opacity] duration-100 ease-out-strong hover:opacity-90 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 motion-reduce:active:scale-100";
 
@@ -103,15 +103,16 @@ export function Popup({ send, requestPermission }: { send: Transport; requestPer
       .then(refreshAccess);
   };
 
-  const inspect = (): void => {
+  const startTool = (kind: "inspectActiveTab" | "pickActiveTab"): void => {
     setInspectError(null);
-    void send({ kind: "inspectActiveTab" }).then((raw) => {
+    void send({ kind }).then((raw) => {
       const parsed = inspectResultSchema.safeParse(raw);
       if (parsed.success && parsed.data.ok) {
         window.close();
         return;
       }
-      setInspectError("Couldn't start the inspector here. Reload the page and try again.");
+      const tool = kind === "inspectActiveTab" ? "the inspector" : "Pick and comment";
+      setInspectError(`Couldn't start ${tool} here. Reload the page and try again.`);
     });
   };
 
@@ -119,11 +120,30 @@ export function Popup({ send, requestPermission }: { send: Transport; requestPer
 
   const inspectBlock = (
     <div className="flex flex-col gap-2">
-      <button type="button" className={primary} disabled={!canInspect} onClick={inspect}>
-        Inspect page
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className={primary}
+          disabled={!canInspect}
+          onClick={() => {
+            startTool("inspectActiveTab");
+          }}
+        >
+          Inspect page
+        </button>
+        <button
+          type="button"
+          className={button}
+          disabled={!canInspect}
+          onClick={() => {
+            startTool("pickActiveTab");
+          }}
+        >
+          Pick and comment
+        </button>
+      </div>
       {access?.state === "unavailable" ? (
-        <p className="text-xs text-ink-muted">Inspect works on web pages (http and https) only.</p>
+        <p className="text-xs text-ink-muted">These tools work on web pages (http and https) only.</p>
       ) : null}
       {inspectError === null ? null : (
         <p role="alert" className="text-xs text-danger">
