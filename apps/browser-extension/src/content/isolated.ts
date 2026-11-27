@@ -1,19 +1,13 @@
-import { PROTOCOL_VERSION } from "@snaphub/devtools-protocol/protocol";
 import { pageRequestSchema, type PageResponse } from "../messages";
 import { handlePageRequest } from "./handlers";
+import { replaceInstance, type Dispose } from "./instance";
 import { InspectorController } from "./inspector/controller";
 import { resolveComponentData } from "./mainClient";
 import { PickerController } from "./picker/controller";
 import { ProbeController } from "./probe/controller";
 import { runTool } from "./tools";
 
-declare global {
-  var __capkitInspector: number | undefined;
-}
-
-/** A second injection of the same protocol version is a no-op. */
-if (globalThis.__capkitInspector !== PROTOCOL_VERSION) {
-  globalThis.__capkitInspector = PROTOCOL_VERSION;
+function install(): Dispose {
   const controllers = {
     inspect: new InspectorController(document),
     pick: new PickerController(document),
@@ -21,7 +15,7 @@ if (globalThis.__capkitInspector !== PROTOCOL_VERSION) {
     color: new ProbeController("color", document),
   };
 
-  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (response: PageResponse) => void) => {
+  const listener = (message: unknown, _sender: chrome.runtime.MessageSender, sendResponse: (response: PageResponse) => void): boolean => {
     const parsed = pageRequestSchema.safeParse(message);
     if (!parsed.success) return false;
     const request = parsed.data;
@@ -36,5 +30,13 @@ if (globalThis.__capkitInspector !== PROTOCOL_VERSION) {
         sendResponse({ kind: "ok" });
       });
     return true;
-  });
+  };
+  chrome.runtime.onMessage.addListener(listener);
+
+  return (): void => {
+    for (const controller of Object.values(controllers)) controller.stop();
+    chrome.runtime.onMessage.removeListener(listener);
+  };
 }
+
+replaceInstance(install);

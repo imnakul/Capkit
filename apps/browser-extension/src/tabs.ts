@@ -58,7 +58,7 @@ async function ping(tabId: number): Promise<boolean> {
   }
 }
 
-/** Injects the isolated content script once; a second injection is a no-op because the script guards itself. */
+/** Injects the isolated content script when no live instance answers; a new instance replaces an orphaned one. */
 export async function ensureInjected(tabId: number): Promise<boolean> {
   if (await ping(tabId)) return true;
   try {

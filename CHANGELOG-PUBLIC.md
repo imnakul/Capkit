@@ -14,6 +14,10 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 - Browser extension: the popup and on-page panels now match the CapKit dashboard: Geist font, compact buttons, and light and dark themes. The extension uses the CapKit app logo.
 
+### Fixed
+
+- Browser extension: after the extension updates, its tools start on pages that were already open, instead of asking you to reload the page.
+
 ## 0.6.2 — 2026-11-26
 
 ### Fixed
