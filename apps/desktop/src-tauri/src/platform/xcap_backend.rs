@@ -315,6 +315,14 @@ impl ClipboardBackend for XcapPlatformBackend {
             .set_text(text.to_owned())
             .map_err(SnaphubError::clipboard)
     }
+
+    fn copy_file(&self, path: &std::path::Path) -> Result<(), SnaphubError> {
+        let mut clipboard = Clipboard::new().map_err(SnaphubError::clipboard)?;
+        clipboard
+            .set()
+            .file_list(&[path])
+            .map_err(SnaphubError::clipboard)
+    }
 }
 
 impl TextRecognitionBackend for XcapPlatformBackend {

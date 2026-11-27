@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::domain::{
@@ -224,6 +224,12 @@ impl RecordingService {
         Ok(directory)
     }
 
+    /// A recorded video the user asked to open, only if it sits inside the
+    /// recordings folder and is an MP4.
+    pub fn validated_recording_video(&self, path: &Path) -> Result<PathBuf, SnaphubError> {
+        validated_video(&self.recording_directory()?, path)
+    }
+
     pub fn reset_recording_directory(&self) -> Result<PathBuf, SnaphubError> {
         self.set_recording_directory(default_recording_directory())
     }
@@ -252,4 +258,67 @@ impl RecordingService {
 
 fn session_stamp() -> String {
     chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string()
+}
+
+/// Canonical path of `path` when it is an existing MP4 inside `root`.
+fn validated_video(root: &Path, path: &Path) -> Result<PathBuf, SnaphubError> {
+    let missing = |_| SnaphubError::Record("This recording file no longer exists".into());
+    let root = root.canonicalize().map_err(missing)?;
+    let candidate = path.canonicalize().map_err(missing)?;
+    if !candidate.starts_with(&root) || !candidate.is_file() {
+        return Err(SnaphubError::Record(
+            "This recording is outside the recordings folder".into(),
+        ));
+    }
+    let is_mp4 = candidate
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"));
+    if !is_mp4 {
+        return Err(SnaphubError::Record("This file is not a recording".into()));
+    }
+    Ok(candidate)
+}
+
+#[cfg(test)]
+mod video_path_tests {
+    use super::validated_video;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn scratch() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("capkit-open-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(dir.join("recordings").join("one")).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn accepts_an_mp4_inside_the_recordings_folder() {
+        let dir = scratch();
+        let video = dir.join("recordings").join("one").join("video.MP4");
+        fs::write(&video, b"x").expect("video");
+        let opened = validated_video(&dir.join("recordings"), &video).expect("valid");
+        assert!(opened.ends_with("video.MP4"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_files_outside_the_folder_other_types_and_missing_files() {
+        let dir = scratch();
+        let root = dir.join("recordings");
+        let outside = dir.join("video.mp4");
+        fs::write(&outside, b"x").expect("outside");
+        let script = root.join("one").join("run.bat");
+        fs::write(&script, b"x").expect("script");
+        assert!(validated_video(&root, &outside).is_err());
+        assert!(validated_video(&root, &script).is_err());
+        assert!(validated_video(&root, &root.join("one").join("gone.mp4")).is_err());
+        assert!(
+            validated_video(
+                &root,
+                &root.join("one").join("..").join("..").join("video.mp4")
+            )
+            .is_err()
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
 }

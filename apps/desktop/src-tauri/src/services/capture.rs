@@ -776,6 +776,11 @@ impl CaptureService {
         self.clipboard.copy_text(text)
     }
 
+    /// Copies a file the caller has already validated, as a file rather than its contents.
+    pub fn copy_file(&self, path: &Path) -> Result<(), SnaphubError> {
+        self.clipboard.copy_file(path)
+    }
+
     pub fn copy_image_path(&self, path: &Path) -> Result<(), SnaphubError> {
         let image = image::open(path)
             .map_err(SnaphubError::export)?
@@ -2103,6 +2108,13 @@ mod tests {
                 return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
             }
             *self.copied_text.lock().unwrap() = Some(text.to_owned());
+            Ok(())
+        }
+
+        fn copy_file(&self, _path: &Path) -> Result<(), SnaphubError> {
+            if self.fail_clipboard.load(Ordering::SeqCst) {
+                return Err(SnaphubError::Clipboard("Fake clipboard failure".into()));
+            }
             Ok(())
         }
     }

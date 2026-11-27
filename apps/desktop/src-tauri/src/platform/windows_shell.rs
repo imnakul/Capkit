@@ -85,6 +85,37 @@ pub fn open_path(path: &Path, offer_open_with: bool) -> Result<(), SnaphubError>
     )))
 }
 
+/// Opens the file's folder in Explorer with the file selected.
+pub fn reveal_path(path: &Path) -> Result<(), SnaphubError> {
+    let open = wide(OsStr::new("open"));
+    let explorer = wide(OsStr::new("explorer.exe"));
+    // Explorer takes "/select," followed by the quoted path as one argument.
+    let mut arguments = std::ffi::OsString::from("/select,\"");
+    arguments.push(path.as_os_str());
+    arguments.push("\"");
+    let arguments = wide(&arguments);
+    // SAFETY: the buffers are live for the call.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(open.as_ptr()),
+            PCWSTR(explorer.as_ptr()),
+            PCWSTR(arguments.as_ptr()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(SnaphubError::Window(format!(
+            "Windows could not show {} in its folder (ShellExecute code {})",
+            path.display(),
+            result.0 as isize
+        )))
+    }
+}
+
 fn wide(value: &OsStr) -> Vec<u16> {
     value.encode_wide().chain(std::iter::once(0)).collect()
 }

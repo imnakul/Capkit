@@ -59,6 +59,8 @@ pub trait TargetDetectionBackend: Send + Sync {
 pub trait ClipboardBackend: Send + Sync {
     fn copy_image(&self, image: &RgbaImage) -> Result<(), SnaphubError>;
     fn copy_text(&self, text: &str) -> Result<(), SnaphubError>;
+    /// Puts the file itself on the clipboard, so pasting into Explorer, chat or mail attaches it.
+    fn copy_file(&self, path: &std::path::Path) -> Result<(), SnaphubError>;
 }
 
 /// Optical character recognition of captured pixels.
