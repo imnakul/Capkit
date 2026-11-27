@@ -4,6 +4,7 @@ import { handlePageRequest } from "./handlers";
 import { InspectorController } from "./inspector/controller";
 import { resolveComponentData } from "./mainClient";
 import { PickerController } from "./picker/controller";
+import { ProbeController } from "./probe/controller";
 import { runTool } from "./tools";
 
 declare global {
@@ -13,7 +14,12 @@ declare global {
 /** A second injection of the same protocol version is a no-op. */
 if (globalThis.__capkitInspector !== PROTOCOL_VERSION) {
   globalThis.__capkitInspector = PROTOCOL_VERSION;
-  const controllers = { inspect: new InspectorController(document), pick: new PickerController(document) };
+  const controllers = {
+    inspect: new InspectorController(document),
+    pick: new PickerController(document),
+    font: new ProbeController("font", document),
+    color: new ProbeController("color", document),
+  };
 
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse: (response: PageResponse) => void) => {
     const parsed = pageRequestSchema.safeParse(message);

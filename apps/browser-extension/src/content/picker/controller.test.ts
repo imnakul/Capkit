@@ -8,7 +8,7 @@ function setup(writeText: PickerDeps["writeText"] = () => Promise.resolve()): { 
     resolve: () => Promise.resolve({ component: { name: "SaveButton", ownerPath: ["SaveButton"] }, source: null }),
     writeText,
     accent: () => Promise.resolve("#d9ff43"),
-    fonts: () => "",
+    fonts: () => undefined,
   };
   const picker = new PickerController(document, deps);
   picker.start();

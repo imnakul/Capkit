@@ -7,6 +7,12 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 ### Added
 
 - Browser extension: Pick and comment. Click elements on any page, add a comment to each, and copy them all as short Markdown an AI agent can follow. Start it with Alt+Shift+C, from the extension popup, or by right-clicking the page → CapKit.
+- Browser extension: Font tool. Hover any text to see its font, size, weight, line height and colour; click to copy it as CSS. Alt+Shift+F or right-click → CapKit → Font.
+- Browser extension: Colour tool. Hover to see an element's text, background and border colours; click to lock it and copy any of them as HEX. Press E to pick any pixel on screen. Alt+Shift+K or right-click → CapKit → Colour.
+
+### Improved
+
+- Browser extension: the popup and on-page panels now match the CapKit dashboard: Geist font, compact buttons, and light and dark themes.
 
 ## 0.6.2 — 2026-11-26
 

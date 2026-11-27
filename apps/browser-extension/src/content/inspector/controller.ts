@@ -2,7 +2,8 @@ import { buildElementMarkdown } from "@snaphub/devtools-protocol/markdown";
 import { toViewportRect } from "../../geometry";
 import { describeElement, rectOf, shortLabel } from "../dom";
 import { resolveComponentData } from "../mainClient";
-import { fontCss, hostShadow } from "../shadow";
+import { hostShadow, installFonts } from "../shadow";
+import { THEME_CSS } from "../theme";
 import { measureBetween } from "../measure";
 import { h } from "./dom";
 import { Overlay } from "./overlay";
@@ -52,7 +53,8 @@ export class InspectorController {
   start(): void {
     if (this.active) return;
     this.active = true;
-    const style = h(this.doc, "style", {}, fontCss(), INSPECTOR_CSS);
+    installFonts(this.doc);
+    const style = h(this.doc, "style", {}, THEME_CSS, INSPECTOR_CSS);
     this.root = h(this.doc, "div", { class: "root" });
     const root = this.root;
     void readAccent().then((accent) => {

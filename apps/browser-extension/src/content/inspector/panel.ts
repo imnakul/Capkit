@@ -1,7 +1,8 @@
 import type { ElementDetails } from "@snaphub/devtools-protocol/protocol";
 import { toHexColor } from "@snaphub/devtools-protocol/markdown";
-import { contrastRatio, gradeContrast, over, parseColor, type Rgba } from "../contrast";
+import { contrastRatio, effectiveBackground, gradeContrast, over, parseColor } from "../contrast";
 import { readBoxModel } from "./overlay";
+import { closeIcon } from "../theme";
 import { h } from "./dom";
 
 const PANEL_WIDTH = 320;
@@ -18,18 +19,6 @@ function clampPosition(position: PanelPosition): PanelPosition {
     x: Math.min(Math.max(INSET, position.x), Math.max(INSET, window.innerWidth - PANEL_WIDTH - INSET)),
     y: Math.min(Math.max(INSET, position.y), Math.max(INSET, window.innerHeight - 60)),
   };
-}
-
-function effectiveBackground(element: Element): Rgba {
-  const layers: Rgba[] = [];
-  for (let node: Element | null = element; node !== null; node = node.parentElement) {
-    const color = parseColor(getComputedStyle(node).backgroundColor);
-    if (color !== null && color.a > 0) {
-      layers.push(color);
-      if (color.a >= 1) break;
-    }
-  }
-  return layers.reduceRight<Rgba>((below, layer) => over(layer, below), { r: 255, g: 255, b: 255, a: 1 });
 }
 
 export type ContrastInfo = { ratio: number; grade: "AAA" | "AA" | "Fail" };
@@ -105,12 +94,12 @@ export class Panel {
   ) {
     this.position = clampPosition(position);
     this.body = h(doc, "div");
-    const close = h(doc, "button", { type: "button", "aria-label": "Close inspector" }, "Esc");
+    const close = h(doc, "button", { type: "button", class: "ghost icon", "aria-label": "Close inspector", title: "Close (Esc)" }, closeIcon(doc));
     close.addEventListener("click", actions.close);
-    const copy = h(doc, "button", { type: "button", "aria-label": "Copy element as Markdown" }, "Copy");
+    const copy = h(doc, "button", { type: "button", class: "primary", "aria-label": "Copy element as Markdown" }, "Copy");
     copy.addEventListener("click", actions.copy);
-    const header = h(doc, "header", {}, h(doc, "h2", {}, "CapKit Inspector"), copy, close);
-    this.node = h(doc, "div", { class: "panel", role: "dialog", "aria-label": "CapKit Inspector", tabindex: "-1" }, header, this.body);
+    const header = h(doc, "header", {}, h(doc, "h2", {}, "Inspect"), copy, close);
+    this.node = h(doc, "div", { class: "panel card", role: "dialog", "aria-label": "CapKit Inspector", tabindex: "-1" }, header, this.body);
     this.apply();
     this.enableDrag(header);
     root.append(this.node);

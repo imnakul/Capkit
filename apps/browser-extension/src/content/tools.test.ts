@@ -17,22 +17,31 @@ function fake(active = false): ToolController & { active: boolean } {
 }
 
 describe("runTool", () => {
-  it("starting one tool stops the other", () => {
-    const controllers = { inspect: fake(true), pick: fake() };
+  it("starting one tool stops the others", () => {
+    const controllers = { inspect: fake(true), pick: fake(), font: fake(), color: fake() };
     runTool(controllers, "pick", "start");
     expect(controllers.pick.active).toBe(true);
     expect(controllers.inspect.active).toBe(false);
   });
 
   it("toggle turns an active tool off", () => {
-    const controllers = { inspect: fake(), pick: fake(true) };
+    const controllers = { inspect: fake(), pick: fake(true), font: fake(), color: fake() };
     runTool(controllers, "pick", "toggle");
     expect(controllers.pick.active).toBe(false);
   });
 
   it("start keeps an active tool on", () => {
-    const controllers = { inspect: fake(true), pick: fake() };
+    const controllers = { inspect: fake(true), pick: fake(), font: fake(), color: fake() };
     runTool(controllers, "inspect", "start");
     expect(controllers.inspect.active).toBe(true);
+  });
+});
+
+describe("runTool with the probe tools", () => {
+  it("starting Colour stops Font", () => {
+    const controllers = { inspect: fake(), pick: fake(), font: fake(true), color: fake() };
+    runTool(controllers, "color", "start");
+    expect(controllers.color.active).toBe(true);
+    expect(controllers.font.active).toBe(false);
   });
 });

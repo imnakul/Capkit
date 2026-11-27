@@ -57,6 +57,7 @@ This document records what exists in the runtime today. The roadmap remains the 
 - **Implemented:** the Note tool (shortcut N, shown only with Developer tools on) pins numbered notes; in Select, clicking a pin reopens its comment. Once a capture has a pin, Copy, Save and Copy & Save (C, S, A, and Enter) write the note's Markdown plus a screenshot instead of a plain image, and the Notes tab lists them. Clicking a note opens it in full (screenshot and complete Markdown). Notes commands return "Developer tools is off" when the switch is off.
 - **Implemented:** when the extension has no details, a note falls back to the hovered element's role, name and screen-pixel box.
 - **Implemented, awaiting manual checks:** Pick and comment in the extension (Alt+Shift+C, popup button, right-click → CapKit). Copy writes short Markdown per comment. Picks last until the page reloads. Spec: [pick-and-comment](specs/pick-and-comment.md).
+- **Implemented, awaiting manual checks:** Font (Alt+Shift+F) and Colour (Alt+Shift+K) tools in the extension, and the dashboard-style restyle of the popup and page panels with bundled Geist. Same spec.
 - **Pending:** manual checks in Aside and Chrome, and the release binary size measurement for the SQLite dependency.
 
 ### In-place annotation and completion

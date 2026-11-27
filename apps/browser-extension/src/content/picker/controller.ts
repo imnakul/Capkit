@@ -5,7 +5,8 @@ import { h, place } from "../inspector/dom";
 import { Overlay } from "../inspector/overlay";
 import { INSPECTOR_CSS } from "../inspector/styles";
 import { resolveComponentData, type ComponentResolver } from "../mainClient";
-import { fontCss, hostShadow } from "../shadow";
+import { hostShadow, installFonts } from "../shadow";
+import { THEME_CSS, closeIcon } from "../theme";
 import { MAX_COMMENT, MAX_PICKS, buildPicksMarkdown, pickItem, type PickItem } from "./format";
 import { PICKER_CSS } from "./styles";
 
@@ -20,14 +21,14 @@ export type PickerDeps = {
   resolve: ComponentResolver;
   writeText: (text: string) => Promise<void>;
   accent: () => Promise<string>;
-  fonts: () => string;
+  fonts: (doc: Document) => void;
 };
 
 const defaultDeps: PickerDeps = {
   resolve: resolveComponentData,
   writeText: (text) => navigator.clipboard.writeText(text),
   accent: readAccent,
-  fonts: fontCss,
+  fonts: installFonts,
 };
 
 type Entry = { element: Element; item: PickItem };
@@ -76,7 +77,8 @@ export class PickerController {
   start(): void {
     if (this.active) return;
     this.active = true;
-    const style = h(this.doc, "style", {}, this.deps.fonts(), INSPECTOR_CSS, PICKER_CSS);
+    this.deps.fonts(this.doc);
+    const style = h(this.doc, "style", {}, THEME_CSS, INSPECTOR_CSS, PICKER_CSS);
     const root = h(this.doc, "div", { class: "root" });
     this.root = root;
     void this.deps.accent().then((accent) => {
@@ -85,7 +87,7 @@ export class PickerController {
     this.marks = h(this.doc, "div");
     root.append(this.marks);
     this.overlay = new Overlay(this.doc, root);
-    this.list = h(this.doc, "section", { class: "pk-list", "aria-label": "Pick and comment" });
+    this.list = h(this.doc, "section", { class: "pk-list card", "aria-label": "Pick and comment" });
     root.append(this.list);
     this.frame = h(this.doc, "div", { style: "display:contents" }, style, root);
     hostShadow(this.doc).append(this.frame);
@@ -216,15 +218,15 @@ export class PickerController {
       placeholder: "What should change here?",
       maxlength: String(MAX_COMMENT),
     });
-    const cancel = h(this.doc, "button", { type: "button" }, "Cancel");
-    const add = h(this.doc, "button", { type: "button", class: "pk-primary" }, "Add");
+    const cancel = h(this.doc, "button", { type: "button", class: "ghost" }, "Cancel");
+    const add = h(this.doc, "button", { type: "button", class: "primary" }, "Add");
     const node = h(
       this.doc,
       "div",
-      { class: "pk-card", role: "dialog", "aria-label": "Add a comment" },
+      { class: "pk-card card", role: "dialog", "aria-label": "Add a comment" },
       who,
       input,
-      h(this.doc, "div", { class: "pk-actions" }, cancel, add),
+      h(this.doc, "div", { class: "pk-actions" }, h(this.doc, "span", { class: "tip" }, "Shift+Enter for a new line"), cancel, add),
     );
     const card: Card = { node, input, element };
     const commit = (): void => {
@@ -305,9 +307,9 @@ export class PickerController {
     const list = this.list;
     if (list === null) return;
     const count = this.entries.length;
-    const clear = h(this.doc, "button", { type: "button" }, "Clear");
-    const copy = h(this.doc, "button", { type: "button", class: "pk-primary" }, "Copy");
-    const close = h(this.doc, "button", { type: "button", "aria-label": "Close Pick and comment" }, "×");
+    const clear = h(this.doc, "button", { type: "button", class: "ghost" }, "Clear");
+    const copy = h(this.doc, "button", { type: "button", class: "primary" }, "Copy");
+    const close = h(this.doc, "button", { type: "button", class: "ghost icon", "aria-label": "Close Pick and comment", title: "Close (Esc)" }, closeIcon(this.doc));
     clear.disabled = count === 0;
     copy.disabled = count === 0;
     clear.addEventListener("click", () => {
@@ -333,7 +335,7 @@ export class PickerController {
       return;
     }
     const items = this.entries.map(({ item }, index) => {
-      const remove = h(this.doc, "button", { type: "button", "aria-label": `Remove comment ${String(index + 1)}` }, "×");
+      const remove = h(this.doc, "button", { type: "button", class: "ghost icon", "aria-label": `Remove comment ${String(index + 1)}` }, closeIcon(this.doc));
       remove.addEventListener("click", () => {
         this.remove(index);
       });

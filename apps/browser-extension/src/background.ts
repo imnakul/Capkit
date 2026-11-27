@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION, type AppMessage, type ExtensionMessage } from "@snaphub/devtools-protocol/protocol";
 import { ACCENT_KEY } from "./accent";
 import { Link, WAKE_ALARM_MINUTES, wakeAlarmFor, type SocketLike, type TokenStore } from "./link";
-import { installMenus, toolForMenu } from "./menus";
+import { installMenus, toolForCommand, toolForMenu } from "./menus";
 import { backgroundRequestSchema, type LinkStatus, type PageRequest, type Tool } from "./messages";
 import { activeTabs, askTab, injectMainWorld, matchTab, originPattern, siteAccessFor, type TabRef } from "./tabs";
 
@@ -151,10 +151,8 @@ async function dispatch(raw: unknown, sender: chrome.runtime.MessageSender): Pro
     case "forget":
       await link.forget();
       return link.status;
-    case "inspectActiveTab":
-      return { ok: await runTool(await currentTab(), "inspect", "toggle") };
-    case "pickActiveTab":
-      return { ok: await runTool(await currentTab(), "pick", "start") };
+    case "startTool":
+      return { ok: await runTool(await currentTab(), request.tool, "start") };
     case "siteAccess":
       return siteAccessFor(await currentTab());
   }
@@ -169,8 +167,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 });
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === "toggle-inspector") void currentTab().then((tab) => runTool(tab, "inspect", "toggle"));
-  if (command === "toggle-picker") void currentTab().then((tab) => runTool(tab, "pick", "toggle"));
+  const tool = toolForCommand(command);
+  if (tool !== null) void currentTab().then((tab) => runTool(tab, tool, "toggle"));
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {

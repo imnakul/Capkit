@@ -9,8 +9,8 @@ import {
   viewportPointSchema,
 } from "@snaphub/devtools-protocol/protocol";
 
-/** The page tools: the inspector and pick and comment. Only one runs at a time. */
-export const toolSchema = z.enum(["inspect", "pick"]);
+/** The page tools. Only one runs at a time. */
+export const toolSchema = z.enum(["inspect", "pick", "font", "color"]);
 export type Tool = z.infer<typeof toolSchema>;
 
 /** Messages from the background worker to the content script of a tab. */
@@ -49,8 +49,7 @@ export const backgroundRequestSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("pair"), code: z.string() }),
   z.strictObject({ kind: z.literal("retry") }),
   z.strictObject({ kind: z.literal("forget") }),
-  z.strictObject({ kind: z.literal("inspectActiveTab") }),
-  z.strictObject({ kind: z.literal("pickActiveTab") }),
+  z.strictObject({ kind: z.literal("startTool"), tool: toolSchema }),
   z.strictObject({ kind: z.literal("siteAccess"), tabId: z.number().int().optional() }),
 ]);
 export type BackgroundRequest = z.infer<typeof backgroundRequestSchema>;

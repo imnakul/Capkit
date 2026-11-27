@@ -6,6 +6,8 @@ export const MENU_PARENT = "capkit";
 export const MENU_ITEMS = [
   { id: "capkit-inspect", title: "Inspect", tool: "inspect", command: "toggle-inspector" },
   { id: "capkit-pick", title: "Pick and comment", tool: "pick", command: "toggle-picker" },
+  { id: "capkit-font", title: "Font", tool: "font", command: "toggle-font" },
+  { id: "capkit-color", title: "Colour", tool: "color", command: "toggle-color" },
 ] as const satisfies readonly { id: string; title: string; tool: Tool; command: string }[];
 
 /** Tools need a real web page; Chrome blocks extensions on its own pages. */
@@ -19,6 +21,10 @@ export type MenuApi = {
 
 export function toolForMenu(id: string | number): Tool | null {
   return MENU_ITEMS.find((item) => item.id === id)?.tool ?? null;
+}
+
+export function toolForCommand(command: string): Tool | null {
+  return MENU_ITEMS.find((item) => item.command === command)?.tool ?? null;
 }
 
 /** "Inspect (Alt+Shift+I)"; the plain title when the user removed the shortcut. */
