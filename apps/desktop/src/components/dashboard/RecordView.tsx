@@ -6,10 +6,12 @@ import {
   recordingLibraryStorageKey,
   type RecordingArtifacts,
 } from "../../domain/recording";
-import { openRecorder, openRecording, recordingSupported } from "../../lib/recordingTauri";
+import { copyRecording, openRecorder, openRecording, recordingSupported, revealRecording } from "../../lib/recordingTauri";
 import { describeInvokeError } from "../../lib/tauri";
-import { ChevronDown, Delete, Film, Record } from "../icons";
+import { ChevronDown, Delete, Film, FolderOpen, Record } from "../icons";
 import { Button } from "../ui/Button";
+import { CopyButton } from "../ui/CopyButton";
+import { IconSwapButton } from "../ui/IconSwapButton";
 import { PageHeader } from "../ui/PageHeader";
 import { RecordingPreview } from "./RecordingPreview";
 import { StudioView } from "./StudioView";
@@ -60,6 +62,26 @@ export function RecordView(): React.JSX.Element {
       await openRecording(item.videoPath);
     } catch (cause: unknown) {
       setError(describeInvokeError(cause, "Couldn't open this recording in your video player."));
+    }
+  }
+
+  async function copy(item: RecordingArtifacts): Promise<boolean> {
+    setError(null);
+    try {
+      await copyRecording(item.videoPath);
+      return true;
+    } catch (cause: unknown) {
+      setError(describeInvokeError(cause, "Couldn't copy this recording."));
+      return false;
+    }
+  }
+
+  async function reveal(item: RecordingArtifacts): Promise<void> {
+    setError(null);
+    try {
+      await revealRecording(item.videoPath);
+    } catch (cause: unknown) {
+      setError(describeInvokeError(cause, "Couldn't show this recording in its folder."));
     }
   }
 
@@ -142,38 +164,90 @@ export function RecordView(): React.JSX.Element {
         ) : (
           <ul aria-label="Recordings" className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
             {library.map((item) => (
-              <li
-                className="overflow-hidden rounded-lg border border-content/10 bg-content/4"
+              <RecordingCard
+                item={item}
                 key={item.id}
-              >
-                <RecordingPreview item={item} onOpen={(value) => void play(value)} />
-                <div className="flex items-center gap-2 px-2.5 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium tabular-nums text-content">
-                      {formatDuration(item.durationSeconds)}, {String(item.width)}×{String(item.height)}
-                    </p>
-                    <p className="truncate text-[12px] tabular-nums text-content/60">
-                      {String(item.fps)} fps, {formatBytes(item.stats.bytesWritten)}
-                      {item.cursorPath === null ? "" : ", cursor track"}
-                    </p>
-                  </div>
-                  <Button aria-label="Edit this recording" onClick={() => setEditing(item)}>
-                    Edit
-                  </Button>
-                  <button
-                    aria-label="Remove this recording from the list"
-                    className="grid size-7 shrink-0 place-items-center rounded text-content/45 outline-none transition-colors duration-120 hover:bg-content/6 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
-                    type="button"
-                    onClick={() => remove(item.id)}
-                  >
-                    <Delete aria-hidden="true" size={13} />
-                  </button>
-                </div>
-              </li>
+                onCopy={copy}
+                onEdit={setEditing}
+                onOpen={(value) => void play(value)}
+                onRemove={remove}
+                onReveal={(value) => void reveal(value)}
+              />
             ))}
           </ul>
         )}
       </div>
     </section>
+  );
+}
+
+const copiedLabelMs = 1500;
+
+type RecordingCardProps = {
+  item: RecordingArtifacts;
+  onOpen: (item: RecordingArtifacts) => void;
+  /** Resolves false when the copy failed, so the tick can be taken back. */
+  onCopy: (item: RecordingArtifacts) => Promise<boolean>;
+  onReveal: (item: RecordingArtifacts) => void;
+  onEdit: (item: RecordingArtifacts) => void;
+  onRemove: (id: string) => void;
+};
+
+/** One recording, with Copy and Show in folder revealed on hover like screenshot cards. */
+function RecordingCard({ item, onOpen, onCopy, onReveal, onEdit, onRemove }: RecordingCardProps): React.JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+
+  useEffect(() => (): void => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+  }, []);
+
+  async function copy(): Promise<void> {
+    // Optimistic: flip the icon on press, take it back only if the copy fails.
+    setCopied(true);
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), copiedLabelMs);
+    if (!(await onCopy(item))) {
+      window.clearTimeout(copiedTimer.current);
+      setCopied(false);
+    }
+  }
+
+  return (
+    <li className="group relative overflow-hidden rounded-lg border border-content/10 bg-content/4">
+      <RecordingPreview item={item} onOpen={onOpen} />
+      <IconSwapButton
+        active={false}
+        activeIcon={<FolderOpen size={14} />}
+        idleIcon={<FolderOpen size={14} />}
+        label="Show this recording in its folder"
+        offsetRightClass="right-10"
+        statusText={{ off: "Show in folder", on: "Show in folder" }}
+        onPress={() => onReveal(item)}
+      />
+      <CopyButton copied={copied} label="Copy this recording" onCopy={() => void copy()} />
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium tabular-nums text-content">
+            {formatDuration(item.durationSeconds)}, {String(item.width)}×{String(item.height)}
+          </p>
+          <p className="truncate text-[12px] tabular-nums text-content/60">
+            {String(item.fps)} fps, {formatBytes(item.stats.bytesWritten)}
+            {item.cursorPath === null ? "" : ", cursor track"}
+          </p>
+        </div>
+        <Button aria-label="Edit this recording" onClick={() => onEdit(item)}>
+          Edit
+        </Button>
+        <button
+          aria-label="Remove this recording from the list"
+          className="grid size-7 shrink-0 place-items-center rounded text-content/45 outline-none transition-colors duration-120 hover:bg-content/6 hover:text-content focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
+          type="button"
+          onClick={() => onRemove(item.id)}
+        >
+          <Delete aria-hidden="true" size={13} />
+        </button>
+      </div>
+    </li>
   );
 }

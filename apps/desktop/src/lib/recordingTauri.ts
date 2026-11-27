@@ -233,6 +233,18 @@ export async function openRecording(path: string): Promise<void> {
   await invoke("open_recording", { path });
 }
 
+/** Puts the recording's video file on the clipboard, ready to paste into a folder, chat or mail. */
+export async function copyRecording(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("copy_recording", { path });
+}
+
+/** Opens the recording's folder in Explorer with the video selected. */
+export async function revealRecording(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("reveal_recording", { path });
+}
+
 /** Renderable URL for a recorded artefact. */
 export function recordingSrc(path: string): string {
   return isTauri() ? convertFileSrc(path) : path;

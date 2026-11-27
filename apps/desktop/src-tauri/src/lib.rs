@@ -1987,6 +1987,34 @@ fn open_recording_directory(
     ))
 }
 
+/// Puts a recording's video file on the clipboard, ready to paste into a folder, chat or mail.
+#[tauri::command]
+async fn copy_recording(app: AppHandle, path: String) -> Result<(), SnaphubError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let video = app
+            .state::<RecordingService>()
+            .validated_recording_video(Path::new(&path))?;
+        app.state::<CaptureService>().copy_file(&video)
+    })
+    .await
+    .map_err(|error| SnaphubError::Export(error.to_string()))?
+}
+
+/// Opens the recording's folder in Explorer with the video selected.
+#[tauri::command]
+fn reveal_recording(
+    service: tauri::State<'_, RecordingService>,
+    path: String,
+) -> Result<(), SnaphubError> {
+    let video = service.validated_recording_video(Path::new(&path))?;
+    #[cfg(target_os = "windows")]
+    return platform::windows_shell::reveal_path(&video);
+    #[cfg(not(target_os = "windows"))]
+    Err(SnaphubError::Window(
+        "Showing files in their folder is not implemented on this platform".into(),
+    ))
+}
+
 /// Opens a recording in the default video player; Windows asks for an app when none is set.
 #[tauri::command]
 fn open_recording(
@@ -3022,6 +3050,8 @@ pub fn run() {
             reset_recording_directory,
             open_recording_directory,
             open_recording,
+            copy_recording,
+            reveal_recording,
             recording_status,
             begin_camera_track,
             append_camera_chunk,

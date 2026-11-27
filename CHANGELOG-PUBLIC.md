@@ -8,6 +8,10 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 - Screen record: clicking a recording opens it in your default video player. If none is set, Windows asks which app to use. The in-app player and its full-screen button, which could break the dashboard window, are gone.
 
+### Added
+
+- Screen record: hover a recording to copy the video file (paste it into a folder, chat or email) or show it in its folder.
+
 ## 0.6.2 — 2026-11-26
 
 ### Fixed

@@ -34,10 +34,14 @@ const track: CursorTrack = {
 
 const openRecorder = vi.fn<() => Promise<void>>();
 const openRecording = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve());
+const copyRecording = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve());
+const revealRecording = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve());
 
 vi.mock("../../lib/recordingTauri", () => ({
   openRecorder: (): Promise<void> => openRecorder(),
   openRecording: (path: string): Promise<void> => openRecording(path),
+  copyRecording: (path: string): Promise<void> => copyRecording(path),
+  revealRecording: (path: string): Promise<void> => revealRecording(path),
   recordingSrc: (path: string): string => path,
   recordingSupported: (): Promise<boolean> => Promise.resolve(true),
   loadCursorTrack: (): Promise<CursorTrack> => Promise.resolve(track),
@@ -111,6 +115,42 @@ describe("RecordView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play recording 0:10 in your video player" }));
 
     expect(await screen.findByText("Couldn't open this recording in your video player.")).toBeInTheDocument();
+  });
+
+  it("copies the recording file and shows the tick", async () => {
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy this recording" }));
+
+    await vi.waitFor(() => expect(copyRecording).toHaveBeenCalledWith(recording.videoPath));
+    expect(screen.getByText("Copied")).toBeInTheDocument();
+  });
+
+  it("takes the tick back and explains when the copy fails", async () => {
+    copyRecording.mockRejectedValueOnce(new Error("busy"));
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy this recording" }));
+
+    expect(await screen.findByText("Couldn't copy this recording.")).toBeInTheDocument();
+    expect(screen.getByText("Copy")).toBeInTheDocument();
+  });
+
+  it("shows the recording in its folder", async () => {
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show this recording in its folder" }));
+
+    await vi.waitFor(() => expect(revealRecording).toHaveBeenCalledWith(recording.videoPath));
+  });
+
+  it("explains when the folder cannot be shown", async () => {
+    revealRecording.mockRejectedValueOnce(new Error("gone"));
+    render(<RecordView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show this recording in its folder" }));
+
+    expect(await screen.findByText("Couldn't show this recording in its folder.")).toBeInTheDocument();
   });
 
   it("fills the available width with as many recording columns as fit, like screenshots", () => {
