@@ -76,6 +76,24 @@ const TOOL_COPY: Record<Tool, ToolCopy> = {
   },
 };
 
+/** The app mark, identical to apps/desktop/src-tauri/icons/icon.svg; fixed brand colours. */
+function CapKitLogo(): ReactElement {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 512 512" className="size-5 shrink-0">
+      <rect fill="#151714" height="512" rx="116" width="512" />
+      <path
+        d="M104 210V120c0-9 7-16 16-16h90M302 104h90c9 0 16 7 16 16v90M408 302v90c0 9-7 16-16 16h-90M210 408h-90c-9 0-16-7-16-16v-90"
+        fill="none"
+        stroke="#D9FF43"
+        strokeLinecap="round"
+        strokeWidth="34"
+      />
+      <rect fill="#D9FF43" height="156" rx="24" width="156" x="178" y="178" />
+      <path d="M226 282l64-64M254 218h36v36" fill="none" stroke="#151714" strokeLinecap="round" strokeLinejoin="round" strokeWidth="20" />
+    </svg>
+  );
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -209,9 +227,7 @@ export function Popup({
   return (
     <main className="flex flex-col">
       <header className="flex h-11 items-center gap-2 border-b border-content/8 px-3">
-        <span aria-hidden="true" className="grid size-5 place-items-center rounded-[5px] bg-accent">
-          <span className="size-2 rounded-[2px] bg-accent-ink" />
-        </span>
+        <CapKitLogo />
         <h1 className="m-0 flex-1 text-[13px] font-semibold">CapKit</h1>
         <p role="status" className="m-0 flex items-center gap-1.5 text-[11px] text-content/60">
           {status.state === "connecting" ? (

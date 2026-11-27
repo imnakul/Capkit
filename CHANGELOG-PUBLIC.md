@@ -12,7 +12,7 @@ User-facing changes only, grouped by date under Added / Improved / Fixed.
 
 ### Improved
 
-- Browser extension: the popup and on-page panels now match the CapKit dashboard: Geist font, compact buttons, and light and dark themes.
+- Browser extension: the popup and on-page panels now match the CapKit dashboard: Geist font, compact buttons, and light and dark themes. The extension uses the CapKit app logo.
 
 ## 0.6.2 — 2026-11-26
 
